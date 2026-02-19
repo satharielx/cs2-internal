@@ -1,0 +1,257 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{fa4943a6-9529-476b-8d81-1356adc74adb}</ProjectGuid>
+    <RootNamespace>manager</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)build\</OutDir>
+    <IntDir>$(Platform)\intermidiates\</IntDir>
+    <IncludePath>$(SolutionDir)\external\;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="api\hook\hook.hpp" />
+    <ClInclude Include="api\module\module.hpp" />
+    <ClInclude Include="core\config.h" />
+    <ClInclude Include="core\debug_console.h" />
+    <ClInclude Include="core\error_logger.h" />
+    <ClInclude Include="core\features.h" />
+    <ClInclude Include="core\game_state.h" />
+    <ClInclude Include="core\hooks.h" />
+    <ClInclude Include="core\interfaces.h" />
+    <ClInclude Include="core\menu_advanced.h" />
+    <ClInclude Include="core\skins.h" />
+    <ClInclude Include="core\skins_downloader.h" />
+    <ClInclude Include="core\skin_menu.h" />
+    <ClInclude Include="external\imgui\imconfig.h" />
+    <ClInclude Include="external\imgui\imgui.h" />
+    <ClInclude Include="external\imgui\imgui_impl_dx11.h" />
+    <ClInclude Include="external\imgui\imgui_impl_win32.h" />
+    <ClInclude Include="external\imgui\imgui_internal.h" />
+    <ClInclude Include="external\imgui\imstb_rectpack.h" />
+    <ClInclude Include="external\imgui\imstb_textedit.h" />
+    <ClInclude Include="external\imgui\imstb_truetype.h" />
+    <ClInclude Include="external\minhook\buffer.h" />
+    <ClInclude Include="external\minhook\hde\hde32.h" />
+    <ClInclude Include="external\minhook\hde\hde64.h" />
+    <ClInclude Include="external\minhook\hde\pstdint.h" />
+    <ClInclude Include="external\minhook\hde\table32.h" />
+    <ClInclude Include="external\minhook\hde\table64.h" />
+    <ClInclude Include="external\minhook\MinHook.h" />
+    <ClInclude Include="external\minhook\trampoline.h" />
+    <ClInclude Include="external\offsets\animationsystem_dll.hpp" />
+    <ClInclude Include="external\offsets\client_dll.hpp" />
+    <ClInclude Include="external\offsets\engine2_dll.hpp" />
+    <ClInclude Include="external\offsets\interfaces.hpp" />
+    <ClInclude Include="external\offsets\offsets.hpp" />
+    <ClInclude Include="external\offsets\panorama_dll.hpp" />
+    <ClInclude Include="external\offsets\rendersystemdx11_dll.hpp" />
+    <ClInclude Include="external\offsets\server_dll.hpp" />
+    <ClInclude Include="external\offsets\worldrenderer_dll.hpp" />
+    <ClInclude Include="patterns\patterns.h" />
+    <ClInclude Include="sdk\entity.h" />
+    <ClInclude Include="sdk\interfaces\cs_io.h" />
+    <ClInclude Include="sdk\mem.h" />
+    <ClInclude Include="sdk\source2-sdk\cstrike15\ccsinventorymanager.hpp" />
+    <ClInclude Include="sdk\source2-sdk\cstrike15\ccsplayerinventory.hpp" />
+    <ClInclude Include="sdk\source2-sdk\econ\ceconitem.hpp" />
+    <ClInclude Include="sdk\source2-sdk\econ\ceconitemdefinition.hpp" />
+    <ClInclude Include="sdk\source2-sdk\econ\ceconitemschema.hpp" />
+    <ClInclude Include="sdk\source2-sdk\econ\ceconitemsystem.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\cbaseplayercontroller.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\ccollisionproperty.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\ccsplayercontroller.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\ccsplayer_viewmodelservices.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\centityidentity.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\centityinstance.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\cgamescenenode.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\cplayer_weaponservices.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_attributecontainer.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_baseentity.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_basemodelentity.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_baseplayerpawn.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_baseplayerweapon.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_baseviewmodel.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_chicken.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_csplayerpawn.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_csplayerpawnbase.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_csweaponbase.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_econentity.hpp" />
+    <ClInclude Include="sdk\source2-sdk\entity\c_econitemview.hpp" />
+    <ClInclude Include="sdk\source2-sdk\gcsdk\cgcclient.hpp" />
+    <ClInclude Include="sdk\source2-sdk\gcsdk\cgcclientsharedobjectcache.hpp" />
+    <ClInclude Include="sdk\source2-sdk\gcsdk\cgcclientsharedobjecttypecache.hpp" />
+    <ClInclude Include="sdk\source2-sdk\gcsdk\cgcclientsystem.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interface.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\ccvar.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cengineclient.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cgameentitysystem.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cgameevent.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cgameresourceserviceclient.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cheapmemalloc.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cinputsystem.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\clocalize.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\cschemasystem.hpp" />
+    <ClInclude Include="sdk\source2-sdk\interfaces\csource2client.hpp" />
+    <ClInclude Include="sdk\source2-sdk\types\chandle.hpp" />
+    <ClInclude Include="sdk\source2-sdk\types\cnetworkutlvectorbase.hpp" />
+    <ClInclude Include="sdk\source2-sdk\types\utlmap.hpp" />
+    <ClInclude Include="sdk\source2-sdk\types\utlvector.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="core\debug_console.cpp" />
+    <ClCompile Include="core\error_logger.cpp" />
+    <ClCompile Include="core\features.cpp" />
+    <ClCompile Include="core\game_state.cpp" />
+    <ClCompile Include="core\hooks.cpp" />
+    <ClCompile Include="core\interfaces.cpp" />
+    <ClCompile Include="core\menu_advanced.cpp" />
+    <ClCompile Include="core\skins.cpp" />
+    <ClCompile Include="core\skins_downloader.cpp" />
+    <ClCompile Include="core\skins_meun.cpp" />
+    <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="external\imgui\imgui.cpp" />
+    <ClCompile Include="external\imgui\imgui_demo.cpp" />
+    <ClCompile Include="external\imgui\imgui_draw.cpp" />
+    <ClCompile Include="external\imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="external\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="external\imgui\imgui_tables.cpp" />
+    <ClCompile Include="external\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="external\minhook\buffer.c" />
+    <ClCompile Include="external\minhook\hde\hde32.c" />
+    <ClCompile Include="external\minhook\hde\hde64.c" />
+    <ClCompile Include="external\minhook\hook.c" />
+    <ClCompile Include="external\minhook\trampoline.c" />
+    <ClCompile Include="sdk\interfaces\input_system.h" />
+    <ClCompile Include="sdk\interfaces\swap_chain_dx11.h" />
+    <ClCompile Include="sdk\mem.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\..\Downloads\schanger\output\client_dll.json" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
