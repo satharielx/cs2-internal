@@ -3,6 +3,7 @@
 #include "config.h"
 #include "../external/imgui/imgui.h"
 #include "debug_console.h"
+#include "game_state.h"
 #include <algorithm>
 #include <set>
 
@@ -12,6 +13,7 @@ namespace skin_menu {
     static int selected_skin_idx = 0;
     static bool show_knife_menu = false;
     static bool show_glove_menu = false;
+    static bool show_debug_panel = false;
     static bool api_loaded = false;
     static bool loading_api = false;
 
@@ -517,6 +519,166 @@ namespace skin_menu {
         ImGui::End();
     }
 
+    void RenderDebugPanel() {
+        ImGui::SetNextWindowSize(ImVec2(750, 500), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Skin Changer Debug", &show_debug_panel, ImGuiWindowFlags_NoCollapse);
+
+        if (!game_state::IsInGame()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Not in game - no weapon data available");
+            ImGui::End();
+            return;
+        }
+
+        auto weapons = skins::GetCurrentWeaponsDebugInfo();
+
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Live Weapon Inventory (%zu weapons)", weapons.size());
+        ImGui::Separator();
+
+        // Configured skins summary
+        ImGui::Text("Configured skins: %zu | Selected knife: %s | Glove kit: %d",
+            skins::user_skins.size(),
+            skins::GetWeaponName(skins::selected_knife_id),
+            skins::selected_glove_kit);
+        ImGui::Separator();
+
+        if (weapons.empty()) {
+            ImGui::TextDisabled("No weapons detected in inventory");
+            ImGui::End();
+            return;
+        }
+
+        // Table of weapons
+        if (ImGui::BeginTable("WeaponDebugTable", 7,
+            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp)) {
+
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Weapon", ImGuiTableColumnFlags_None, 120.0f);
+            ImGui::TableSetupColumn("DefIdx", ImGuiTableColumnFlags_None, 50.0f);
+            ImGui::TableSetupColumn("Paint Kit", ImGuiTableColumnFlags_None, 65.0f);
+            ImGui::TableSetupColumn("Seed", ImGuiTableColumnFlags_None, 45.0f);
+            ImGui::TableSetupColumn("Wear", ImGuiTableColumnFlags_None, 70.0f);
+            ImGui::TableSetupColumn("StatTrak", ImGuiTableColumnFlags_None, 60.0f);
+            ImGui::TableSetupColumn("SOC/Flags", ImGuiTableColumnFlags_None, 120.0f);
+            ImGui::TableHeadersRow();
+
+            for (const auto& w : weapons) {
+                ImGui::TableNextRow();
+
+                // Weapon name column
+                ImGui::TableNextColumn();
+                const char* name = skins::GetWeaponName(w.def_index);
+                if (w.is_active) {
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%s *", name);
+                } else {
+                    ImGui::Text("%s", name);
+                }
+
+                // Def index
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", w.def_index);
+
+                // Paint kit
+                ImGui::TableNextColumn();
+                if (w.fallback_paint_kit > 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%d", w.fallback_paint_kit);
+                } else {
+                    ImGui::TextDisabled("0");
+                }
+
+                // Seed
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", w.fallback_seed);
+
+                // Wear
+                ImGui::TableNextColumn();
+                if (w.fallback_wear <= 0.07f)
+                    ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "%.4f", w.fallback_wear);
+                else if (w.fallback_wear <= 0.15f)
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "%.4f", w.fallback_wear);
+                else if (w.fallback_wear <= 0.38f)
+                    ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.3f, 1.0f), "%.4f", w.fallback_wear);
+                else if (w.fallback_wear <= 0.45f)
+                    ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "%.4f", w.fallback_wear);
+                else
+                    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "%.4f", w.fallback_wear);
+
+                // StatTrak
+                ImGui::TableNextColumn();
+                if (w.fallback_stattrak >= 0) {
+                    ImGui::TextColored(ImVec4(0.9f, 0.5f, 0.1f, 1.0f), "%d", w.fallback_stattrak);
+                } else {
+                    ImGui::TextDisabled("OFF");
+                }
+
+                // SOC / flags
+                ImGui::TableNextColumn();
+                ImGui::Text("SOC:%s Mat:%s Q:%d",
+                    w.disallow_soc ? "Y" : "N",
+                    w.restore_material ? "Y" : "N",
+                    w.entity_quality);
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::Separator();
+
+        // Expanded detail for each weapon on hover/click
+        if (ImGui::CollapsingHeader("Detailed View (per weapon)")) {
+            for (size_t i = 0; i < weapons.size(); i++) {
+                const auto& w = weapons[i];
+                const char* name = skins::GetWeaponName(w.def_index);
+
+                char header[128];
+                sprintf_s(header, "%s%s [%d]##detail_%zu", name, w.is_active ? " (ACTIVE)" : "", w.def_index, i);
+
+                if (ImGui::TreeNode(header)) {
+                    ImGui::Text("Address:        0x%p", (void*)w.address);
+                    ImGui::Text("Def Index:      %d", w.def_index);
+                    ImGui::Text("Entity Quality: %d (%s)",
+                        w.entity_quality,
+                        w.entity_quality == 3 ? "Knife" :
+                        w.entity_quality == 9 ? "StatTrak" :
+                        w.entity_quality == 4 ? "Unique" : "Other");
+                    ImGui::Text("Item ID High:   %d%s", w.item_id_high, w.item_id_high == -1 ? " (FALLBACK)" : "");
+                    ImGui::Text("Account ID:     %u", w.account_id);
+                    ImGui::Text("Owner XUID Low: %u", w.owner_xuid_low);
+                    ImGui::Separator();
+                    ImGui::Text("Paint Kit:      %d", w.fallback_paint_kit);
+                    ImGui::Text("Seed:           %d", w.fallback_seed);
+                    ImGui::Text("Wear:           %.6f", w.fallback_wear);
+                    ImGui::Text("StatTrak:       %d%s", w.fallback_stattrak, w.fallback_stattrak == -1 ? " (disabled)" : "");
+                    ImGui::Separator();
+                    ImGui::Text("DisallowSOC:    %s", w.disallow_soc ? "TRUE" : "FALSE");
+                    ImGui::Text("RestoreMat:     %s", w.restore_material ? "TRUE" : "FALSE");
+                    if (w.custom_name[0] != '\0')
+                        ImGui::Text("Name Tag:       \"%s\"", w.custom_name);
+
+                    // Show configured vs live comparison
+                    auto cfg_it = skins::user_skins.find(w.def_index);
+                    if (cfg_it != skins::user_skins.end()) {
+                        ImGui::Separator();
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Configured Skin:");
+                        ImGui::Text("  Paint Kit: %d %s", cfg_it->second.paint_kit,
+                            cfg_it->second.paint_kit == w.fallback_paint_kit ? "(MATCH)" : "(MISMATCH!)");
+                        ImGui::Text("  Seed:      %d %s", cfg_it->second.seed,
+                            cfg_it->second.seed == w.fallback_seed ? "(MATCH)" : "(MISMATCH!)");
+                        ImGui::Text("  Wear:      %.4f %s", cfg_it->second.wear,
+                            (cfg_it->second.wear == w.fallback_wear) ? "(MATCH)" : "(MISMATCH!)");
+                    } else {
+                        ImGui::Separator();
+                        ImGui::TextDisabled("No skin configured for this weapon");
+                    }
+
+                    ImGui::TreePop();
+                }
+            }
+        }
+
+        ImGui::End();
+    }
+
     void RenderSkinChangerWindow() {
         ImGui::SetNextWindowSize(ImVec2(900, 600), ImGuiCond_FirstUseEver);
         ImGui::Begin("Skin Changer", nullptr, ImGuiWindowFlags_NoCollapse);
@@ -579,6 +741,11 @@ namespace skin_menu {
             debug_console::Console::Get().Info("Reloading skins...");
             Initialize();
         }
+        ImGui::SameLine();
+        if (ImGui::Button(show_debug_panel ? "Hide Debug" : "Show Debug")) {
+            show_debug_panel = !show_debug_panel;
+            debug_console::Console::Get().Debug("Debug panel toggled: %s", show_debug_panel ? "ON" : "OFF");
+        }
 
         ImGui::Separator();
 
@@ -614,6 +781,10 @@ namespace skin_menu {
 
         if (show_glove_menu) {
             RenderGloveMenu();
+        }
+
+        if (show_debug_panel) {
+            RenderDebugPanel();
         }
     }
 

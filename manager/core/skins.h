@@ -70,7 +70,8 @@ namespace skins {
         WEAPON_KNIFE_OUTDOOR = 521,        // Nomad
         WEAPON_KNIFE_STILETTO = 522,
         WEAPON_KNIFE_WIDOWMAKER = 523,      // Talon
-        WEAPON_KNIFE_SKELETON = 525
+        WEAPON_KNIFE_SKELETON = 525,
+        WEAPON_KNIFE_KUKRI = 526
     };
 
     // Skin rarity
@@ -134,6 +135,16 @@ namespace skins {
     inline int selected_glove_kit = 0;
     inline int selected_knife_id = WEAPON_KNIFE_BAYONET;
 
+    // Helper: check if a weapon ID is a default knife
+    inline bool IsDefaultKnife(int id) {
+        return id == WEAPON_KNIFE_CT || id == WEAPON_KNIFE_T;
+    }
+
+    // Helper: check if a weapon ID is any knife (default or custom)
+    inline bool IsKnife(int id) {
+        return IsDefaultKnife(id) || (id >= 500 && id <= 526);
+    }
+
     // Database management
     void InitializeSkinDatabase();
     void LoadSkinsFromAPI();
@@ -147,13 +158,45 @@ namespace skins {
 
     // Batch operations
     void ClearAllSkins();
-    void ApplyDefaultPreset(); // Apply popular skins to all weapons
-    void ApplyFactoryNewAll(); // Set all skins to Factory New (0.0 wear)
-    void ApplyRandomSeeds(); // Randomize pattern seeds
+    void ApplyDefaultPreset();
+    void ApplyFactoryNewAll();
+    void ApplyRandomSeeds();
+
+    // Debug info for live weapon readback
+    struct WeaponDebugInfo {
+        uintptr_t address;
+        uint16_t def_index;
+        int entity_quality;
+        int item_id_high;
+        uint64_t item_id;
+        uint32_t account_id;
+        bool disallow_soc;
+        bool restore_material;
+        int fallback_paint_kit;
+        int fallback_seed;
+        float fallback_wear;
+        int fallback_stattrak;
+        uint32_t owner_xuid_low;
+        bool is_active;
+        char custom_name[32];
+        uint32_t subclass_id;
+        bool loadout_matched;
+
+        WeaponDebugInfo() : address(0), def_index(0), entity_quality(0),
+            item_id_high(0), item_id(0), account_id(0), disallow_soc(false),
+            restore_material(false), fallback_paint_kit(0), fallback_seed(0),
+            fallback_wear(0.0f), fallback_stattrak(0), owner_xuid_low(0),
+            is_active(false), custom_name{}, subclass_id(0), loadout_matched(false) {}
+    };
+
+    std::vector<WeaponDebugInfo> GetCurrentWeaponsDebugInfo();
+    bool IsSetModelAvailable();
+
+    // Inventory/loadout diagnostics
+    int GetLoadoutItemCount();
 
     // Utilities
     const char* GetWeaponName(int weapon_id);
     const char* GetRarityName(SkinRarity rarity);
-    const float* GetRarityColor(SkinRarity rarity);
     const float* GetRarityColor(SkinRarity rarity);
 }

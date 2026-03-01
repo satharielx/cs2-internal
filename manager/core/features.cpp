@@ -374,7 +374,7 @@ static std::vector<uintptr_t> playerPawns;
         if (!config::esp::enabled) return;
         if (!game_state::IsInGame()) return;
 
-        UpdateCache();
+		UpdateCache();
 
 		uintptr_t client = (uintptr_t)GetModuleHandle(L"client.dll");
 
@@ -382,7 +382,7 @@ static std::vector<uintptr_t> playerPawns;
 
 
 
-        g_local_player = GetLocalPlayer();
+		g_local_player = GetLocalPlayer();
         if (!g_local_player) return;
 
         // Debug logging - Display local player info
@@ -865,18 +865,18 @@ static std::vector<uintptr_t> playerPawns;
     // Radar hack - sets m_bSpotted on all enemy players so they appear on radar
     void RadarHack() {
         if (!config::misc::radar_hack) return;
-        if (!game_state::IsInGame()) return;
+		if (!game_state::IsInGame()) return;
 		int localIndex = -1;
-        int count = 1;
-        uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-        if (!client) return;
+		int count = 1;
+		uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+		if (!client) return;
 
-        uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
-        if (!localPawn || !sdk::is_valid_ptr(localPawn)) return;
+		uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+		if (!localPawn || !sdk::is_valid_ptr(localPawn)) return;
 
-        int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+		int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
 
-        for (uintptr_t player : playerPawns) {
+		for (uintptr_t player : playerPawns) {
             if (!player || player == localPawn) continue;
 
             try {

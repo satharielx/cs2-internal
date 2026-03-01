@@ -278,7 +278,45 @@ namespace hooks {
                     throw;
                 }
             }
-            
+
+            // Load Orbitron fonts — build path relative to DLL
+            {
+                char dll_path[MAX_PATH];
+                HMODULE hm = nullptr;
+                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    (LPCSTR)&hkPresent, &hm);
+                GetModuleFileNameA(hm, dll_path, MAX_PATH);
+                std::string base(dll_path);
+                size_t sep = base.find_last_of("\\/");
+                if (sep != std::string::npos) base = base.substr(0, sep + 1);
+
+                std::string font_regular = base + "fonts\\main_menu\\variants\\Orbitron-Regular.ttf";
+                std::string font_bold    = base + "fonts\\main_menu\\variants\\Orbitron-Bold.ttf";
+                std::string font_medium  = base + "fonts\\main_menu\\variants\\Orbitron-Medium.ttf";
+
+                // Fallback to hardcoded path if DLL-relative doesn't exist
+                if (GetFileAttributesA(font_regular.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                    font_regular = "C:\\Windows\\manager\\manager\\core\\fonts\\main_menu\\variants\\Orbitron-Regular.ttf";
+                    font_bold    = "C:\\Windows\\manager\\manager\\core\\fonts\\main_menu\\variants\\Orbitron-Bold.ttf";
+                    font_medium  = "C:\\Windows\\manager\\manager\\core\\fonts\\main_menu\\variants\\Orbitron-Medium.ttf";
+                }
+
+                ImGuiIO& io = ImGui::GetIO();
+                // Fonts[0] = Regular 14px (default body text)
+                ImFont* f0 = io.Fonts->AddFontFromFileTTF(font_regular.c_str(), 14.0f);
+                // Fonts[1] = Bold 22px (brand / headings)
+                ImFont* f1 = io.Fonts->AddFontFromFileTTF(font_bold.c_str(), 22.0f);
+                // Fonts[2] = Medium 11px (section labels)
+                ImFont* f2 = io.Fonts->AddFontFromFileTTF(font_medium.c_str(), 11.0f);
+
+                if (f0 && f1 && f2) {
+                    error_logger::ErrorLogger::Get().Log("ImGui", "Orbitron fonts loaded (Regular/Bold/Medium)", 0);
+                } else {
+                    error_logger::ErrorLogger::Get().Log("ImGui", "Some Orbitron fonts failed to load — using defaults", 1);
+                    if (!f0) io.Fonts->AddFontDefault();
+                }
+            }
+
             if (!ImGui_ImplWin32_Init(interfaces::hwnd)) {
                 error_logger::ErrorLogger::Get().Log("ImGui", "Win32 backend initialization failed", 1);
                 throw std::runtime_error("ImGui Win32 init failed");

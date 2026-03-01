@@ -251,6 +251,18 @@
   <ItemGroup>
     <None Include="..\..\..\..\Downloads\schanger\output\client_dll.json" />
   </ItemGroup>
+  <ItemGroup>
+    <Image Include="core\logo.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Font Include="core\fonts\main_menu\Orbitron-VariableFont_wght.ttf" />
+    <Font Include="core\fonts\main_menu\variants\Orbitron-Black.ttf" />
+    <Font Include="core\fonts\main_menu\variants\Orbitron-Bold.ttf" />
+    <Font Include="core\fonts\main_menu\variants\Orbitron-ExtraBold.ttf" />
+    <Font Include="core\fonts\main_menu\variants\Orbitron-Medium.ttf" />
+    <Font Include="core\fonts\main_menu\variants\Orbitron-Regular.ttf" />
+    <Font Include="core\fonts\main_menu\variants\Orbitron-SemiBold.ttf" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

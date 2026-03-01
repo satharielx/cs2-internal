@@ -9,4 +9,5 @@ namespace skin_menu {
     void RenderSkinConfig();
     void RenderKnifeMenu();
     void RenderGloveMenu();
+    void RenderDebugPanel();
 }

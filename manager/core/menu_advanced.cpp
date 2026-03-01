@@ -3,9 +3,126 @@
 #include "skins.h"
 #include "features.h"
 #include "interfaces.h"
+#include "game_state.h"
+#include "debug_console.h"
 #include "../sdk/entity.h"
+#include <algorithm>
+#include <set>
+#include <d3d11.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+
+#pragma comment(lib, "windowscodecs.lib")
 
 namespace menu_advanced {
+
+    // ==================== LOGO TEXTURE ====================
+    static ID3D11ShaderResourceView* g_logo_srv = nullptr;
+    static int g_logo_width = 0;
+    static int g_logo_height = 0;
+    static bool g_logo_load_attempted = false;
+
+    static bool LoadLogoTexture() {
+        if (g_logo_load_attempted) return g_logo_srv != nullptr;
+        g_logo_load_attempted = true;
+
+        if (!interfaces::d3d11_device) return false;
+
+        // Build path relative to DLL
+        char dll_path[MAX_PATH];
+        HMODULE hm = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCSTR)&LoadLogoTexture, &hm);
+        GetModuleFileNameA(hm, dll_path, MAX_PATH);
+        std::string path(dll_path);
+        size_t last_sep = path.find_last_of("\\/");
+        if (last_sep != std::string::npos) path = path.substr(0, last_sep + 1);
+        path += "logo.png";
+
+        // Check if file exists, if not try hardcoded path
+        DWORD attr = GetFileAttributesA(path.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES) {
+            // Try relative to known location
+            path = "C:\\Windows\\manager\\manager\\core\\logo.png";
+            attr = GetFileAttributesA(path.c_str());
+            if (attr == INVALID_FILE_ATTRIBUTES) return false;
+        }
+
+        // Convert to wide string
+        int wlen = MultiByteToWideChar(CP_ACP, 0, path.c_str(), -1, nullptr, 0);
+        std::wstring wpath(wlen, L'\0');
+        MultiByteToWideChar(CP_ACP, 0, path.c_str(), -1, &wpath[0], wlen);
+
+        // Use WIC to decode PNG
+        Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory;
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wic_factory));
+        if (FAILED(hr)) {
+            // Try CoInitialize first
+            CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&wic_factory));
+            if (FAILED(hr)) return false;
+        }
+
+        Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+        hr = wic_factory->CreateDecoderFromFilename(wpath.c_str(), nullptr,
+            GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+        if (FAILED(hr)) return false;
+
+        Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+        hr = decoder->GetFrame(0, &frame);
+        if (FAILED(hr)) return false;
+
+        Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+        hr = wic_factory->CreateFormatConverter(&converter);
+        if (FAILED(hr)) return false;
+
+        hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+            WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+        if (FAILED(hr)) return false;
+
+        UINT width, height;
+        converter->GetSize(&width, &height);
+
+        std::vector<BYTE> pixels(width * height * 4);
+        hr = converter->CopyPixels(nullptr, width * 4, (UINT)pixels.size(), pixels.data());
+        if (FAILED(hr)) return false;
+
+        // Create D3D11 texture
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+        D3D11_SUBRESOURCE_DATA init_data = {};
+        init_data.pSysMem = pixels.data();
+        init_data.SysMemPitch = width * 4;
+
+        ID3D11Texture2D* texture = nullptr;
+        hr = interfaces::d3d11_device->CreateTexture2D(&desc, &init_data, &texture);
+        if (FAILED(hr)) return false;
+
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+        srv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srv_desc.Texture2D.MipLevels = 1;
+
+        hr = interfaces::d3d11_device->CreateShaderResourceView(texture, &srv_desc, &g_logo_srv);
+        texture->Release();
+        if (FAILED(hr)) return false;
+
+        g_logo_width = (int)width;
+        g_logo_height = (int)height;
+
+        debug_console::Console::Get().Success("[MENU] Logo loaded: %dx%d", width, height);
+        return true;
+    }
     // Knife selector state
     static int selected_knife = 507; // Karambit by default
     static bool show_knife_preview = true;
@@ -23,6 +140,41 @@ namespace menu_advanced {
     static const int glove_ids[] = { 10006, 10007, 10015, 10016, 10018, 10024 };
     static const char* glove_names[] = { "Superconductor", "Arid", "Pandora's Box", "Foundation", "Vice", "Emerald Web" };
 
+    // Database load state
+    static bool db_loaded = false;
+    static bool db_loading = false;
+
+    // Weapon category definitions
+    static const int rifles[] = {
+        skins::WEAPON_AK47, skins::WEAPON_M4A1, skins::WEAPON_M4A1_SILENCER,
+        skins::WEAPON_AWP, skins::WEAPON_FAMAS, skins::WEAPON_GALILAR,
+        skins::WEAPON_AUG, skins::WEAPON_SG556, skins::WEAPON_SSG08,
+        skins::WEAPON_SCAR20, skins::WEAPON_G3SG1
+    };
+    static const int pistols[] = {
+        skins::WEAPON_DEAGLE, skins::WEAPON_GLOCK, skins::WEAPON_USP_SILENCER,
+        skins::WEAPON_HKP2000, skins::WEAPON_P250, skins::WEAPON_FIVESEVEN,
+        skins::WEAPON_TEC9, skins::WEAPON_CZ75A, skins::WEAPON_REVOLVER,
+        skins::WEAPON_ELITE
+    };
+    static const int smg_heavy[] = {
+        skins::WEAPON_MAC10, skins::WEAPON_MP9, skins::WEAPON_MP7,
+        skins::WEAPON_MP5SD, skins::WEAPON_UMP45, skins::WEAPON_P90,
+        skins::WEAPON_BIZON, skins::WEAPON_NOVA, skins::WEAPON_XM1014,
+        skins::WEAPON_SAWEDOFF, skins::WEAPON_MAG7, skins::WEAPON_M249,
+        skins::WEAPON_NEGEV
+    };
+
+    // Per-category UI state
+    struct CategoryState {
+        int selected_weapon_idx = 0;
+        int selected_skin_idx = -1;
+        char search[64] = {};
+    };
+    static CategoryState rifle_state;
+    static CategoryState pistol_state;
+    static CategoryState smg_state;
+
     struct KnifeInfo {
         int id;
         const char* name;
@@ -31,6 +183,7 @@ namespace menu_advanced {
 
     const KnifeInfo knives[] = {
         { 500, "Bayonet", 2 },
+        { 503, "Classic Knife", 1 },
         { 505, "Flip Knife", 1 },
         { 506, "Gut Knife", 1 },
         { 507, "Karambit", 3 },
@@ -39,27 +192,31 @@ namespace menu_advanced {
         { 512, "Falchion", 1 },
         { 514, "Survival Bowie", 2 },
         { 515, "Butterfly", 2 },
-        { 516, "Bowie Knife", 2 },
+        { 516, "Shadow Daggers", 2 },
+        { 517, "Paracord Knife", 1 },
+        { 518, "Survival Knife", 1 },
         { 519, "Ursus Knife", 2 },
-        { 520, "Gypsy Jackknife", 1 },
+        { 520, "Navaja Knife", 1 },
+        { 521, "Nomad Knife", 2 },
         { 522, "Stiletto", 2 },
-        { 523, "Widowmaker", 3 },
-        { 525, "Skeleton Knife", 3 }
+        { 523, "Talon Knife", 3 },
+        { 525, "Skeleton Knife", 3 },
+        { 526, "Kukri Knife", 2 }
     };
 
     const char* GetKnifeName(int knife_id) {
-        for (int i = 0; i < 15; i++) {
-            if (knives[i].id == knife_id) {
-                return knives[i].name;
+        for (const auto& k : knives) {
+            if (k.id == knife_id) {
+                return k.name;
             }
         }
         return "Unknown";
     }
 
     const char* GetKnifePrice(int knife_id) {
-        for (int i = 0; i < 15; i++) {
-            if (knives[i].id == knife_id) {
-                switch (knives[i].price) {
+        for (const auto& k : knives) {
+            if (k.id == knife_id) {
+                switch (k.price) {
                     case 1: return "Budget";
                     case 2: return "Mid-Tier";
                     case 3: return "Premium";
@@ -89,8 +246,7 @@ namespace menu_advanced {
         ImGui::Text("Knife Selection:");
         ImGui::BeginChild("KnifeList", ImVec2(0, 300), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
 
-        for (int i = 0; i < 15; i++) {
-            const KnifeInfo& knife = knives[i];
+        for (const auto& knife : knives) {
             int price = knife.price;
             
             // Apply filter
@@ -110,6 +266,7 @@ namespace menu_advanced {
             
             if (ImGui::Selectable(label.c_str(), is_selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0, 25))) {
                 selected_knife = knife.id;
+                skins::selected_knife_id = knife.id;
                 if (ImGui::IsMouseDoubleClicked(0)) {
                     ApplySelectedKnife(knife.id);
                 }
@@ -121,28 +278,73 @@ namespace menu_advanced {
 
         ImGui::NextColumn();
 
-        // Right side - Preview and details
+        // Right side - Knife config
         ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.8f, 1.0f), "Knife Details");
         ImGui::Separator();
 
         ImGui::BeginChild("KnifePreview", ImVec2(0, 300), true);
-        
+
         ImGui::Text("Selected: %s", GetKnifeName(selected_knife));
         ImGui::Text("Category: %s", GetKnifePrice(selected_knife));
         ImGui::Separator();
 
-        // Stats
-        if (show_knife_stats) {
-            ImGui::Text("Rarity: Covert");
-            ImGui::Text("Float Range: 0.00 - 1.0");
-            ImGui::Text("Available Conditions:");
-            ImGui::BulletText("Factory New");
-            ImGui::BulletText("Minimal Wear");
-            ImGui::BulletText("Field-Tested");
-            ImGui::BulletText("Well-Worn");
-            ImGui::BulletText("Battle-Scarred");
-            ImGui::Separator();
-            ImGui::TextWrapped("Double-click a knife to apply immediately.");
+        // Editable knife skin config — synced with skins::user_skins
+        {
+            auto it = skins::user_skins.find(selected_knife);
+            if (it == skins::user_skins.end()) {
+                skins::PlayerSkinConfig cfg;
+                cfg.weapon_id = selected_knife;
+                cfg.wear = 0.01f;
+                skins::user_skins[selected_knife] = cfg;
+                it = skins::user_skins.find(selected_knife);
+            }
+            skins::PlayerSkinConfig& cfg = it->second;
+
+            // Show available knife skins from database
+            if (skins::IsDatabaseLoaded()) {
+                std::vector<skins::SkinInfo> knife_skins;
+                std::set<int> seen;
+                for (const auto& s : skins::skin_database) {
+                    if (s.weapon_id == selected_knife && !s.name.empty() && !seen.count(s.paint_kit)) {
+                        seen.insert(s.paint_kit);
+                        knife_skins.push_back(s);
+                    }
+                }
+                if (!knife_skins.empty()) {
+                    static int combo_idx = 0;
+                    const char* preview = "Vanilla";
+                    for (size_t i = 0; i < knife_skins.size(); i++) {
+                        if (knife_skins[i].paint_kit == cfg.paint_kit) {
+                            preview = knife_skins[i].name.c_str();
+                            combo_idx = (int)i;
+                            break;
+                        }
+                    }
+                    if (ImGui::BeginCombo("Skin##knife_skin", preview)) {
+                        if (ImGui::Selectable("Vanilla", cfg.paint_kit == 0)) {
+                            cfg.paint_kit = 0;
+                        }
+                        for (size_t i = 0; i < knife_skins.size(); i++) {
+                            if (ImGui::Selectable(knife_skins[i].name.c_str(), cfg.paint_kit == knife_skins[i].paint_kit)) {
+                                cfg.paint_kit = knife_skins[i].paint_kit;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+            }
+
+            ImGui::SliderInt("Seed##kn", &cfg.seed, 0, 1000);
+            ImGui::SliderFloat("Wear##kn", &cfg.wear, 0.0f, 1.0f, "%.4f");
+            if (ImGui::SmallButton("FN##kn")) cfg.wear = 0.01f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("MW##kn")) cfg.wear = 0.08f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("FT##kn")) cfg.wear = 0.38f;
+
+            ImGui::Checkbox("StatTrak##kn", &cfg.stattrak);
+            if (cfg.stattrak)
+                ImGui::SliderInt("Kills##kn", &cfg.stattrak_count, 0, 99999);
         }
 
         ImGui::EndChild();
@@ -435,53 +637,203 @@ namespace menu_advanced {
         ImGui::Columns(1);
     }
 
+    // Reusable weapon category skin selector
+    static void RenderWeaponCategory(const char* id, const int* weapon_ids, int weapon_count, CategoryState& state) {
+        if (!skins::IsDatabaseLoaded()) {
+            ImGui::TextDisabled("Skin database not loaded");
+            if (ImGui::Button("Load Skins##load_db")) {
+                if (!db_loading) {
+                    db_loading = true;
+                    skins::LoadSkinsFromAPI();
+                    db_loaded = skins::IsDatabaseLoaded();
+                    db_loading = false;
+                }
+            }
+            return;
+        }
+
+        ImGui::Columns(3, id, true);
+        ImGui::SetColumnWidth(0, 140);
+        ImGui::SetColumnWidth(1, 220);
+
+        // Column 1 — Weapon list
+        ImGui::BeginChild((std::string("WeaponList##") + id).c_str(), ImVec2(0, 0), true);
+        for (int i = 0; i < weapon_count; i++) {
+            const char* name = skins::GetWeaponName(weapon_ids[i]);
+            bool has_skin = skins::user_skins.find(weapon_ids[i]) != skins::user_skins.end();
+
+            if (has_skin)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+
+            if (ImGui::Selectable(name, state.selected_weapon_idx == i)) {
+                state.selected_weapon_idx = i;
+                state.selected_skin_idx = -1;
+                state.search[0] = '\0';
+            }
+
+            if (has_skin)
+                ImGui::PopStyleColor();
+        }
+        ImGui::EndChild();
+
+        ImGui::NextColumn();
+
+        // Column 2 — Skin list for selected weapon
+        int sel_wep = weapon_ids[state.selected_weapon_idx];
+        ImGui::BeginChild((std::string("SkinList##") + id).c_str(), ImVec2(0, 0), true);
+        ImGui::Text("Skins for %s", skins::GetWeaponName(sel_wep));
+        ImGui::Separator();
+        ImGui::InputText((std::string("Search##") + id).c_str(), state.search, sizeof(state.search));
+        ImGui::Separator();
+
+        std::vector<skins::SkinInfo> available;
+        std::set<int> seen;
+        for (const auto& s : skins::skin_database) {
+            if (s.weapon_id != sel_wep) continue;
+            if (seen.count(s.paint_kit)) continue;
+            seen.insert(s.paint_kit);
+            if (s.name.empty()) continue;
+            if (state.search[0] != '\0') {
+                std::string nl = s.name, sl = state.search;
+                std::transform(nl.begin(), nl.end(), nl.begin(), ::tolower);
+                std::transform(sl.begin(), sl.end(), sl.begin(), ::tolower);
+                if (nl.find(sl) == std::string::npos) continue;
+            }
+            available.push_back(s);
+        }
+
+        for (size_t i = 0; i < available.size(); i++) {
+            const auto& s = available[i];
+            const float* col = skins::GetRarityColor(s.rarity);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(col[0], col[1], col[2], col[3]));
+
+            char lbl[256];
+            sprintf_s(lbl, "%s##%s_%d", s.name.c_str(), id, s.paint_kit);
+            if (ImGui::Selectable(lbl, state.selected_skin_idx == (int)i)) {
+                state.selected_skin_idx = (int)i;
+
+                // Write initial config
+                auto it = skins::user_skins.find(sel_wep);
+                if (it == skins::user_skins.end()) {
+                    skins::PlayerSkinConfig cfg;
+                    cfg.weapon_id = sel_wep;
+                    cfg.paint_kit = s.paint_kit;
+                    cfg.wear = 0.01f;
+                    skins::user_skins[sel_wep] = cfg;
+                } else {
+                    it->second.paint_kit = s.paint_kit;
+                }
+            }
+            ImGui::PopStyleColor();
+
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", skins::GetRarityName(s.rarity));
+        }
+
+        if (available.empty())
+            ImGui::TextDisabled("No skins found");
+
+        ImGui::EndChild();
+
+        ImGui::NextColumn();
+
+        // Column 3 — Config panel
+        ImGui::BeginChild((std::string("Config##") + id).c_str(), ImVec2(0, 0), true);
+        auto cfg_it = skins::user_skins.find(sel_wep);
+        if (cfg_it != skins::user_skins.end()) {
+            skins::PlayerSkinConfig& cfg = cfg_it->second;
+            ImGui::Text("Configuration");
+            ImGui::Separator();
+
+            // Find skin name
+            for (const auto& s : skins::skin_database) {
+                if (s.weapon_id == sel_wep && s.paint_kit == cfg.paint_kit) {
+                    const float* c = skins::GetRarityColor(s.rarity);
+                    ImGui::TextColored(ImVec4(c[0], c[1], c[2], c[3]), "%s", s.name.c_str());
+                    ImGui::Text("Kit: %d | %s", s.paint_kit, skins::GetRarityName(s.rarity));
+                    break;
+                }
+            }
+            ImGui::Separator();
+
+            ImGui::SliderInt("Seed", &cfg.seed, 0, 1000);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Rnd")) cfg.seed = rand() % 1000;
+
+            ImGui::SliderFloat("Wear", &cfg.wear, 0.0f, 1.0f, "%.4f");
+            if (ImGui::SmallButton("FN")) cfg.wear = 0.01f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("MW")) cfg.wear = 0.08f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("FT")) cfg.wear = 0.38f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("WW")) cfg.wear = 0.45f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("BS")) cfg.wear = 0.80f;
+
+            ImGui::Separator();
+            ImGui::Checkbox("StatTrak", &cfg.stattrak);
+            if (cfg.stattrak)
+                ImGui::SliderInt("Kills", &cfg.stattrak_count, 0, 99999);
+
+            ImGui::Separator();
+            char nametag[32];
+            strncpy_s(nametag, cfg.name_tag.c_str(), sizeof(nametag) - 1);
+            if (ImGui::InputText("Name Tag", nametag, sizeof(nametag)))
+                cfg.name_tag = nametag;
+
+            ImGui::Separator();
+            if (ImGui::Button("Apply Now", ImVec2(-1, 30))) {
+                skins::ApplyAllSkins();
+            }
+            if (ImGui::Button("Remove Skin", ImVec2(-1, 0))) {
+                skins::user_skins.erase(sel_wep);
+                state.selected_skin_idx = -1;
+            }
+        } else {
+            ImGui::TextDisabled("Select a skin from the list");
+        }
+        ImGui::EndChild();
+
+        ImGui::Columns(1);
+    }
+
     void RenderSkinTab() {
         ImGui::BeginChild("Skin Tab", ImVec2(0, 0), false);
-        
+
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Weapon Skins & Knife");
         ImGui::Separator();
 
         ImGui::Checkbox("Enable Skin Changer##main", &config::skin_changer::enabled);
+        ImGui::SameLine();
+        if (!db_loaded && !db_loading) {
+            if (ImGui::Button("Load Skin Database")) {
+                db_loading = true;
+                skins::LoadSkinsFromAPI();
+                db_loaded = skins::IsDatabaseLoaded();
+                db_loading = false;
+                debug_console::Console::Get().Success("[MENU] Skin database loaded: %zu skins", skins::skin_database.size());
+            }
+        } else if (db_loading) {
+            ImGui::TextDisabled("Loading...");
+        } else {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "(%zu skins loaded)", skins::skin_database.size());
+        }
         ImGui::Separator();
 
-        // Tabs for different categories
         if (ImGui::BeginTabBar("SkinCategories")) {
             if (ImGui::BeginTabItem("Rifles")) {
-                ImGui::Text("Primary Rifles:");
-                ImGui::BulletText("AK-47 Variants");
-                ImGui::BulletText("M4A4 Skins");
-                ImGui::BulletText("M4A1-S Skins");
-                ImGui::BulletText("AWP Dragon Lore");
-                ImGui::Separator();
-                if (ImGui::Button("Load Rifle Skins", ImVec2(150, 0))) {
-                    // Load rifle skins
-                }
+                RenderWeaponCategory("rifles", rifles, IM_ARRAYSIZE(rifles), rifle_state);
                 ImGui::EndTabItem();
             }
 
             if (ImGui::BeginTabItem("Pistols")) {
-                ImGui::Text("Secondary Weapons:");
-                ImGui::BulletText("Desert Eagle");
-                ImGui::BulletText("USP-S");
-                ImGui::BulletText("P250");
-                ImGui::BulletText("Glock-18");
-                ImGui::Separator();
-                if (ImGui::Button("Load Pistol Skins", ImVec2(150, 0))) {
-                    // Load pistol skins
-                }
+                RenderWeaponCategory("pistols", pistols, IM_ARRAYSIZE(pistols), pistol_state);
                 ImGui::EndTabItem();
             }
 
             if (ImGui::BeginTabItem("SMG/Heavy")) {
-                ImGui::Text("Other Weapons:");
-                ImGui::BulletText("MP7 Skins");
-                ImGui::BulletText("UMP-45");
-                ImGui::BulletText("Negev");
-                ImGui::BulletText("M249");
-                ImGui::Separator();
-                if (ImGui::Button("Load SMG Skins", ImVec2(150, 0))) {
-                    // Load SMG skins
-                }
+                RenderWeaponCategory("smg", smg_heavy, IM_ARRAYSIZE(smg_heavy), smg_state);
                 ImGui::EndTabItem();
             }
 
@@ -498,9 +850,10 @@ namespace menu_advanced {
                 for (int i = 0; i < 6; i++) {
                     bool is_selected = (selected_glove == i);
                     std::string glove_label = std::string(glove_names[i]) + " (ID: " + std::to_string(glove_ids[i]) + ")";
-                    
+
                     if (ImGui::Selectable(glove_label.c_str(), is_selected, ImGuiSelectableFlags_AllowDoubleClick)) {
                         selected_glove = i;
+                        skins::selected_glove_kit = glove_ids[i];
                         if (ImGui::IsMouseDoubleClicked(0)) {
                             skins::ApplyGloves();
                         }
@@ -509,12 +862,162 @@ namespace menu_advanced {
                 ImGui::EndChild();
 
                 ImGui::Separator();
-                ImGui::Text("Selected: %s", glove_names[selected_glove]);
-                
+                ImGui::Text("Selected: %s (Kit: %d)", glove_names[selected_glove], glove_ids[selected_glove]);
+
+                static float glove_wear = 0.01f;
+                ImGui::SliderFloat("Wear##glove", &glove_wear, 0.0f, 1.0f, "%.4f");
+
                 if (ImGui::Button("Apply Gloves", ImVec2(150, 35))) {
+                    skins::selected_glove_kit = glove_ids[selected_glove];
                     skins::ApplyGloves();
                 }
                 ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Debug")) {
+                if (!game_state::IsInGame()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Not in game - no weapon data available");
+                    ImGui::EndTabItem();
+                } else {
+                    auto weapons = skins::GetCurrentWeaponsDebugInfo();
+
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Live Weapon Inventory (%zu weapons)", weapons.size());
+                    ImGui::Text("Configured skins: %zu | Knife: %s | Glove kit: %d",
+                        skins::user_skins.size(),
+                        skins::GetWeaponName(skins::selected_knife_id),
+                        skins::selected_glove_kit);
+                    ImGui::TextColored(skins::IsSetModelAvailable()
+                        ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                        : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                        "SetModel: %s", skins::IsSetModelAvailable() ? "FOUND" : "NOT FOUND (using fallback)");
+                    int loadout_count = skins::GetLoadoutItemCount();
+                    ImGui::TextColored(loadout_count > 0
+                        ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                        : ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                        "Inventory Loadout: %d items%s", loadout_count,
+                        loadout_count > 0 ? " (active)" : " (using fallback)");
+                    ImGui::Separator();
+
+                    if (weapons.empty()) {
+                        ImGui::TextDisabled("No weapons detected");
+                    } else {
+                        if (ImGui::BeginTable("##WeaponDebug", 7,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
+                            ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+                            ImVec2(0, 200))) {
+
+                            ImGui::TableSetupScrollFreeze(0, 1);
+                            ImGui::TableSetupColumn("Weapon", ImGuiTableColumnFlags_None, 120.0f);
+                            ImGui::TableSetupColumn("DefIdx", ImGuiTableColumnFlags_None, 45.0f);
+                            ImGui::TableSetupColumn("Paint Kit", ImGuiTableColumnFlags_None, 60.0f);
+                            ImGui::TableSetupColumn("Seed", ImGuiTableColumnFlags_None, 40.0f);
+                            ImGui::TableSetupColumn("Wear", ImGuiTableColumnFlags_None, 65.0f);
+                            ImGui::TableSetupColumn("StatTrak", ImGuiTableColumnFlags_None, 55.0f);
+                            ImGui::TableSetupColumn("Flags", ImGuiTableColumnFlags_None, 110.0f);
+                            ImGui::TableHeadersRow();
+
+                            for (const auto& w : weapons) {
+                                ImGui::TableNextRow();
+
+                                ImGui::TableNextColumn();
+                                const char* name = skins::GetWeaponName(w.def_index);
+                                if (w.is_active)
+                                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%s *", name);
+                                else
+                                    ImGui::Text("%s", name);
+
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%d", w.def_index);
+
+                                ImGui::TableNextColumn();
+                                if (w.fallback_paint_kit > 0)
+                                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%d", w.fallback_paint_kit);
+                                else
+                                    ImGui::TextDisabled("0");
+
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%d", w.fallback_seed);
+
+                                ImGui::TableNextColumn();
+                                if (w.fallback_wear <= 0.07f)
+                                    ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "%.4f", w.fallback_wear);
+                                else if (w.fallback_wear <= 0.15f)
+                                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "%.4f", w.fallback_wear);
+                                else if (w.fallback_wear <= 0.38f)
+                                    ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.3f, 1.0f), "%.4f", w.fallback_wear);
+                                else if (w.fallback_wear <= 0.45f)
+                                    ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "%.4f", w.fallback_wear);
+                                else
+                                    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "%.4f", w.fallback_wear);
+
+                                ImGui::TableNextColumn();
+                                if (w.fallback_stattrak >= 0)
+                                    ImGui::TextColored(ImVec4(0.9f, 0.5f, 0.1f, 1.0f), "%d", w.fallback_stattrak);
+                                else
+                                    ImGui::TextDisabled("OFF");
+
+                                ImGui::TableNextColumn();
+                                ImGui::Text("SOC:%s Mat:%s Q:%d",
+                                    w.disallow_soc ? "Y" : "N",
+                                    w.restore_material ? "Y" : "N",
+                                    w.entity_quality);
+                            }
+                            ImGui::EndTable();
+                        }
+
+                        ImGui::Separator();
+
+                        // Detailed per-weapon expandable view
+                        for (size_t i = 0; i < weapons.size(); i++) {
+                            const auto& w = weapons[i];
+                            const char* wname = skins::GetWeaponName(w.def_index);
+
+                            char header[128];
+                            sprintf_s(header, "%s%s [%d]##adv_detail_%zu", wname,
+                                w.is_active ? " (ACTIVE)" : "", w.def_index, i);
+
+                            if (ImGui::TreeNode(header)) {
+                                ImGui::Text("Address:        0x%p", (void*)w.address);
+                                ImGui::Text("Entity Quality: %d (%s)",
+                                    w.entity_quality,
+                                    w.entity_quality == 3 ? "Knife" :
+                                    w.entity_quality == 9 ? "StatTrak" :
+                                    w.entity_quality == 4 ? "Unique" : "Other");
+                                ImGui::Text("Item ID High:   %d%s", w.item_id_high,
+                                    w.item_id_high == -1 ? " (FALLBACK)" : "");
+                                ImGui::Text("Item ID (full): %llu", w.item_id);
+                                ImGui::Text("Account ID:     %u", w.account_id);
+                                ImGui::Text("Owner XUID Low: %u", w.owner_xuid_low);
+                                ImGui::TextColored(w.loadout_matched
+                                    ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                                    : ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                    "Loadout:        %s", w.loadout_matched ? "INVENTORY" : "FALLBACK");
+                                ImGui::Text("DisallowSOC:    %s", w.disallow_soc ? "TRUE" : "FALSE");
+                                ImGui::Text("RestoreMat:     %s", w.restore_material ? "TRUE" : "FALSE");
+                                ImGui::Text("SubclassID:     %u (0x%08X)", w.subclass_id, w.subclass_id);
+                                if (w.custom_name[0] != '\0')
+                                    ImGui::Text("Name Tag:       \"%s\"", w.custom_name);
+
+                                auto cfg_it = skins::user_skins.find(w.def_index);
+                                if (cfg_it != skins::user_skins.end()) {
+                                    ImGui::Separator();
+                                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Configured:");
+                                    ImGui::Text("  Kit: %d %s", cfg_it->second.paint_kit,
+                                        cfg_it->second.paint_kit == w.fallback_paint_kit ? "(MATCH)" : "(MISMATCH!)");
+                                    ImGui::Text("  Seed: %d %s", cfg_it->second.seed,
+                                        cfg_it->second.seed == w.fallback_seed ? "(MATCH)" : "(MISMATCH!)");
+                                    ImGui::Text("  Wear: %.4f %s", cfg_it->second.wear,
+                                        (cfg_it->second.wear == w.fallback_wear) ? "(MATCH)" : "(MISMATCH!)");
+                                } else {
+                                    ImGui::Separator();
+                                    ImGui::TextDisabled("No skin configured");
+                                }
+                                ImGui::TreePop();
+                            }
+                        }
+                    }
+                    ImGui::EndTabItem();
+                }
             }
 
             ImGui::EndTabBar();
@@ -611,20 +1114,24 @@ namespace menu_advanced {
             ImGui::PopStyleColor();
         };
 
-        // Info Banner
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.10f, 0.18f, 0.9f));
+        // Info Banner — monochrome silver
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.12f, 0.13f, 0.95f));
         ImGui::BeginChild("##InfoBanner", ImVec2(0, 90), true);
         ImGui::Dummy(ImVec2(0, 15));
         ImGui::Indent(20);
-        
-        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
-        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.5f, 1.0f), "CS2 PRO CHEAT");
-        ImGui::PopFont();
-        
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-        ImGui::Text("Version 2.0 | Latest Offsets: 2025-02-10");
+
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            bool has_bold = io.Fonts->Fonts.Size > 1 && io.Fonts->Fonts[1];
+            if (has_bold) ImGui::PushFont(io.Fonts->Fonts[1]);
+            ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.88f, 1.0f), "NEPHILIMGATE");
+            if (has_bold) ImGui::PopFont();
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.45f, 0.48f, 1.0f));
+        ImGui::Text("v2.0 | Settings & Configuration");
         ImGui::PopStyleColor();
-        
+
         ImGui::Unindent(20);
         ImGui::EndChild();
         ImGui::PopStyleColor();
@@ -732,61 +1239,110 @@ namespace menu_advanced {
 
     void RenderMainMenu() {
         static int weapon_tab = 0; // 0 = Globals, 1 = Weapons
-        
+
+        // Load logo on first call
+        LoadLogoTexture();
+
         ImGui::SetNextWindowSize(ImVec2(850, 600), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(100, 50), ImGuiCond_FirstUseEver);
 
-        // Modern dark theme
+        // Monochrome silver/dark theme matching logo
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 2.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 8));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.11f, 0.11f, 0.98f));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.13f, 0.13f, 0.13f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.08f, 0.09f, 0.98f));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.11f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.22f, 0.22f, 0.24f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.08f, 0.08f, 0.09f, 0.8f));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.35f, 0.35f, 0.38f, 0.8f));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.50f, 0.50f, 0.53f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.14f, 0.14f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.85f, 0.85f, 0.88f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.18f, 0.20f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.28f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.12f, 0.12f, 0.13f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.22f, 0.22f, 0.24f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_TabActive, ImVec4(0.18f, 0.18f, 0.20f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.25f, 0.25f, 0.28f, 0.6f));
 
-        if (ImGui::Begin("MIDNIGHT", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        if (ImGui::Begin("NEPHILIMGATE", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
             // ===================== LEFT SIDEBAR =====================
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.07f, 0.08f, 1.0f));
             ImGui::BeginChild("##Sidebar", ImVec2(200, 0), false, ImGuiWindowFlags_NoScrollbar);
-            
-            // MIDNIGHT logo with icon
-            ImGui::Dummy(ImVec2(0, 15));
-            ImGui::Indent(20);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.9f, 1.0f));
-            ImGui::Text("  MIDNIGHT");
             ImGui::PopStyleColor();
-            ImGui::Unindent(20);
-            
-            ImGui::Dummy(ImVec2(0, 25));
+
+            // Logo
+            if (g_logo_srv) {
+                float logo_display_w = 64.0f;
+                float logo_display_h = logo_display_w * ((float)g_logo_height / (float)g_logo_width);
+                float sidebar_w = 200.0f;
+                ImGui::Dummy(ImVec2(0, 10));
+                ImGui::SetCursorPosX((sidebar_w - logo_display_w) * 0.5f);
+                ImGui::Image((ImTextureID)g_logo_srv, ImVec2(logo_display_w, logo_display_h));
+            } else {
+                ImGui::Dummy(ImVec2(0, 10));
+            }
+
+            // Brand name — use Bold font (Fonts[1]) if available
+            {
+                const char* brand = "NEPHILIMGATE";
+                ImGuiIO& io = ImGui::GetIO();
+                bool has_bold = io.Fonts->Fonts.Size > 1 && io.Fonts->Fonts[1];
+                if (has_bold) ImGui::PushFont(io.Fonts->Fonts[1]);
+                float text_w = ImGui::CalcTextSize(brand).x;
+                ImGui::SetCursorPosX((200.0f - text_w) * 0.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.82f, 0.82f, 0.85f, 1.0f));
+                ImGui::Text("%s", brand);
+                ImGui::PopStyleColor();
+                if (has_bold) ImGui::PopFont();
+            }
+
+            // Thin separator line
+            ImGui::Dummy(ImVec2(0, 5));
+            ImGui::Indent(15);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.30f, 0.33f, 1.0f));
+            ImGui::Separator();
+            ImGui::PopStyleColor();
+            ImGui::Unindent(15);
+            ImGui::Dummy(ImVec2(0, 8));
 
             // Category sections
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            ImGui::Indent(20);
-            ImGui::Text("Combat");
-            ImGui::Unindent(20);
-            ImGui::PopStyleColor();
-            ImGui::Dummy(ImVec2(0, 5));
+            auto SectionLabel = [](const char* label) {
+                ImGuiIO& io = ImGui::GetIO();
+                bool has_medium = io.Fonts->Fonts.Size > 2 && io.Fonts->Fonts[2];
+                if (has_medium) ImGui::PushFont(io.Fonts->Fonts[2]);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.40f, 0.43f, 1.0f));
+                ImGui::Indent(20);
+                ImGui::Text("%s", label);
+                ImGui::Unindent(20);
+                ImGui::PopStyleColor();
+                if (has_medium) ImGui::PopFont();
+                ImGui::Dummy(ImVec2(0, 3));
+            };
 
-            // Tab button helper
+            // Tab button helper — monochrome silver style
             auto TabButton = [](const char* icon, const char* label, int index, int* current_tab) -> bool {
                 bool is_selected = (*current_tab == index);
-                
+
                 ImGui::Indent(10);
-                
+
                 if (is_selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.18f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.20f, 0.20f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.16f, 0.18f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.19f, 0.19f, 0.21f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.14f, 0.16f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.92f, 0.95f, 1.0f));
                 } else {
                     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.13f, 0.13f, 0.15f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.10f, 0.12f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.53f, 1.0f));
                 }
 
-                bool clicked = ImGui::Button((std::string(icon) + " " + label).c_str(), ImVec2(180, 30));
+                bool clicked = ImGui::Button((std::string(icon) + " " + label).c_str(), ImVec2(180, 28));
                 ImGui::PopStyleColor(4);
                 ImGui::Unindent(10);
 
@@ -794,41 +1350,24 @@ namespace menu_advanced {
                 return clicked;
             };
 
+            SectionLabel("Combat");
             TabButton("", "Aimbot", 0, &selected_tab);
             TabButton("", "Triggerbot", 1, &selected_tab);
 
-            ImGui::Dummy(ImVec2(0, 15));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            ImGui::Indent(20);
-            ImGui::Text("Visuals");
-            ImGui::Unindent(20);
-            ImGui::PopStyleColor();
-            ImGui::Dummy(ImVec2(0, 5));
-
+            ImGui::Dummy(ImVec2(0, 10));
+            SectionLabel("Visuals");
             TabButton("", "Players", 2, &selected_tab);
             TabButton("", "Items", 3, &selected_tab);
             TabButton("", "View", 4, &selected_tab);
             TabButton("", "Hud", 5, &selected_tab);
 
-            ImGui::Dummy(ImVec2(0, 15));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            ImGui::Indent(20);
-            ImGui::Text("Misc");
-            ImGui::Unindent(20);
-            ImGui::PopStyleColor();
-            ImGui::Dummy(ImVec2(0, 5));
-
+            ImGui::Dummy(ImVec2(0, 10));
+            SectionLabel("Misc");
             TabButton("", "Main", 6, &selected_tab);
             TabButton("", "Movement", 7, &selected_tab);
 
-            ImGui::Dummy(ImVec2(0, 15));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            ImGui::Indent(20);
-            ImGui::Text("Cheat");
-            ImGui::Unindent(20);
-            ImGui::PopStyleColor();
-            ImGui::Dummy(ImVec2(0, 5));
-
+            ImGui::Dummy(ImVec2(0, 10));
+            SectionLabel("Cheat");
             TabButton("", "Inventory", 8, &selected_tab);
             TabButton("", "Grenades", 9, &selected_tab);
             TabButton("", "Configs", 10, &selected_tab);
@@ -838,63 +1377,44 @@ namespace menu_advanced {
             // ===================== MAIN CONTENT AREA =====================
             ImGui::SameLine();
             ImGui::BeginChild("##MainContent", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-            
-            // Top bar with tabs
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.09f, 0.09f, 0.09f, 1.0f));
+
+            // Top bar
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.06f, 0.06f, 0.07f, 1.0f));
             ImGui::BeginChild("##TopBar", ImVec2(0, 50), false, ImGuiWindowFlags_NoScrollbar);
-            
+
             ImGui::Dummy(ImVec2(0, 8));
             ImGui::Indent(15);
 
-            // GLOBALS and WEAPONS tabs
+            // GLOBALS and WEAPONS tabs — silver style
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(20, 8));
-            
-            if (weapon_tab == 0) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-            } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            }
-            if (ImGui::Button("GLOBALS")) weapon_tab = 0;
-            ImGui::PopStyleColor(2);
-            
-            ImGui::SameLine();
-            
-            if (weapon_tab == 1) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-            } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            }
-            if (ImGui::Button("WEAPONS")) weapon_tab = 1;
-            ImGui::PopStyleColor(2);
-            
-            ImGui::PopStyleVar();
 
-            // Top-right icons (search, settings, user)
-            float icon_x = ImGui::GetWindowWidth() - 100;
-            ImGui::SetCursorPos(ImVec2(icon_x, 15));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-            ImGui::Text(" ");  // search icon
+            auto TopTab = [](const char* label, int idx, int* tab) {
+                bool active = (*tab == idx);
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, active
+                    ? ImVec4(0.90f, 0.90f, 0.93f, 1.0f)
+                    : ImVec4(0.40f, 0.40f, 0.43f, 1.0f));
+                if (ImGui::Button(label)) *tab = idx;
+                ImGui::PopStyleColor(2);
+            };
+
+            TopTab("GLOBALS", 0, &weapon_tab);
             ImGui::SameLine();
-            ImGui::Text(" ");  // settings icon
-            ImGui::SameLine();
-            ImGui::Text(" ");  // user icon
-            ImGui::PopStyleColor();
+            TopTab("WEAPONS", 1, &weapon_tab);
+
+            ImGui::PopStyleVar();
 
             ImGui::Unindent(15);
             ImGui::EndChild();
             ImGui::PopStyleColor();
 
-            // VAC warning banner
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.8f, 0.2f, 0.2f, 0.9f));
-            ImGui::BeginChild("##VACWarning", ImVec2(0, 30), false, ImGuiWindowFlags_NoScrollbar);
-            ImGui::Dummy(ImVec2(0, 5));
+            // Warning banner — darker silver/grey instead of red
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.18f, 0.20f, 0.9f));
+            ImGui::BeginChild("##VACWarning", ImVec2(0, 28), false, ImGuiWindowFlags_NoScrollbar);
+            ImGui::Dummy(ImVec2(0, 4));
             ImGui::Indent(15);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-            ImGui::Text("Valve has updated its VAC Live neural network anti-cheat system. Be careful when using features such as Aimbot, Triggerbot, and Recoil Control.");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.70f, 0.73f, 1.0f));
+            ImGui::Text("VAC Live is active. Use features at your own risk.");
             ImGui::PopStyleColor();
             ImGui::Unindent(15);
             ImGui::EndChild();
@@ -929,7 +1449,7 @@ namespace menu_advanced {
             ImGui::End();
         }
 
-        ImGui::PopStyleColor(3);
+        ImGui::PopStyleColor(16);
         ImGui::PopStyleVar(5);
     }
 
@@ -996,22 +1516,21 @@ namespace menu_advanced {
 
     void ApplySelectedKnife(int knife_id) {
         try {
-            // Get local player
-            auto local_player = features::GetLocalPlayer();
-            if (!local_player) return;
-
-            // Enable skin changer
             config::skin_changer::enabled = true;
-            
-            // Store selected knife
+
             selected_knife = knife_id;
             last_applied_knife = knife_id;
 
-            // Call skins system to apply knife
+            // Sync with skins.cpp — this is the variable KnifeChanger() reads
+            skins::selected_knife_id = knife_id;
+
             skins::ApplyKnife();
+
+            debug_console::Console::Get().Success("[MENU] Applied knife: %s (ID: %d)",
+                skins::GetWeaponName(knife_id), knife_id);
         }
         catch (...) {
-            // Error applying knife
+            debug_console::Console::Get().Error("[MENU] Failed to apply knife ID %d", knife_id);
         }
     }
 }
