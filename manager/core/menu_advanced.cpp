@@ -889,7 +889,7 @@ namespace menu_advanced {
                     ImGui::TextColored(skins::IsSetModelAvailable()
                         ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
                         : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                        "SetModel: %s", skins::IsSetModelAvailable() ? "FOUND" : "NOT FOUND (using fallback)");
+                        "SetModel: %s", skins::IsSetModelAvailable() ? "FOUND" : "NOT FOUND");
                     int loadout_count = skins::GetLoadoutItemCount();
                     ImGui::TextColored(loadout_count > 0
                         ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)

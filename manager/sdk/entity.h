@@ -1,6 +1,6 @@
 #pragma once
-#pragma once
 #include "../sdk/mem.h"
+#include "../sdk/source2sdk_offsets.h"
 #include <cstdint>
 #include <cmath>
 
@@ -51,36 +51,37 @@ namespace sdk {
         float matrix[4][4];
     };
 
+    // Offset aliases from source2sdk (used below)
+    namespace off {
+        using namespace cs2_dumper::schemas::client_dll;
+    }
+
     // CS2 Entity base class
     class C_BaseEntity {
     public:
-        // Get entity position
         Vector3 GetOrigin() {
-            return *reinterpret_cast<Vector3*>((uintptr_t)this + 0x1334);  // m_vecAbsOrigin - from cs2_dumper schema
+            uintptr_t scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
+            if (!scene_node || !is_valid_ptr(scene_node)) return Vector3();
+            return *reinterpret_cast<Vector3*>(scene_node + off::CGameSceneNode::m_vecAbsOrigin);
         }
 
-        // Get entity health
         int GetHealth() {
-            return *reinterpret_cast<int*>((uintptr_t)this + 0x33C);  // m_iHealth - from cs2_dumper schema
+            return *reinterpret_cast<int*>((uintptr_t)this + off::C_BaseEntity::m_iHealth);
         }
 
-        // Get entity team
         int GetTeam() {
-            return *reinterpret_cast<int*>((uintptr_t)this + 0x3D3);  // m_iTeamNum - from cs2_dumper schema
+            return *reinterpret_cast<int*>((uintptr_t)this + off::C_BaseEntity::m_iTeamNum);
         }
 
-        // Check if entity is alive
         bool IsAlive() {
             int health = GetHealth();
             return health > 0 && health <= 100;
         }
 
-        // Get entity flags
         int GetFlags() {
-            return *reinterpret_cast<int*>((uintptr_t)this + 0x3DC);  // m_fFlags - from cs2_dumper schema
+            return *reinterpret_cast<int*>((uintptr_t)this + off::C_BaseEntity::m_fFlags);
         }
 
-        // Check if on ground
         bool IsOnGround() {
             return (GetFlags() & 1);  // FL_ONGROUND
         }
@@ -89,38 +90,35 @@ namespace sdk {
     // CS2 Player (extends BaseEntity)
     class C_CSPlayerPawn : public C_BaseEntity {
     public:
-        // Get bone position
         Vector3 GetBonePosition(int bone_index) {
-            uintptr_t game_scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + 0x328);  // m_pGameSceneNode - from cs2_dumper schema
-            if (!game_scene_node) return Vector3();
+            uintptr_t game_scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
+            if (!game_scene_node || !is_valid_ptr(game_scene_node)) return Vector3();
 
-            uintptr_t bone_array = *reinterpret_cast<uintptr_t*>(game_scene_node + 0x1F8);  // m_modelState + boneArray - from cs2_dumper schema
-            if (!bone_array) return Vector3();
+            // CSkeletonInstance::m_modelState + 0x80 (bone array pointer inside CModelState)
+            uintptr_t bone_array = *reinterpret_cast<uintptr_t*>(game_scene_node + off::CSkeletonInstance::m_modelState + 0x80);
+            if (!bone_array || !is_valid_ptr(bone_array)) return Vector3();
 
-            // Each bone is 32 bytes (4x4 matrix, but we only need position)
             return *reinterpret_cast<Vector3*>(bone_array + bone_index * 32);
         }
 
-        // Get eye position
         Vector3 GetEyePosition() {
             Vector3 origin = GetOrigin();
-            Vector3 view_offset = *reinterpret_cast<Vector3*>((uintptr_t)this + 0xC78);  // m_vecViewOffset - from cs2_dumper schema
+            Vector3 view_offset = *reinterpret_cast<Vector3*>((uintptr_t)this + off::C_BaseModelEntity::m_vecViewOffset);
             return origin + view_offset;
         }
 
-        // Check if dormant (not updated by server)
         bool IsDormant() {
-            return *reinterpret_cast<bool*>((uintptr_t)this + 0xEF);  // m_bDormant - from cs2_dumper schema
+            uintptr_t scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
+            if (!scene_node || !is_valid_ptr(scene_node)) return true;
+            return *reinterpret_cast<bool*>(scene_node + off::CGameSceneNode::m_bDormant);
         }
 
-        // Get armor value
         int GetArmor() {
-            return *reinterpret_cast<int*>((uintptr_t)this + 0x1524);  // m_ArmorValue - from cs2_dumper schema
+            return *reinterpret_cast<int*>((uintptr_t)this + off::C_CSPlayerPawn::m_ArmorValue);
         }
 
-        // Check if spotted
         bool IsSpotted() {
-            return *reinterpret_cast<bool*>((uintptr_t)this + 0x15B4);  // m_bSpotted - from cs2_dumper schema
+            return *reinterpret_cast<bool*>((uintptr_t)this + off::C_CSPlayerPawn::m_entitySpottedState + off::EntitySpottedState_t::m_bSpotted);
         }
     };
 

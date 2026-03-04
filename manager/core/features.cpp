@@ -6,7 +6,7 @@
 #include "../external/imgui/imgui.h"
 #include "../external/offsets/offsets.hpp"
 #include "../sdk/mem.h"
-#include "../external/offsets/client_dll.hpp"
+#include "../sdk/source2sdk_offsets.h"
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
