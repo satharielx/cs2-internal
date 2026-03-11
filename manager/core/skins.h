@@ -153,6 +153,8 @@ namespace skins {
     // Skin application
     void ApplySkin(void* weapon, int weapon_id);
     void ApplyAllSkins();
+    void ApplyWeaponSkins();   // inventory-injection path (mirrors reference)
+    void ApplyKnifeSkins();    // knife changer (mirrors reference)
     void ApplyKnife();
     void ApplyGloves();
 
@@ -186,7 +188,8 @@ namespace skins {
             item_id_high(0), item_id(0), account_id(0), disallow_soc(false),
             restore_material(false), fallback_paint_kit(0), fallback_seed(0),
             fallback_wear(0.0f), fallback_stattrak(0), owner_xuid_low(0),
-            is_active(false), custom_name{}, subclass_id(0), loadout_matched(false) {}
+            is_active(false), custom_name{}, subclass_id(0), loadout_matched(false) {
+        }
     };
 
     std::vector<WeaponDebugInfo> GetCurrentWeaponsDebugInfo();
@@ -198,5 +201,15 @@ namespace skins {
     // Utilities
     const char* GetWeaponName(int weapon_id);
     const char* GetRarityName(SkinRarity rarity);
+
+    // Inventory injection tracking (mirrors reference AddedItemInfo list)
+    // Call after AddSkinToInventory to register the injected item for skin application.
+    void AddEconItemToList(uint64_t itemID, float paintKit, float paintSeed, float paintWear, bool legacy);
+    void RemoveEconItemFromList(uint64_t itemID);
+
+    // Enqueue a weapon entity for UpdateSubclass to be processed on the game thread
+    void EnqueueUpdateSubclass(uintptr_t weapon);
+    // Called from a game-thread hook to drain the pending UpdateSubclass queue
+    void ProcessQueuedUpdateSubclass();
     const float* GetRarityColor(SkinRarity rarity);
 }

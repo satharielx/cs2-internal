@@ -1,4 +1,4 @@
-#include "hooks.h"
+ï»¿#include "hooks.h"
 #include "features.h"
 #include "config.h"
 #include "menu_advanced.h"
@@ -10,6 +10,7 @@
 #include "../external/imgui/imgui_impl_win32.h"
 #include "../external/imgui/imgui_impl_dx11.h"
 #include <stdexcept>
+#include "skins.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -66,9 +67,9 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT
                 catch (...) {}
             }
 
-            // Aimbot runs on its own thread — see features::StartAimbotThread()
+            // Aimbot runs on its own thread ï¿½ see features::StartAimbotThread()
 
-            // Misc features — run every frame
+            // Misc features ï¿½ run every frame
             try { features::TriggerBot(); } catch (...) {}
             try { features::BunnyHop(); } catch (...) {}
             try { features::NoFlash(); } catch (...) {}
@@ -211,6 +212,22 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 }
 
 namespace hooks {
+    // FrameStageNotify hook (game-thread) to process queued UpdateSubclass calls.
+    // In CS2, FrameStageNotify is a plain __fastcall function taking (int stage) â€”
+    // NOT a virtual thiscall. interfaces::client now holds the raw function pointer
+    // obtained via pattern scan in interfaces.cpp.
+    using fnFrameStageNotify = void(__fastcall*)(int stage);
+    static fnFrameStageNotify oFrameStageNotify = reinterpret_cast<fnFrameStageNotify>(interfaces::client);
+
+    static void __fastcall hkFrameStageNotify(int stage) {
+        // Drain any pending UpdateSubclass jobs on the game thread
+        try { skins::ProcessQueuedUpdateSubclass(); } catch (...) {}
+
+        // Call original
+        if (oFrameStageNotify) {
+            try { oFrameStageNotify(stage); } catch (...) {}
+        }
+    }
     void create() {
         if (!interfaces::swap_chain_dx11 || !interfaces::swap_chain_dx11->swap_chain) {
             error_logger::ErrorLogger::Get().Log("hooks::create", "SwapChain not available", 1);
@@ -258,6 +275,18 @@ namespace hooks {
             }
             error_logger::ErrorLogger::Get().Log("MinHook", "ResizeBuffers hook created successfully", 0);
 
+            /* FrameStageNotify hook â€” interfaces::client is the raw pattern - scanned fn ptr(not a vtable object)
+            if (interfaces::client) {
+                status = MH_CreateHook(interfaces::client, &hkFrameStageNotify, reinterpret_cast<LPVOID*>(&oFrameStageNotify));
+                if (status == MH_OK) {
+                    error_logger::ErrorLogger::Get().Log("MinHook", "FrameStageNotify hook created", 0);
+                } else {
+                    error_logger::ErrorLogger::Get().Log("MinHook", "Failed to create FrameStageNotify hook", static_cast<int>(status));
+                }
+            } else {
+                error_logger::ErrorLogger::Get().Log("FrameStageNotify", "Pattern scan failed; knife subclass queue will drain on render thread instead", 1);
+            }*/
+
             // Create WndProc hook
             oWndProc = (WNDPROC)SetWindowLongPtrA(interfaces::hwnd, GWLP_WNDPROC, (LONG_PTR)WndProc);
             if (!oWndProc) {
@@ -279,7 +308,7 @@ namespace hooks {
                 }
             }
 
-            // Load Orbitron fonts — build path relative to DLL
+            // Load Orbitron fonts ï¿½ build path relative to DLL
             {
                 char dll_path[MAX_PATH];
                 HMODULE hm = nullptr;
@@ -312,7 +341,7 @@ namespace hooks {
                 if (f0 && f1 && f2) {
                     error_logger::ErrorLogger::Get().Log("ImGui", "Orbitron fonts loaded (Regular/Bold/Medium)", 0);
                 } else {
-                    error_logger::ErrorLogger::Get().Log("ImGui", "Some Orbitron fonts failed to load — using defaults", 1);
+                    error_logger::ErrorLogger::Get().Log("ImGui", "Some Orbitron fonts failed to load ï¿½ using defaults", 1);
                     if (!f0) io.Fonts->AddFontDefault();
                 }
             }

@@ -11,6 +11,8 @@ namespace interfaces {
     inline sdk::interface_cs_io* cs_io = nullptr;
     inline sdk::interface_input_system* input_system = nullptr;
     inline sdk::interface_swap_chain_dx11* swap_chain_dx11 = nullptr;
+    // Client interface pointer (IBaseClientDLL / CHLClient) captured via CreateInterface
+    inline void* client = nullptr;
 
     inline ID3D11Device* d3d11_device = nullptr;
     inline ID3D11DeviceContext* d3d11_device_context = nullptr;

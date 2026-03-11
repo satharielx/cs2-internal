@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>  // for std::uint8_t
 #include <cstddef>  // for std::size_t
+#include <windows.h> // for Windows API types and functions
 
 namespace sdk {
     // Padding template for struct alignment
@@ -25,10 +26,41 @@ namespace sdk {
         }
     }
 
+    using PVOID = void*;
+    inline auto GetCA(intptr_t address) -> PVOID {
+        auto IntData = *(int32_t*)(address + 1);
+        auto PtrData = address + 5;
+
+        return (PVOID)(IntData + PtrData);
+    }
+
+    template<typename T = intptr_t>
+    inline auto GetPtrAddress(intptr_t Address) -> T
+    {
+        auto IntData = *(int32_t*)(Address + 3);
+        auto PtrData = Address + 7;
+
+        return (T)(IntData + PtrData);
+    }
+
+    template< typename T >
+    inline auto vget(PVOID instance, unsigned int index) -> T
+    {
+        auto procedure_array = *reinterpret_cast<PDWORD_PTR*>(instance);
+        return (T)(procedure_array)[index];
+    }
+
     // Get virtual function from VMT (Virtual Method Table)
     template <class Function = void*, std::size_t Index>
     Function virtual_function_get(void* vmt) {
         return (*static_cast<Function**>(vmt))[Index];
+    }
+
+    template<unsigned int Index, typename ReturnType, typename ... Args>
+    ReturnType CallVFunc(void* thisptr, Args ... argList)
+    {
+        using Fn = ReturnType(__thiscall*)(void*, decltype(argList)...);
+        return (*static_cast<Fn**>(thisptr))[Index](thisptr, argList...);
     }
 
     // Find byte pattern in a module

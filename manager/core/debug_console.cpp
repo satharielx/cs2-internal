@@ -82,6 +82,22 @@ namespace debug_console {
         OutputDebugStringA(buffer);
         OutputDebugStringA("\n");
         printf("%s %s\n", prefix, buffer);
+
+        // Append to persistent log file (best-effort)
+        try {
+            FILE* f = nullptr;
+            fopen_s(&f, "manager_console.log", "a");
+            if (f) {
+                // timestamp
+                time_t t = time(nullptr);
+                struct tm timeinfo;
+                localtime_s(&timeinfo, &t);
+                char timestr[32];
+                strftime(timestr, sizeof(timestr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+                fprintf(f, "%s %s %s\n", timestr, prefix, buffer);
+                fclose(f);
+            }
+        } catch(...) {}
     }
 
     void Console::Info(const char* format, ...) {

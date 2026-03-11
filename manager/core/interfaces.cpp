@@ -88,8 +88,8 @@ namespace interfaces {
         }
 
         con.Pointer("swap_chain_dx11->swap_chain", reinterpret_cast<uintptr_t>(swap_chain_dx11),
-                     reinterpret_cast<uintptr_t>(swap_chain_dx11->swap_chain),
-                     swap_chain_dx11->swap_chain != nullptr);
+            reinterpret_cast<uintptr_t>(swap_chain_dx11->swap_chain),
+            swap_chain_dx11->swap_chain != nullptr);
 
         if (swap_chain_dx11->swap_chain == nullptr) {
             con.Error("[D3D11] FAILED: swap_chain_dx11->swap_chain is null (padding is outdated)");
@@ -100,7 +100,7 @@ namespace interfaces {
         con.Success("[D3D11] IDXGISwapChain* = 0x%llX", reinterpret_cast<uintptr_t>(swap_chain));
 
         if (FAILED(swap_chain->GetDevice(__uuidof(ID3D11Device),
-                                         reinterpret_cast<void**>(&d3d11_device)))) {
+            reinterpret_cast<void**>(&d3d11_device)))) {
             con.Error("[D3D11] FAILED: GetDevice from swap chain");
             throw std::runtime_error("failed to get d3d11 device from swap chain");
         }
@@ -116,7 +116,7 @@ namespace interfaces {
         {
             ID3D11Texture2D* back_buffer = nullptr;
             if (FAILED(swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D),
-                                             reinterpret_cast<void**>(&back_buffer)))) {
+                reinterpret_cast<void**>(&back_buffer)))) {
                 con.Error("[D3D11] FAILED: GetBuffer for back buffer");
                 throw std::runtime_error("failed to get back buffer from swap chain");
             }
@@ -128,7 +128,7 @@ namespace interfaces {
             con.Pointer("back_buffer", reinterpret_cast<uintptr_t>(back_buffer), 0, true);
 
             if (FAILED(d3d11_device->CreateRenderTargetView(back_buffer, nullptr,
-                                                            &d3d11_render_target_view))) {
+                &d3d11_render_target_view))) {
                 back_buffer->Release();
                 con.Error("[D3D11] FAILED: CreateRenderTargetView");
                 throw std::runtime_error("failed to create render target view from back buffer");
@@ -164,7 +164,7 @@ namespace interfaces {
 
     void create() {
         error_logger::ErrorLogger::Get().Log("Interfaces", "Starting interface creation...", 0);
-        
+
         try {
             error_logger::ErrorLogger::Get().Log("cs_io", "Searching for pattern...", 0);
             auto addr = sdk::find_pattern("client.dll", "48 8B 0D ? ? ? ? 4C 8D 8F ? ? ? ? 45 33 F6");
@@ -172,9 +172,9 @@ namespace interfaces {
                 error_logger::ErrorLogger::Get().LogInitError("cs_io", "Pattern not found");
                 throw std::runtime_error("cs_io pattern not found");
             }
-            
+
             error_logger::ErrorLogger::Get().Log("cs_io", "Pattern found, resolving pointer...", 0);
-            
+
             try {
                 auto ptr = sdk::resolve_absolute_rip_address(addr, 3, 7);
                 if (!ptr) {
@@ -185,7 +185,7 @@ namespace interfaces {
                     error_logger::ErrorLogger::Get().LogPointerError("cs_io Resolved", reinterpret_cast<uintptr_t>(ptr));
                     throw std::runtime_error("Invalid cs_io pointer address");
                 }
-                
+
                 auto pCs_ioPtr = reinterpret_cast<sdk::interface_cs_io**>(ptr);
                 if (!pCs_ioPtr) {
                     error_logger::ErrorLogger::Get().LogInitError("cs_io", "Pointer array is null");
@@ -195,7 +195,7 @@ namespace interfaces {
                     error_logger::ErrorLogger::Get().LogPointerError("cs_io Array", reinterpret_cast<uintptr_t>(pCs_ioPtr));
                     throw std::runtime_error("cs_io pointer array location invalid");
                 }
-                
+
                 auto pCs_io = *pCs_ioPtr;
                 if (!pCs_io) {
                     error_logger::ErrorLogger::Get().LogInitError("cs_io", "Dereferenced pointer is null");
@@ -205,7 +205,7 @@ namespace interfaces {
                     error_logger::ErrorLogger::Get().LogPointerError("cs_io Structure", reinterpret_cast<uintptr_t>(pCs_io));
                     throw std::runtime_error("cs_io structure invalid");
                 }
-                
+
                 cs_io = pCs_io;
                 error_logger::ErrorLogger::Get().Log("cs_io", "Resolved successfully", 0);
             }
@@ -217,7 +217,7 @@ namespace interfaces {
                 error_logger::ErrorLogger::Get().Log("cs_io", "Unknown error during resolution", 1);
                 throw;
             }
-            
+
             if (!cs_io) {
                 error_logger::ErrorLogger::Get().LogInitError("cs_io", "Final validation failed");
                 throw std::runtime_error("cs_io null");
@@ -245,6 +245,30 @@ namespace interfaces {
         catch (...) {
             error_logger::ErrorLogger::Get().Log("InputSystem", "Unknown exception", 1);
             throw;
+        }
+
+        // In CS2, client.dll no longer exports a CHLClient interface via CreateInterface.
+        // Instead, scan for FrameStageNotify directly by pattern and store the function
+        // pointer in interfaces::client so hooks.cpp can hook it without a vtable lookup.
+        try {
+            error_logger::ErrorLogger::Get().Log("ClientInterface", "Scanning for FrameStageNotify via pattern...", 0);
+            // CS2 FrameStageNotify pattern — called with stage index, processes render frames
+            std::uint8_t* fsn = sdk::find_pattern("client.dll",
+                "48 89 5C 24 ? 48 89 6C 24 ? 57 48 83 EC ? 48 8B F9 33 ED");
+            if (fsn) {
+                client = reinterpret_cast<void*>(fsn);
+                error_logger::ErrorLogger::Get().Log("ClientInterface", "FrameStageNotify found via pattern", 0);
+            }
+            else {
+                error_logger::ErrorLogger::Get().Log("ClientInterface", "FrameStageNotify pattern not found — knife subclass queue will not drain", 1);
+            }
+        }
+        catch (const std::exception& e) {
+            error_logger::ErrorLogger::Get().LogException("ClientInterface", e);
+            // Not fatal; knife subclass queue falls back to render-thread drain
+        }
+        catch (...) {
+            error_logger::ErrorLogger::Get().Log("ClientInterface", "Unknown exception scanning FrameStageNotify", 1);
         }
 
         try {

@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <stdint.h>
 
 #include <vector>
 #include <stdexcept>
@@ -34,6 +35,8 @@ namespace sdk {
 
         return bytes;
     }
+
+	
 
     std::uint8_t* find_pattern(const char* module_name, const char* pattern) {
         const HMODULE module_handle = GetModuleHandleA(module_name);
