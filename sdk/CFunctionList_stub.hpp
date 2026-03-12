@@ -1,9 +1,12 @@
-#pragma once
+/*
+Module Name: Minimal CFunctionList stub for optional runtime function list usage
+Authors: sathariel, martinmarinov
+Product: Nephilimgate Multicheat
+Tools used: imgui, a2x-cs2dumper
+© 2026 sathariel & martinmarinov
+*/
 
-// Minimal stub for CFunctionList to allow optional use of function list
-// This file intentionally provides lightweight definitions so skins.cpp
-// can attempt to use GetFunctionList() if available at runtime. The
-// real implementation should replace this stub.
+#pragma once
 
 struct CBasePattern {
     const char* name = nullptr;
@@ -23,9 +26,6 @@ struct CBasePattern {
     void* GetFunction() const { return resolved; }
 };
 
-// Forward declaration for the real CFunctionList defined elsewhere.
 class CFunctionList;
 
-// The real project should provide an implementation of GetFunctionList().
-// We do not provide a default here to avoid conflicting definitions.
 extern CFunctionList* GetFunctionList();

@@ -1,3 +1,11 @@
+/*
+Module Name: Error logging utilities and diagnostics
+Authors: sathariel, martinmarinov
+Product: Nephilimgate Multicheat
+Tools used: imgui, a2x-cs2dumper
+© 2026 sathariel & martinmarinov
+*/
+
 #include "error_logger.h"
 #include <iostream>
 #include <iomanip>
@@ -26,7 +34,6 @@ namespace error_logger {
             }
         }
         catch (...) {
-            // File open failed, continue with debug output only
             OutputDebugStringA("ERROR_LOGGER: Failed to open log file\n");
         }
     }
@@ -73,7 +80,6 @@ namespace error_logger {
 
         std::string log_msg = oss.str();
 
-        // Write to all available outputs
         WriteToDebugOutput(log_msg.c_str());
         WriteToFile(log_msg.c_str());
         WriteToConsoleWindow(log_msg.c_str());
@@ -179,7 +185,6 @@ namespace error_logger {
             OutputDebugStringA(message);
         }
         catch (...) {
-            // Ignore debug output failures
         }
     }
 
@@ -195,14 +200,12 @@ namespace error_logger {
             }
         }
         catch (...) {
-            // File write failed, continue
         }
     }
 
     void ErrorLogger::WriteToConsoleWindow(const char* message) {
         if (!message) return;
         try {
-            // Attempt to write to console window if attached
             HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
             if (console_handle != INVALID_HANDLE_VALUE) {
                 DWORD written = 0;
@@ -210,7 +213,6 @@ namespace error_logger {
             }
         }
         catch (...) {
-            // Console write failed, continue
         }
     }
 }

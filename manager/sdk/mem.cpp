@@ -1,3 +1,11 @@
+/*
+Module Name: Memory pattern scanning and RIP address resolution
+Authors: sathariel, martinmarinov
+Product: Nephilimgate Multicheat
+Tools used: imgui, a2x-cs2dumper
+© 2026 sathariel & martinmarinov
+*/
+
 #include "mem.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -26,7 +34,7 @@ namespace sdk {
                 bytes.push_back(-1);
             }
             else if (*current == ' ') {
-                continue;  // Skip spaces
+                continue;
             }
             else {
                 bytes.push_back(std::strtoul(current, &current, 16));
@@ -36,11 +44,10 @@ namespace sdk {
         return bytes;
     }
 
-	
 
     std::uint8_t* find_pattern(const char* module_name, const char* pattern) {
         const HMODULE module_handle = GetModuleHandleA(module_name);
-		bool globalresult = false;
+        bool globalresult = false;
         if (module_handle == nullptr) {
             throw std::runtime_error(
                 std::format("Module '{}' is not loaded", module_name));
@@ -66,8 +73,7 @@ namespace sdk {
         const std::vector<int> bytes = ida_pattern_to_bytes(pattern);
         const std::size_t pattern_size = bytes.size();
         const int* pattern_data = bytes.data();
-		std::uint8_t* address = nullptr;
-        // Scan memory for pattern
+        std::uint8_t* address = nullptr;
         for (std::size_t i = 0ul; i < image_size - pattern_size; ++i) {
             bool found = true;
 
@@ -79,7 +85,7 @@ namespace sdk {
             }
 
             if (found) {
-				globalresult = true;
+                globalresult = true;
                 address = &image_data[i];
                 break;
             }

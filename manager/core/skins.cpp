@@ -1,3 +1,11 @@
+/*
+Module Name: Skin application and engine function resolution (pattern-based)
+Authors: sathariel, martinmarinov
+Product: Nephilimgate Multicheat
+Tools used: imgui, a2x-cs2dumper
+© 2026 sathariel & martinmarinov
+*/
+
 #include "skins.h"
 #include "interfaces.h"
 #include "game_state.h"
@@ -14,7 +22,7 @@
 #include "../external/offsets/offsets.hpp"
 #include "../sdk/source2sdk_offsets.h"
 #include "debug_console.h"
-#include "../../CS2/SDK/CFunctionList.hpp"
+
 
 enum ScanType {
     NORMAL_SCAN,
@@ -26,8 +34,6 @@ enum Module {
     TIER0,
     ENGINEDLL
 };
-
-//DO NOT CHANGE THESE MACROS MANUALLY UPDATED
 
 // C_BaseModelEntity_SetModel(C_BaseModelEntity* entity, const char* modelSzName);
 #define SET_MODEL_SIGNATURE "40 53 48 83 EC ? 48 8B D9 4C 8B C2 48 8B 0D ? ? ? ? 48 8D 54 24 40"
@@ -71,7 +77,6 @@ enum Module {
 
 namespace skins {
 
-    // ==================== SAFE POINTER CHECK ====================
     static bool IsReadablePtr(uintptr_t ptr) {
         if (ptr == 0 || ptr < 0x10000 || ptr == 0xFFFFFFFFFFFFFFFFull) return false;
         MEMORY_BASIC_INFORMATION mbi{};
@@ -81,15 +86,12 @@ namespace skins {
         return (mbi.Protect & bad) == 0;
     }
 
-    // Safe integer read — returns false if the pointer is not readable.
-    // Use this any time you need to read from a game pointer that may be freed mid-frame.
     static bool SafeReadInt(uintptr_t addr, int& out) {
         if (!IsReadablePtr(addr)) return false;
         out = *reinterpret_cast<int*>(addr);
         return true;
     }
 
-    // ==================== OFFSET CHAIN ====================
     static constexpr std::ptrdiff_t ECON_ITEM_VIEW_BASE =
         cs2_dumper::schemas::client_dll::C_EconEntity::m_AttributeManager +
         cs2_dumper::schemas::client_dll::C_AttributeContainer::m_Item;
@@ -124,7 +126,6 @@ namespace skins {
     static constexpr std::ptrdiff_t OFF_LOADOUT_VEC =
         cs2_dumper::schemas::client_dll::CCSPlayerController_InventoryServices::m_vecNetworkableLoadout;
 
-    // ==================== KNIFE DATA ====================
     struct KnifeData { int weapon_id; unsigned long subclass_hash; const char* model_path; };
 
     static const KnifeData g_knife_data[] = {
@@ -155,8 +156,6 @@ namespace skins {
             if (kd.weapon_id == weapon_id) return &kd;
         return nullptr;
     }
-
-    // ==================== ENGINE FUNCTION POINTERS ====================
 
     using fnSetModel = void(__fastcall*)(void*, const char*);
     using fnUpdateSubClass = void(__fastcall*)(void*);
@@ -296,8 +295,6 @@ namespace skins {
         }
     }
 
-    // ==================== SAFE CALLERS ====================
-
     static void CallSetModel(uintptr_t ent, const char* model) {
         if (!ent || !IsReadablePtr(ent) || !model) return;
         if (!g_fnSetModel || reinterpret_cast<uintptr_t>(g_fnSetModel) <= 0x10000) return;
@@ -335,7 +332,6 @@ namespace skins {
         return false;
     }
 
-    // ==================== SCENE NODE ====================
     static uintptr_t GetSceneNode(uintptr_t ent) {
         if (!ent || !IsReadablePtr(ent)) return 0;
         uintptr_t n = *(uintptr_t*)(ent + OFF_GAME_SCENE_NODE);
@@ -351,7 +347,6 @@ namespace skins {
         *reinterpret_cast<uint64_t*>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK) = mask;
     }
 
-    // ==================== ENTITY HELPERS ====================
     static uintptr_t GetLocalPawn() {
         uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
         if (!base) return 0;
@@ -428,7 +423,6 @@ namespace skins {
         return p ? *(uint8_t*)(p + OFF_TEAM_NUM) : 0;
     }
 
-    // ==================== INVENTORY BACKING ====================
     struct AddedItemInfo {
         uint64_t id;
         float    paintKit;
@@ -461,8 +455,6 @@ namespace skins {
         char* modelName = weaponData ? (char*)(weaponData + 0x640) : nullptr;
         return (modelName && IsReadablePtr((uintptr_t)modelName)) ? modelName : nullptr;
     }
-
-    // ==================== LOADOUT READING ====================
     struct LoadoutItem {
         uintptr_t item_view;
         uint16_t  def_index;
@@ -517,8 +509,6 @@ namespace skins {
             if (li.team == team && li.slot == 0) return &li;
         return nullptr;
     }
-
-    // ==================== UPDATESUBCLASS QUEUE ====================
     static std::mutex             s_subclass_mutex;
     static std::vector<uintptr_t> s_subclass_queue;
 
@@ -542,8 +532,6 @@ namespace skins {
             CallUpdateSubclassSafe(jobs[i]);
         }
     }
-
-    // ==================== APPLY WEAPON SKINS ====================
     void ApplyWeaponSkins() {
         ResolveEngineFunctions();
         if (!game_state::IsInGame()) return;
@@ -594,25 +582,6 @@ namespace skins {
         }
         catch (...) {}
     }
-
-    // ==================== APPLY KNIFE SKINS ====================
-    //
-    // Respawn / kill fix — five statics that together eliminate the crash:
-    //
-    //   s_lastKnifeDefIndex     one-time subclass write guard.
-    //
-    //   s_lastWeaponPtr         entity address tracker. pointer change == new entity,
-    //                           reset state and return immediately this frame.
-    //
-    //   s_lastHealth            previous-frame health. ApplyAllSkins owns this.
-    //                           dead->alive transition arms s_respawnDelayFrames.
-    //
-    //   s_respawnDelayFrames    set by ApplyAllSkins on any death event (kill cmd or
-    //                           normal death). While > 0, ApplyKnifeSkins is not called.
-    //                           Prevents writing into a partially constructed entity.
-    //
-    //   s_subclassRefreshFrames burst UpdateSubclass calls after type change to beat
-    //                           server re-sync of m_nSubclassID.
 
     static uint16_t  s_lastKnifeDefIndex = 0;
     static uintptr_t s_lastWeaponPtr = 0;

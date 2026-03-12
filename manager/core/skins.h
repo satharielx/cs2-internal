@@ -1,10 +1,17 @@
+/*
+Module Name: Skin data structures and API for weapon and glove customization
+Authors: sathariel, martinmarinov
+Product: Nephilimgate Multicheat
+Tools used: imgui, a2x-cs2dumper
+© 2026 sathariel & martinmarinov
+*/
+
 #pragma once
 #include <string>
 #include <vector>
 #include <map>
 
 namespace skins {
-    // Weapon definitions
     enum WeaponID {
         WEAPON_NONE = 0,
         WEAPON_DEAGLE = 1,
@@ -51,30 +58,28 @@ namespace skins {
         WEAPON_USP_SILENCER = 61,
         WEAPON_CZ75A = 63,
         WEAPON_REVOLVER = 64,
-        // All knife types from CS2
         WEAPON_KNIFE_BAYONET = 500,
         WEAPON_KNIFE_CLASSIC = 503,
         WEAPON_KNIFE_FLIP = 505,
         WEAPON_KNIFE_GUT = 506,
         WEAPON_KNIFE_KARAMBIT = 507,
         WEAPON_KNIFE_M9_BAYONET = 508,
-        WEAPON_KNIFE_TACTICAL = 509,      // Huntsman
+        WEAPON_KNIFE_TACTICAL = 509,
         WEAPON_KNIFE_FALCHION = 512,
         WEAPON_KNIFE_SURVIVAL_BOWIE = 514,
         WEAPON_KNIFE_BUTTERFLY = 515,
-        WEAPON_KNIFE_PUSH = 516,           // Shadow Daggers
-        WEAPON_KNIFE_CORD = 517,           // Paracord
-        WEAPON_KNIFE_CANIS = 518,          // Survival
+        WEAPON_KNIFE_PUSH = 516,
+        WEAPON_KNIFE_CORD = 517,
+        WEAPON_KNIFE_CANIS = 518,
         WEAPON_KNIFE_URSUS = 519,
-        WEAPON_KNIFE_GYPSY_JACKKNIFE = 520, // Navaja
-        WEAPON_KNIFE_OUTDOOR = 521,        // Nomad
+        WEAPON_KNIFE_GYPSY_JACKKNIFE = 520,
+        WEAPON_KNIFE_OUTDOOR = 521,
         WEAPON_KNIFE_STILETTO = 522,
-        WEAPON_KNIFE_WIDOWMAKER = 523,      // Talon
+        WEAPON_KNIFE_WIDOWMAKER = 523,
         WEAPON_KNIFE_SKELETON = 525,
         WEAPON_KNIFE_KUKRI = 526
     };
 
-    // Skin rarity
     enum SkinRarity {
         RARITY_COMMON = 0,
         RARITY_UNCOMMON = 1,
@@ -85,7 +90,6 @@ namespace skins {
         RARITY_CONTRABAND = 6
     };
 
-    // Skin data structure
     struct SkinInfo {
         int paint_kit;
         std::string name;
@@ -100,7 +104,6 @@ namespace skins {
         }
     };
 
-    // Glove data structure
     struct GloveInfo {
         int paint_kit;
         std::string name;
@@ -109,7 +112,6 @@ namespace skins {
         GloveInfo(int pk, const std::string& n) : paint_kit(pk), name(n) {}
     };
 
-    // Player skin config
     struct PlayerSkinConfig {
         int weapon_id;
         int paint_kit;
@@ -125,46 +127,38 @@ namespace skins {
         }
     };
 
-    // Global skin database
     inline std::vector<SkinInfo> skin_database;
     inline std::vector<GloveInfo> glove_database;
     inline std::map<std::string, std::vector<SkinInfo>> skins_by_weapon;
 
-    // User's skin configurations per weapon
     inline std::map<int, PlayerSkinConfig> user_skins;
     inline int selected_glove_kit = 0;
     inline int selected_knife_id = WEAPON_KNIFE_BAYONET;
 
-    // Helper: check if a weapon ID is a default knife
     inline bool IsDefaultKnife(int id) {
         return id == WEAPON_KNIFE_CT || id == WEAPON_KNIFE_T;
     }
 
-    // Helper: check if a weapon ID is any knife (default or custom)
     inline bool IsKnife(int id) {
         return IsDefaultKnife(id) || (id >= 500 && id <= 526);
     }
 
-    // Database management
     void InitializeSkinDatabase();
     void LoadSkinsFromAPI();
     bool IsDatabaseLoaded();
 
-    // Skin application
     void ApplySkin(void* weapon, int weapon_id);
     void ApplyAllSkins();
-    void ApplyWeaponSkins();   // inventory-injection path (mirrors reference)
-    void ApplyKnifeSkins();    // knife changer (mirrors reference)
+    void ApplyWeaponSkins();
+    void ApplyKnifeSkins();
     void ApplyKnife();
     void ApplyGloves();
 
-    // Batch operations
     void ClearAllSkins();
     void ApplyDefaultPreset();
     void ApplyFactoryNewAll();
     void ApplyRandomSeeds();
 
-    // Debug info for live weapon readback
     struct WeaponDebugInfo {
         uintptr_t address;
         uint16_t def_index;
@@ -195,21 +189,6 @@ namespace skins {
     std::vector<WeaponDebugInfo> GetCurrentWeaponsDebugInfo();
     bool IsSetModelAvailable();
 
-    // Inventory/loadout diagnostics
     int GetLoadoutItemCount();
 
-    // Utilities
-    const char* GetWeaponName(int weapon_id);
-    const char* GetRarityName(SkinRarity rarity);
-
-    // Inventory injection tracking (mirrors reference AddedItemInfo list)
-    // Call after AddSkinToInventory to register the injected item for skin application.
-    void AddEconItemToList(uint64_t itemID, float paintKit, float paintSeed, float paintWear, bool legacy);
-    void RemoveEconItemFromList(uint64_t itemID);
-
-    // Enqueue a weapon entity for UpdateSubclass to be processed on the game thread
-    void EnqueueUpdateSubclass(uintptr_t weapon);
-    // Called from a game-thread hook to drain the pending UpdateSubclass queue
-    void ProcessQueuedUpdateSubclass();
-    const float* GetRarityColor(SkinRarity rarity);
 }
