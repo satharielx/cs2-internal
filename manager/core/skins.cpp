@@ -48,7 +48,6 @@ enum Module {
 #define SEARCH_TYPE_UPDATE_COMPOSITE_MATERIAL CALL_SCAN
 #define LOCATION_UPDATE_COMPOSITE_MATERIAL CLIENT
 
-
 // C_CSWeaponBase_UpdateSkin(C_CSWeaponBase* weapon);
 #define UPDATE_SKIN_SIGNATURE "48 89 5C 24 08 57 48 83 EC 20 8B DA 48 8B F9 E8 ? ? ? ? 48 8D 8F A0 1B 00 00 48 8B D7 E8 ? ? ? ? F6 C3 01 74 0A 33 D2 48 8B CF E8 ? ? ? ? 48 8D 8F 50 1C 00 00 48 8B D7 E8 ? ? ? ? 45 33 C0 BA 02 00 00 00 48 8B CF E8 ? ? ? ? 48 8B CF 48 8B 5C 24 30 48 83 C4 20 5F E9"
 #define SEARCH_TYPE_UPDATE_SKIN NORMAL_SCAN
@@ -73,7 +72,6 @@ enum Module {
 namespace skins {
 
     // ==================== SAFE POINTER CHECK ====================
-    // VirtualQuery-based, no try/catch — safe to call near SEH blocks.
     static bool IsReadablePtr(uintptr_t ptr) {
         if (ptr == 0 || ptr < 0x10000 || ptr == 0xFFFFFFFFFFFFFFFFull) return false;
         MEMORY_BASIC_INFORMATION mbi{};
@@ -81,6 +79,14 @@ namespace skins {
         if (mbi.State != MEM_COMMIT) return false;
         const DWORD bad = PAGE_NOACCESS | PAGE_GUARD;
         return (mbi.Protect & bad) == 0;
+    }
+
+    // Safe integer read — returns false if the pointer is not readable.
+    // Use this any time you need to read from a game pointer that may be freed mid-frame.
+    static bool SafeReadInt(uintptr_t addr, int& out) {
+        if (!IsReadablePtr(addr)) return false;
+        out = *reinterpret_cast<int*>(addr);
+        return true;
     }
 
     // ==================== OFFSET CHAIN ====================
@@ -108,6 +114,7 @@ namespace skins {
     static constexpr std::ptrdiff_t OFF_SUBCLASS_ID = cs2_dumper::schemas::client_dll::C_BaseEntity::m_nSubclassID;
     static constexpr std::ptrdiff_t OFF_OWNER_ENTITY = cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity;
     static constexpr std::ptrdiff_t OFF_TEAM_NUM = cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum;
+    static constexpr std::ptrdiff_t OFF_HEALTH = cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth;
 
     static constexpr std::ptrdiff_t OFF_MODEL_STATE = cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState;
     static constexpr std::ptrdiff_t OFF_MESH_GROUP_MASK = cs2_dumper::schemas::client_dll::CModelState::m_MeshGroupMask;
@@ -150,38 +157,25 @@ namespace skins {
     }
 
     // ==================== ENGINE FUNCTION POINTERS ====================
-     
-    //C_BaseModelEntity_SetModel(C_BaseModelEntity* pBaseModelEntity, const char* szModelName)
+
     using fnSetModel = void(__fastcall*)(void*, const char*);
-
-    //C_CSWeaponBase_UpdateSubclass(C_CSWeaponBase* pWeaponBase)
     using fnUpdateSubClass = void(__fastcall*)(void*);
-
-    //C_CSWeaponBase_UpdateCompositeMaterial(CCompositeMaterialOwner* pCompositeMaterialOwner, bool unk1)
     using fnUpdateComposite = void(__fastcall*)(void*, bool);
+    using fnUpdateSkin = void(__fastcall*)(void*, bool);
+    using fnClearHudWeaponIcon = void(__fastcall*)(void*, int, int64_t);
+    using fnEquipItemInLoadout = bool(__fastcall*)(void*, int, int, uint64_t);
+    using fnSetMeshGroupMask = void(__fastcall*)(void*, uint64_t);
+    using fnUpdateCompositeSec = void(__fastcall*)(void*, bool);
 
-    //C_CSWeaponBase_UpdateSkin(C_CSWeaponBase* pWeaponBase , bool Update)
-	using fnUpdateSkin = void(__fastcall*)(void*, bool);
-
-	//CHudWeaponSelection_ClearHudWeaponIcon(CHudWeaponSelection* thisptr, int unk1 , int64_t unk2);
-	using fnClearHudWeaponIcon = void(__fastcall*)(void*, int, int64_t);
-
-    //CCSInventoryManager_EquipItemInLoadout(CCSInventoryManager* pCCSInventoryManager , int iTeam , int iSlot , uint64_t iItemID)
-	using fnEquipItemInLoadout = bool(__fastcall*)(void*, int, int, uint64_t);
-
-    //CGameSceneNode_SetMeshGroupMask( CGameSceneNode* pGameSceneNode, uint64_t MeshGroupMask)
-	using fnSetMeshGroupMask = void(__fastcall*)(void*, uint64_t);
-	using fnUpdateCompositeSec = void(__fastcall*)(void*, bool);
-
-    static fnSetModel        g_fnSetModel = nullptr;
-    static fnUpdateSubClass  g_fnUpdateSubClass = nullptr;
-    static fnUpdateComposite g_fnUpdateComposite = nullptr;
-	static fnUpdateSkin       g_fnUpdateSkin = nullptr;
-	static fnUpdateCompositeSec g_fnUpdateCompositeSec = nullptr;
-	static fnClearHudWeaponIcon g_fnClearHudWeaponIcon = nullptr;
-	static fnEquipItemInLoadout g_fnEquipItemInLoadout = nullptr;
-    static fnSetMeshGroupMask g_fnSetMeshGroupMask = nullptr;
-    static bool              g_engine_funcs_resolved = false;
+    static fnSetModel           g_fnSetModel = nullptr;
+    static fnUpdateSubClass     g_fnUpdateSubClass = nullptr;
+    static fnUpdateComposite    g_fnUpdateComposite = nullptr;
+    static fnUpdateSkin         g_fnUpdateSkin = nullptr;
+    static fnUpdateCompositeSec g_fnUpdateCompositeSec = nullptr;
+    static fnClearHudWeaponIcon g_fnClearHudWeaponIcon = nullptr;
+    static fnEquipItemInLoadout g_fnEquipItemInLoadout = nullptr;
+    static fnSetMeshGroupMask   g_fnSetMeshGroupMask = nullptr;
+    static bool                 g_engine_funcs_resolved = false;
 
     static std::uint8_t* TryPattern(const char* module, const char* pattern) {
         try { return sdk::find_pattern(module, pattern); }
@@ -192,125 +186,117 @@ namespace skins {
         if (g_engine_funcs_resolved) return;
         g_engine_funcs_resolved = true;
         auto& con = debug_console::Console::Get();
+
         auto fnSetModelResolved = sdk::find_pattern("client.dll", SET_MODEL_SIGNATURE);
         switch (SEARCH_TYPE_SET_MODEL) {
-            case NORMAL_SCAN:
-                if (fnSetModelResolved) {
-                    g_fnSetModel = reinterpret_cast<fnSetModel>(fnSetModelResolved);
-                    con.Success("[SKINS] SetModel at 0x%llX", reinterpret_cast<uintptr_t>(fnSetModelResolved));
-                }
-                else con.Warning("[SKINS] SetModel NOT found");
-                break;
-            case CALL_SCAN:
-                
-                if (fnSetModelResolved) {
-                    g_fnSetModel = reinterpret_cast<fnSetModel>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnSetModelResolved)));
-                    con.Success("[SKINS] SetModel at 0x%llX", reinterpret_cast<uintptr_t>(fnSetModelResolved));
-                }
-                else con.Warning("[SKINS] SetModel NOT found");
-                break;
+        case NORMAL_SCAN:
+            if (fnSetModelResolved) {
+                g_fnSetModel = reinterpret_cast<fnSetModel>(fnSetModelResolved);
+                con.Success("[SKINS] SetModel at 0x%llX", reinterpret_cast<uintptr_t>(fnSetModelResolved));
+            }
+            else con.Warning("[SKINS] SetModel NOT found");
+            break;
+        case CALL_SCAN:
+            if (fnSetModelResolved) {
+                g_fnSetModel = reinterpret_cast<fnSetModel>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnSetModelResolved)));
+                con.Success("[SKINS] SetModel at 0x%llX", reinterpret_cast<uintptr_t>(fnSetModelResolved));
+            }
+            else con.Warning("[SKINS] SetModel NOT found");
+            break;
         }
+
         auto fnUpdateSubClassResolved = sdk::find_pattern("client.dll", UPDATE_SUBCLASS_SIGNATURE);
         switch (SEARCH_TYPE_UPDATE_SUBCLASS) {
-            case NORMAL_SCAN:
-                
-                if (fnUpdateSubClassResolved) {
-                    g_fnUpdateSubClass = reinterpret_cast<fnUpdateSubClass>(fnUpdateSubClassResolved);
-                    con.Success("[SKINS] UpdateSubclass at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved));
-                }
-                else con.Warning("[SKINS] UpdateSubclass NOT found");
-                break;
-            case CALL_SCAN:
-                
-                if (fnUpdateSubClassResolved) {
-                    g_fnUpdateSubClass = reinterpret_cast<fnUpdateSubClass>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved)));
-                    con.Success("[SKINS] UpdateSubclass at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved));
-                }
-                else con.Warning("[SKINS] UpdateSubclass NOT found");
-                break;
+        case NORMAL_SCAN:
+            if (fnUpdateSubClassResolved) {
+                g_fnUpdateSubClass = reinterpret_cast<fnUpdateSubClass>(fnUpdateSubClassResolved);
+                con.Success("[SKINS] UpdateSubclass at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved));
+            }
+            else con.Warning("[SKINS] UpdateSubclass NOT found");
+            break;
+        case CALL_SCAN:
+            if (fnUpdateSubClassResolved) {
+                g_fnUpdateSubClass = reinterpret_cast<fnUpdateSubClass>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved)));
+                con.Success("[SKINS] UpdateSubclass at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved));
+            }
+            else con.Warning("[SKINS] UpdateSubclass NOT found");
+            break;
         }
+
         auto fnUpdateCompositeResolved = sdk::find_pattern("client.dll", UPDATE_COMPOSITE_MATERIAL_SIGNATURE);
         switch (SEARCH_TYPE_UPDATE_COMPOSITE_MATERIAL) {
-            case NORMAL_SCAN:
-                
-                if (fnUpdateCompositeResolved) {
-                    g_fnUpdateComposite = reinterpret_cast<fnUpdateComposite>(fnUpdateCompositeResolved);
-                    con.Success("[SKINS] UpdateComposite at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved));
-                }
-                else con.Warning("[SKINS] UpdateComposite NOT found");
-                break;
-            case CALL_SCAN:
-                
-                if (fnUpdateCompositeResolved) {
-                    g_fnUpdateComposite = reinterpret_cast<fnUpdateComposite>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved)));
-                    con.Success("[SKINS] UpdateComposite at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved));
-                }
-                else con.Warning("[SKINS] UpdateComposite NOT found");
-                break;
-
+        case NORMAL_SCAN:
+            if (fnUpdateCompositeResolved) {
+                g_fnUpdateComposite = reinterpret_cast<fnUpdateComposite>(fnUpdateCompositeResolved);
+                con.Success("[SKINS] UpdateComposite at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved));
+            }
+            else con.Warning("[SKINS] UpdateComposite NOT found");
+            break;
+        case CALL_SCAN:
+            if (fnUpdateCompositeResolved) {
+                g_fnUpdateComposite = reinterpret_cast<fnUpdateComposite>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved)));
+                con.Success("[SKINS] UpdateComposite at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved));
+            }
+            else con.Warning("[SKINS] UpdateComposite NOT found");
+            break;
         }
+
         auto fnUpdateSkinResolved = sdk::find_pattern("client.dll", UPDATE_SKIN_SIGNATURE);
         switch (SEARCH_TYPE_UPDATE_SKIN) {
-            case NORMAL_SCAN:
-                
-                if (fnUpdateSkinResolved) {
-                    g_fnUpdateSkin = reinterpret_cast<fnUpdateSkin>(fnUpdateSkinResolved);
-                    con.Success("[SKINS] UpdateSkin at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSkinResolved));
-                }
-                else con.Warning("[SKINS] UpdateSkin NOT found");
-                break;
-            case CALL_SCAN:
-                auto fnUpdateSkinResolved = sdk::find_pattern("client.dll", UPDATE_SKIN_SIGNATURE);
-                if (fnUpdateSkinResolved) {
-                    g_fnUpdateComposite = reinterpret_cast<fnUpdateSkin>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateSkinResolved)));
-                    con.Success("[SKINS] UpdateSkin at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSkinResolved));
-                }
-                else con.Warning("[SKINS] UpdateSkin NOT found");
-                break;
-
+        case NORMAL_SCAN:
+            if (fnUpdateSkinResolved) {
+                g_fnUpdateSkin = reinterpret_cast<fnUpdateSkin>(fnUpdateSkinResolved);
+                con.Success("[SKINS] UpdateSkin at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSkinResolved));
+            }
+            else con.Warning("[SKINS] UpdateSkin NOT found");
+            break;
+        case CALL_SCAN:
+            if (fnUpdateSkinResolved) {
+                g_fnUpdateSkin = reinterpret_cast<fnUpdateSkin>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateSkinResolved)));
+                con.Success("[SKINS] UpdateSkin at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSkinResolved));
+            }
+            else con.Warning("[SKINS] UpdateSkin NOT found");
+            break;
         }
+
         auto fnClearHudWeaponIconResolved = sdk::find_pattern("client.dll", CLEAR_HUD_WEAPON_ICON_SIGNATURE);
         switch (SEARCH_TYPE_CLEAR_HUD_WEAPON_ICON) {
-            case NORMAL_SCAN:
-                
-                if (fnClearHudWeaponIconResolved) {
-                    g_fnClearHudWeaponIcon = reinterpret_cast<fnClearHudWeaponIcon>(fnClearHudWeaponIconResolved);
-                    con.Success("[SKINS] ClearHudWeaponIcon at 0x%llX", reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved));
-                }
-                else con.Warning("[SKINS] ClearHudWeaponIcon NOT found");
-                break;
-            case CALL_SCAN:
-                
-                if (fnClearHudWeaponIconResolved) {
-                    g_fnClearHudWeaponIcon = reinterpret_cast<fnClearHudWeaponIcon>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved)));
-                    con.Success("[SKINS] ClearHudWeaponIcon at 0x%llX", reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved));
-                }
-                else con.Warning("[SKINS] ClearHudWeaponIcon NOT found");
-                break;
+        case NORMAL_SCAN:
+            if (fnClearHudWeaponIconResolved) {
+                g_fnClearHudWeaponIcon = reinterpret_cast<fnClearHudWeaponIcon>(fnClearHudWeaponIconResolved);
+                con.Success("[SKINS] ClearHudWeaponIcon at 0x%llX", reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved));
+            }
+            else con.Warning("[SKINS] ClearHudWeaponIcon NOT found");
+            break;
+        case CALL_SCAN:
+            if (fnClearHudWeaponIconResolved) {
+                g_fnClearHudWeaponIcon = reinterpret_cast<fnClearHudWeaponIcon>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved)));
+                con.Success("[SKINS] ClearHudWeaponIcon at 0x%llX", reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved));
+            }
+            else con.Warning("[SKINS] ClearHudWeaponIcon NOT found");
+            break;
         }
+
         auto fnEquipItemInLoadoutResolved = sdk::find_pattern("client.dll", EQUIP_ITEM_IN_LOADOUT_SIGNATURE);
         switch (SEARCH_TYPE_EQUIP_ITEM_IN_LOADOUT) {
-            case NORMAL_SCAN:
-                
-                if (fnEquipItemInLoadoutResolved) {
-                    g_fnEquipItemInLoadout = reinterpret_cast<fnEquipItemInLoadout>(fnEquipItemInLoadoutResolved);
-                    con.Success("[SKINS] EquipItemInLoadout at 0x%llX", reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved));
-                }
-                else con.Warning("[SKINS] EquipItemInLoadout NOT found");
-                break;
-            case CALL_SCAN:
-                
-                if (fnEquipItemInLoadoutResolved) {
-                    g_fnEquipItemInLoadout = reinterpret_cast<fnEquipItemInLoadout>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved)));
-                    con.Success("[SKINS] EquipItemInLoadout at 0x%llX", reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved));
-                }
-                else con.Warning("[SKINS] EquipItemInLoadout NOT found");
-                break;
+        case NORMAL_SCAN:
+            if (fnEquipItemInLoadoutResolved) {
+                g_fnEquipItemInLoadout = reinterpret_cast<fnEquipItemInLoadout>(fnEquipItemInLoadoutResolved);
+                con.Success("[SKINS] EquipItemInLoadout at 0x%llX", reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved));
+            }
+            else con.Warning("[SKINS] EquipItemInLoadout NOT found");
+            break;
+        case CALL_SCAN:
+            if (fnEquipItemInLoadoutResolved) {
+                g_fnEquipItemInLoadout = reinterpret_cast<fnEquipItemInLoadout>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved)));
+                con.Success("[SKINS] EquipItemInLoadout at 0x%llX", reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved));
+            }
+            else con.Warning("[SKINS] EquipItemInLoadout NOT found");
+            break;
         }
     }
 
     // ==================== SAFE CALLERS ====================
-    // No C++ objects inside __try frames — required for MSVC SEH without /EHa.
 
     static void CallSetModel(uintptr_t ent, const char* model) {
         if (!ent || !IsReadablePtr(ent) || !model) return;
@@ -334,35 +320,34 @@ namespace skins {
         if (!ent || !IsReadablePtr(ent)) return;
         if (g_fnUpdateSkin && reinterpret_cast<uintptr_t>(g_fnUpdateSkin) > 0x10000)
             g_fnUpdateSkin(reinterpret_cast<void*>(ent), force);
-	}
+    }
 
     static void CallClearHudWeaponIcon(uintptr_t hud_weapon_selection, int unk1, int64_t unk2) {
         if (!hud_weapon_selection || !IsReadablePtr(hud_weapon_selection)) return;
         if (g_fnClearHudWeaponIcon && reinterpret_cast<uintptr_t>(g_fnClearHudWeaponIcon) > 0x10000)
             g_fnClearHudWeaponIcon(reinterpret_cast<void*>(hud_weapon_selection), unk1, unk2);
-	}
+    }
 
     static bool CallEquipItemInLoadout(uintptr_t inventory_manager, int team, int slot, uint64_t itemID) {
         if (!inventory_manager || !IsReadablePtr(inventory_manager)) return false;
         if (g_fnEquipItemInLoadout && reinterpret_cast<uintptr_t>(g_fnEquipItemInLoadout) > 0x10000)
             return g_fnEquipItemInLoadout(reinterpret_cast<void*>(inventory_manager), team, slot, itemID);
         return false;
-	}
+    }
 
     // ==================== SCENE NODE ====================
     static uintptr_t GetSceneNode(uintptr_t ent) {
+        if (!ent || !IsReadablePtr(ent)) return 0;
         uintptr_t n = *(uintptr_t*)(ent + OFF_GAME_SCENE_NODE);
         return (n && IsReadablePtr(n)) ? n : 0;
     }
 
     static void SetMeshGroupMask(uintptr_t scene_node, uint64_t mask) {
         if (!scene_node || !IsReadablePtr(scene_node)) return;
-       
-            if (g_fnSetMeshGroupMask && reinterpret_cast<uintptr_t>(g_fnSetMeshGroupMask) > 0x10000) {
-                g_fnSetMeshGroupMask(reinterpret_cast<void*>(scene_node), mask);
-                return;
-            }
-        
+        if (g_fnSetMeshGroupMask && reinterpret_cast<uintptr_t>(g_fnSetMeshGroupMask) > 0x10000) {
+            g_fnSetMeshGroupMask(reinterpret_cast<void*>(scene_node), mask);
+            return;
+        }
         *reinterpret_cast<uint64_t*>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK) = mask;
     }
 
@@ -428,7 +413,7 @@ namespace skins {
         if (!pawn || !list) return 0;
         try {
             constexpr std::ptrdiff_t OFF_HUD_MODEL_ARMS = 0x2400;
-            uint32_t h = *(uint32_t*)(pawn + 0x2400);
+            uint32_t h = *(uint32_t*)(pawn + OFF_HUD_MODEL_ARMS);
             return ResolveHandle(list, h);
         }
         catch (...) { return 0; }
@@ -444,9 +429,6 @@ namespace skins {
     }
 
     // ==================== INVENTORY BACKING ====================
-    // Mirrors reference g_vecAddedItemsIDs: tracks items injected via AddSkinToInventory.
-    // ApplyWeaponSkins looks up active weapon's loadout item_id in this list to apply skin data.
-
     struct AddedItemInfo {
         uint64_t id;
         float    paintKit;
@@ -475,9 +457,9 @@ namespace skins {
     }
 
     char* GetWeaponModelName(uintptr_t weapon) {
-		uintptr_t weaponData = *(uintptr_t*)(weapon + cs2_dumper::schemas::client_dll::C_BaseEntity::m_nSubclassID + 0x08);
-		char* modelName = weaponData ? (char*)(weaponData + 0x640) : nullptr;
-		return (modelName && IsReadablePtr((uintptr_t)modelName)) ? modelName : nullptr;
+        uintptr_t weaponData = *(uintptr_t*)(weapon + cs2_dumper::schemas::client_dll::C_BaseEntity::m_nSubclassID + 0x08);
+        char* modelName = weaponData ? (char*)(weaponData + 0x640) : nullptr;
+        return (modelName && IsReadablePtr((uintptr_t)modelName)) ? modelName : nullptr;
     }
 
     // ==================== LOADOUT READING ====================
@@ -524,8 +506,7 @@ namespace skins {
         return items;
     }
 
-    static const LoadoutItem* FindLoadoutByDefIndex(const std::vector<LoadoutItem>& lo,
-        uint16_t def, uint8_t team) {
+    static const LoadoutItem* FindLoadoutByDefIndex(const std::vector<LoadoutItem>& lo, uint16_t def, uint8_t team) {
         for (const auto& li : lo)
             if (li.team == team && li.def_index == def) return &li;
         return nullptr;
@@ -563,14 +544,6 @@ namespace skins {
     }
 
     // ==================== APPLY WEAPON SKINS ====================
-    // Mirrors reference ApplyWeaponSkins:
-    //   1. Active weapon only, skip knives
-    //   2. Get loadout slot item for the weapon def_index + team
-    //   3. Find item in g_vecAddedItemsIDs by item_id
-    //   4. Copy item IDs from loadout -> weapon EconItemView
-    //   5. Set legacy fallback fields if skin.legacy == true
-    //   6. UpdateComposite + mesh group mask
-
     void ApplyWeaponSkins() {
         ResolveEngineFunctions();
         if (!game_state::IsInGame()) return;
@@ -579,25 +552,22 @@ namespace skins {
         if (!weapon) return;
 
         uint16_t def_index = GetDefIndex(weapon);
-        if (IsKnife(def_index) || IsDefaultKnife(def_index)) return; // knives handled separately
+        if (IsKnife(def_index) || IsDefaultKnife(def_index)) return;
 
         std::vector<LoadoutItem> loadout;
         try { loadout = ReadLoadout(); }
         catch (...) {}
         uint8_t team = GetLocalTeam();
 
-        // Reference: pInventory->GetItemInLoadout(pWeapon->m_iOriginalTeamNumber(), nSlot)
         const LoadoutItem* li = FindLoadoutByDefIndex(loadout, def_index, team);
         if (!li || li->item_id == 0) return;
 
-        // Reference: look up in g_vecAddedItemsIDs
         auto it = std::find_if(g_vecAddedItemsIDs.begin(), g_vecAddedItemsIDs.end(),
             [&](const AddedItemInfo& i) { return i.id == li->item_id; });
         if (it == g_vecAddedItemsIDs.end()) return;
 
         const AddedItemInfo& info = *it;
 
-        // Reference: copy item IDs from loadout item to pWeaponItemView
         *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = li->item_id;
         *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = li->item_id_high;
         *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = li->item_id_low;
@@ -605,7 +575,6 @@ namespace skins {
         *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = false;
         *reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
 
-        // Reference: if (info.legacy && s_regenPending) set fallback + itemIDHigh=-1
         if (info.legacy) {
             *reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = (int)info.paintKit;
             *reinterpret_cast<int*>(weapon + OFF_FALLBACK_SEED) = (int)info.paintSeed;
@@ -614,11 +583,9 @@ namespace skins {
             *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = (uint32_t)-1;
         }
 
-        // Reference: mask = info.legacy ? 2 : 1
         uintptr_t node = GetSceneNode(weapon);
         if (node) SetMeshGroupMask(node, info.legacy ? 2ULL : 1ULL);
 
-        // Reference: pWeapon->UpdateComposite(1); pWeapon->UpdateCompositeSec(1);
         try { CallUpdateComposite(weapon, true); }
         catch (...) {}
         try {
@@ -629,13 +596,29 @@ namespace skins {
     }
 
     // ==================== APPLY KNIFE SKINS ====================
-    // Mirrors reference ApplyKnifeSkins exactly:
-    //   1. Active weapon must be a knife
-    //   2. Get melee loadout item — verify def_index >= 500
-    //   3. ONE TIME on def_index change: write def_index + subclass + UpdateSubclass
-    //   4. EVERY FRAME: set_model + mesh mask + UpdateComposite + UpdateCompositeSec
+    //
+    // Respawn / kill fix — five statics that together eliminate the crash:
+    //
+    //   s_lastKnifeDefIndex     one-time subclass write guard.
+    //
+    //   s_lastWeaponPtr         entity address tracker. pointer change == new entity,
+    //                           reset state and return immediately this frame.
+    //
+    //   s_lastHealth            previous-frame health. ApplyAllSkins owns this.
+    //                           dead->alive transition arms s_respawnDelayFrames.
+    //
+    //   s_respawnDelayFrames    set by ApplyAllSkins on any death event (kill cmd or
+    //                           normal death). While > 0, ApplyKnifeSkins is not called.
+    //                           Prevents writing into a partially constructed entity.
+    //
+    //   s_subclassRefreshFrames burst UpdateSubclass calls after type change to beat
+    //                           server re-sync of m_nSubclassID.
 
-    static uint16_t s_lastKnifeDefIndex = 0;
+    static uint16_t  s_lastKnifeDefIndex = 0;
+    static uintptr_t s_lastWeaponPtr = 0;
+    static int       s_lastHealth = 0;
+    static int       s_subclassRefreshFrames = 0;
+    static int       s_respawnDelayFrames = 0;
 
     void ApplyKnifeSkins() {
         ResolveEngineFunctions();
@@ -647,12 +630,21 @@ namespace skins {
         uint16_t def_index = GetDefIndex(weapon);
         if (!IsKnife(def_index) && !IsDefaultKnife(def_index)) return;
 
+        // ---- Entity pointer change: new entity, reset state and bail this frame ----
+        if (weapon != s_lastWeaponPtr) {
+            s_lastKnifeDefIndex = 0;
+            s_subclassRefreshFrames = 0;
+            s_lastWeaponPtr = weapon;
+            debug_console::Console::Get().Info(
+                "[KNIFE] New weapon entity (0x%llX), state reset — skipping this frame", weapon);
+            return;
+        }
+
         std::vector<LoadoutItem> loadout;
         try { loadout = ReadLoadout(); }
         catch (...) {}
         uint8_t team = GetLocalTeam();
 
-        // Determine target knife: melee loadout slot preferred, else config selection
         uint16_t knifeDefIndex = 0;
         const LoadoutItem* melee = FindMeleeItem(loadout, team);
         if (melee && melee->def_index >= 500)
@@ -662,11 +654,9 @@ namespace skins {
         else
             return;
 
-        // Reference: if (subclassMap.find(knifeDefIndex) == subclassMap.end()) return;
         const KnifeData* kd = GetKnifeData(knifeDefIndex);
         if (!kd) return;
 
-        // Reference: copy item IDs from pInLoadout to pWeaponItemView
         if (melee && melee->item_id != 0) {
             *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = melee->item_id;
             *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = melee->item_id_high;
@@ -680,7 +670,6 @@ namespace skins {
         *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = false;
         *reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
 
-        // Knife skin fallback fields from config
         auto skin_cfg = user_skins.find(knifeDefIndex);
         if (skin_cfg != user_skins.end()) {
             *reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = skin_cfg->second.paint_kit;
@@ -690,40 +679,39 @@ namespace skins {
                 skin_cfg->second.stattrak ? skin_cfg->second.stattrak_count : -1;
         }
 
-        // Reference: if (nLastKnifeDefIndex != knifeDefIndex) — ONE TIME on type change
         if (s_lastKnifeDefIndex != knifeDefIndex) {
             *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
             *reinterpret_cast<unsigned long*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
-            // Reference: pWeapon->UpdateSubClass();
-			CallUpdateSubclassSafe(weapon);
+            CallUpdateSubclassSafe(weapon);
+            s_subclassRefreshFrames = 5;
             s_lastKnifeDefIndex = knifeDefIndex;
-            debug_console::Console::Get().Success("[KNIFE] Type change -> def=%u subclass=0x%X model=%s",
+            debug_console::Console::Get().Success(
+                "[KNIFE] Type change -> def=%u subclass=0x%X model=%s",
                 knifeDefIndex, kd->subclass_hash, kd->model_path);
         }
 
-        // EVERY FRAME: re-write def_index + subclass (network resets them each tick)
         *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
         *reinterpret_cast<unsigned long*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
-         // Reference: pWeapon->set_model(knifeModel)
-        try {
 
-            CallSetModel(weapon, kd->model_path);
-
+        if (s_subclassRefreshFrames > 0) {
+            CallUpdateSubclassSafe(weapon);
+            s_subclassRefreshFrames--;
+            debug_console::Console::Get().Debug(
+                "[KNIFE] Burst UpdateSubclass, frames left: %d", s_subclassRefreshFrames);
         }
+
+        try { CallSetModel(weapon, kd->model_path); }
         catch (...) {}
 
-        // Also set model on arms (hands) entity
-        // uintptr_t arms = GetArmsEntity();
-        //if (arms) { try { CallSetModel(arms, kd->model_path); } catch (...) {} }
-
-        // Reference: node->set_mesh_group_mask(2)
         uintptr_t node = GetSceneNode(weapon);
         if (node) SetMeshGroupMask(node, 2);
-        uintptr_t arms = GetArmsEntity();
-        if (arms) SetMeshGroupMask(GetSceneNode(arms), 2);
-        //if (arms) { uintptr_t an = GetSceneNode(arms); if (an) SetMeshGroupMask(an, 2); }
 
-        // Reference: pWeapon->UpdateComposite(1); pWeapon->UpdateCompositeSec(1);
+        uintptr_t arms = GetArmsEntity();
+        if (arms) {
+            uintptr_t arms_node = GetSceneNode(arms);
+            if (arms_node) SetMeshGroupMask(arms_node, 2);
+        }
+
         try {
             auto result = sdk::CallVFunc<7u, void*>(reinterpret_cast<void*>(weapon), 1);
             if (result)
@@ -734,6 +722,7 @@ namespace skins {
         catch (...) {
             debug_console::Console::Get().Warning("[KNIFE] Failed to call UpdateComposite via vfunc");
         }
+
         try {
             auto result = sdk::CallVFunc<105u, void*>(reinterpret_cast<void*>(weapon), 1);
             if (result)
@@ -744,7 +733,6 @@ namespace skins {
         catch (...) {
             debug_console::Console::Get().Warning("[KNIFE] Failed to call UpdateCompositeSec via vfunc");
         }
-        
     }
 
     // ==================== APPLY GLOVES ====================
@@ -760,13 +748,11 @@ namespace skins {
         catch (...) {}
         uint8_t team = GetLocalTeam();
 
-        // Find glove loadout slot (slot 41)
         const LoadoutItem* gl = nullptr;
         for (const auto& li : loadout)
             if (li.team == team && li.slot == 41) { gl = &li; break; }
 
         if (gl && gl->item_id != 0) {
-            // Reference: copy from inventory loadout item to m_EconGloves
             *reinterpret_cast<uint16_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex) = gl->def_index;
             *reinterpret_cast<uint64_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemID) = gl->item_id;
             *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh) = gl->item_id_high;
@@ -777,7 +763,6 @@ namespace skins {
             *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bRestoreCustomMaterialAfterPrecache) = true;
         }
         else if (selected_glove_kit > 0) {
-            // Legacy fallback: no inventory item, write directly
             *reinterpret_cast<uint16_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex) = 5028;
             *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh) = (uint32_t)-1;
             *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDLow) = (uint32_t)-1;
@@ -787,76 +772,68 @@ namespace skins {
         }
         else return;
 
-        // Reference: local_player->m_bNeedToReApplyGloves() = true
         *reinterpret_cast<bool*>(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_bNeedToReApplyGloves) = true;
     }
 
     // ==================== MAIN TICK ====================
-    // Called from hkPresent every frame. Matches reference dllmain.cpp call order.
-
     void ApplyAllSkins() {
         if (!game_state::IsInGame()) return;
 
+        // ---- Safe health read ----
+        // GetLocalPawn() does an IsReadablePtr check internally, but the pawn can be freed
+        // between that check and our own dereference — especially on a kill command where
+        // CS2 tears down the pawn entity mid-frame. SafeReadInt re-validates at the exact
+        // point of the read, so a freed pawn produces health=0 rather than a crash.
         uintptr_t localPawn = GetLocalPawn();
-		int health = localPawn ? *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) : 0;
-        if (health < 1) return;
+        int health = 0;
+        if (localPawn)
+            SafeReadInt(localPawn + OFF_HEALTH, health); // returns false and leaves health=0 if freed
+
+        // ---- Death / kill detection ----
+        // Triggers on: normal death, kill command, disconnect during life.
+        // Any transition to health <= 0 resets knife state and arms a delay so we never
+        // write into a weapon entity that CS2 is in the middle of destroying or rebuilding.
+        if (s_lastHealth > 0 && health <= 0) {
+            s_lastKnifeDefIndex = 0;
+            s_lastWeaponPtr = 0;
+            s_subclassRefreshFrames = 0;
+            s_respawnDelayFrames = 3;
+            debug_console::Console::Get().Info(
+                "[KNIFE] Death detected (health %d -> %d) — delaying knife apply for %d frames",
+                s_lastHealth, health, s_respawnDelayFrames);
+        }
+        s_lastHealth = health;
+
+        if (health <= 0) return;
+
+        // ---- Initialization delay gate ----
+        // Do not call ApplyKnifeSkins while the weapon entity may still be mid-construction
+        // after a respawn. Decremented each frame, apply resumes when it hits 0.
+        if (s_respawnDelayFrames > 0) {
+            s_respawnDelayFrames--;
+            debug_console::Console::Get().Debug(
+                "[KNIFE] Respawn delay active, frames remaining: %d", s_respawnDelayFrames);
+            return;
+        }
 
         try { ApplyKnifeSkins(); }
         catch (...) {}
 
-        // Reference: ApplyWeaponSkins — inventory-injection path
-        // Rate-limited to avoid thrashing UpdateComposite every frame
         static auto g_last_apply = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();
-        bool should_apply = std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_apply).count() >= 2000;
+        bool should_apply =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_apply).count() >= 2000;
         if (!should_apply) return;
         g_last_apply = now;
 
-        // Reference: ApplyKnifeSkins — every frame, no rate limit
-        
-        
-
-        /*try { ApplyWeaponSkins(); }
-        catch (...) {}*/
-
-        // Config-based fallback path (user_skins map — for weapons not in g_vecAddedItemsIDs)
-        /*try {
-            auto weapons = GetAllWeapons();
-            for (auto w : weapons) {
-                if (!w) continue;
-                uint16_t def = GetDefIndex(w);
-                if (IsKnife(def) || IsDefaultKnife(def)) continue;
-                if (def >= WEAPON_FLASHBANG && def <= WEAPON_INCGRENADE) continue;
-                if (def == WEAPON_C4 || def == WEAPON_TASER) continue;
-
-                auto cfg = user_skins.find(def);
-                if (cfg == user_skins.end()) continue;
-
-                try {
-                    *reinterpret_cast<int*>(w + OFF_FALLBACK_PAINT) = cfg->second.paint_kit;
-                    *reinterpret_cast<int*>(w + OFF_FALLBACK_SEED) = cfg->second.seed;
-                    *reinterpret_cast<float*>(w + OFF_FALLBACK_WEAR) = cfg->second.wear;
-                    *reinterpret_cast<bool*>(w + OFF_DISALLOW_SOC) = false;
-                    *reinterpret_cast<bool*>(w + OFF_RESTORE_MATERIAL) = true;
-                    if (cfg->second.stattrak) {
-                        *reinterpret_cast<int*>(w + OFF_FALLBACK_STATTRAK) = cfg->second.stattrak_count;
-                        *reinterpret_cast<int*>(w + OFF_ENTITY_QUALITY) = 9;
-                    }
-                    else {
-                        *reinterpret_cast<int*>(w + OFF_FALLBACK_STATTRAK) = -1;
-                    }
-                    uintptr_t node = GetSceneNode(w);
-                    if (node) SetMeshGroupMask(node, cfg->second.paint_kit > 0 ? 2ULL : 1ULL);
-                    CallUpdateComposite(w, true);
-                }
-                catch (...) {}
-            }
-        }
-        catch (...) {}*/
+        /*try { ApplyWeaponSkins(); } catch (...) {}*/
     }
 
     void ApplyKnife() {
-        s_lastKnifeDefIndex = 0; // reset so next frame triggers type-change path
+        s_lastKnifeDefIndex = 0;
+        s_lastWeaponPtr = 0;
+        s_subclassRefreshFrames = 0;
+        s_respawnDelayFrames = 0;
         debug_console::Console::Get().Success("[KNIFE] Selection changed, refreshing next frame");
     }
 
@@ -910,8 +887,8 @@ namespace skins {
             while ((pos = data.find('{', pos)) != std::string::npos) {
                 auto end = data.find('}', pos); if (end == std::string::npos) break;
                 auto obj = data.substr(pos, end - pos + 1);
-                int wid = ExtractInt(obj, "weapon_defindex");
-                int pk = ExtractInt(obj, "paint");
+                int  wid = ExtractInt(obj, "weapon_defindex");
+                int  pk = ExtractInt(obj, "paint");
                 auto pn = ExtractStr(obj, "paint_name");
                 if (wid > 0 && pk > 0 && !pn.empty()) {
                     auto sn = pn;
@@ -931,7 +908,7 @@ namespace skins {
             while ((pos = gdata.find('{', pos)) != std::string::npos) {
                 auto end = gdata.find('}', pos); if (end == std::string::npos) break;
                 auto obj = gdata.substr(pos, end - pos + 1);
-                int pk = ExtractInt(obj, "paint");
+                int  pk = ExtractInt(obj, "paint");
                 auto pn = ExtractStr(obj, "paint_name");
                 if (pk > 0 && !pn.empty()) {
                     auto gn = pn;
@@ -970,8 +947,13 @@ namespace skins {
 
     // ==================== BATCH OPS ====================
     void ClearAllSkins() {
-        user_skins.clear(); g_vecAddedItemsIDs.clear();
-        selected_glove_kit = 0; s_lastKnifeDefIndex = 0;
+        user_skins.clear();
+        g_vecAddedItemsIDs.clear();
+        selected_glove_kit = 0;
+        s_lastKnifeDefIndex = 0;
+        s_lastWeaponPtr = 0;
+        s_subclassRefreshFrames = 0;
+        s_respawnDelayFrames = 0;
         debug_console::Console::Get().Info("[SKIN] Cleared");
     }
 
@@ -988,51 +970,85 @@ namespace skins {
     // ==================== NAMES / RARITIES ====================
     const char* GetWeaponName(int id) {
         switch (id) {
-        case WEAPON_AK47: return "AK-47"; case WEAPON_M4A1: return "M4A4";
-        case WEAPON_M4A1_SILENCER: return "M4A1-S"; case WEAPON_AWP: return "AWP";
-        case WEAPON_DEAGLE: return "Desert Eagle"; case WEAPON_GLOCK: return "Glock-18";
-        case WEAPON_USP_SILENCER: return "USP-S"; case WEAPON_P250: return "P250";
-        case WEAPON_FIVESEVEN: return "Five-SeveN"; case WEAPON_TEC9: return "Tec-9";
-        case WEAPON_CZ75A: return "CZ75-Auto"; case WEAPON_REVOLVER: return "R8 Revolver";
-        case WEAPON_ELITE: return "Dual Berettas"; case WEAPON_HKP2000: return "P2000";
-        case WEAPON_NOVA: return "Nova"; case WEAPON_XM1014: return "XM1014";
-        case WEAPON_SAWEDOFF: return "Sawed-Off"; case WEAPON_MAG7: return "MAG-7";
-        case WEAPON_M249: return "M249"; case WEAPON_NEGEV: return "Negev";
-        case WEAPON_MAC10: return "MAC-10"; case WEAPON_MP9: return "MP9";
-        case WEAPON_MP7: return "MP7"; case WEAPON_MP5SD: return "MP5-SD";
-        case WEAPON_UMP45: return "UMP-45"; case WEAPON_P90: return "P90";
-        case WEAPON_BIZON: return "PP-Bizon"; case WEAPON_FAMAS: return "FAMAS";
-        case WEAPON_GALILAR: return "Galil AR"; case WEAPON_AUG: return "AUG";
-        case WEAPON_SG556: return "SG 553"; case WEAPON_SSG08: return "SSG 08";
-        case WEAPON_SCAR20: return "SCAR-20"; case WEAPON_G3SG1: return "G3SG1";
-        case WEAPON_KNIFE_BAYONET: return "Bayonet"; case WEAPON_KNIFE_CLASSIC: return "Classic Knife";
-        case WEAPON_KNIFE_FLIP: return "Flip Knife"; case WEAPON_KNIFE_GUT: return "Gut Knife";
-        case WEAPON_KNIFE_KARAMBIT: return "Karambit"; case WEAPON_KNIFE_M9_BAYONET: return "M9 Bayonet";
-        case WEAPON_KNIFE_TACTICAL: return "Huntsman Knife"; case WEAPON_KNIFE_FALCHION: return "Falchion Knife";
-        case WEAPON_KNIFE_SURVIVAL_BOWIE: return "Bowie Knife"; case WEAPON_KNIFE_BUTTERFLY: return "Butterfly Knife";
-        case WEAPON_KNIFE_PUSH: return "Shadow Daggers"; case WEAPON_KNIFE_CORD: return "Paracord Knife";
-        case WEAPON_KNIFE_CANIS: return "Survival Knife"; case WEAPON_KNIFE_URSUS: return "Ursus Knife";
-        case WEAPON_KNIFE_GYPSY_JACKKNIFE: return "Navaja Knife"; case WEAPON_KNIFE_OUTDOOR: return "Nomad Knife";
-        case WEAPON_KNIFE_STILETTO: return "Stiletto Knife"; case WEAPON_KNIFE_WIDOWMAKER: return "Talon Knife";
-        case WEAPON_KNIFE_SKELETON: return "Skeleton Knife"; case WEAPON_KNIFE_KUKRI: return "Kukri Knife";
-        case WEAPON_KNIFE_CT: return "CT Knife"; case WEAPON_KNIFE_T: return "T Knife";
-        case WEAPON_TASER: return "Zeus x27"; default: return "Unknown";
+        case WEAPON_AK47:                  return "AK-47";
+        case WEAPON_M4A1:                  return "M4A4";
+        case WEAPON_M4A1_SILENCER:         return "M4A1-S";
+        case WEAPON_AWP:                   return "AWP";
+        case WEAPON_DEAGLE:                return "Desert Eagle";
+        case WEAPON_GLOCK:                 return "Glock-18";
+        case WEAPON_USP_SILENCER:          return "USP-S";
+        case WEAPON_P250:                  return "P250";
+        case WEAPON_FIVESEVEN:             return "Five-SeveN";
+        case WEAPON_TEC9:                  return "Tec-9";
+        case WEAPON_CZ75A:                 return "CZ75-Auto";
+        case WEAPON_REVOLVER:              return "R8 Revolver";
+        case WEAPON_ELITE:                 return "Dual Berettas";
+        case WEAPON_HKP2000:               return "P2000";
+        case WEAPON_NOVA:                  return "Nova";
+        case WEAPON_XM1014:                return "XM1014";
+        case WEAPON_SAWEDOFF:              return "Sawed-Off";
+        case WEAPON_MAG7:                  return "MAG-7";
+        case WEAPON_M249:                  return "M249";
+        case WEAPON_NEGEV:                 return "Negev";
+        case WEAPON_MAC10:                 return "MAC-10";
+        case WEAPON_MP9:                   return "MP9";
+        case WEAPON_MP7:                   return "MP7";
+        case WEAPON_MP5SD:                 return "MP5-SD";
+        case WEAPON_UMP45:                 return "UMP-45";
+        case WEAPON_P90:                   return "P90";
+        case WEAPON_BIZON:                 return "PP-Bizon";
+        case WEAPON_FAMAS:                 return "FAMAS";
+        case WEAPON_GALILAR:               return "Galil AR";
+        case WEAPON_AUG:                   return "AUG";
+        case WEAPON_SG556:                 return "SG 553";
+        case WEAPON_SSG08:                 return "SSG 08";
+        case WEAPON_SCAR20:                return "SCAR-20";
+        case WEAPON_G3SG1:                 return "G3SG1";
+        case WEAPON_KNIFE_BAYONET:         return "Bayonet";
+        case WEAPON_KNIFE_CLASSIC:         return "Classic Knife";
+        case WEAPON_KNIFE_FLIP:            return "Flip Knife";
+        case WEAPON_KNIFE_GUT:             return "Gut Knife";
+        case WEAPON_KNIFE_KARAMBIT:        return "Karambit";
+        case WEAPON_KNIFE_M9_BAYONET:      return "M9 Bayonet";
+        case WEAPON_KNIFE_TACTICAL:        return "Huntsman Knife";
+        case WEAPON_KNIFE_FALCHION:        return "Falchion Knife";
+        case WEAPON_KNIFE_SURVIVAL_BOWIE:  return "Bowie Knife";
+        case WEAPON_KNIFE_BUTTERFLY:       return "Butterfly Knife";
+        case WEAPON_KNIFE_PUSH:            return "Shadow Daggers";
+        case WEAPON_KNIFE_CORD:            return "Paracord Knife";
+        case WEAPON_KNIFE_CANIS:           return "Survival Knife";
+        case WEAPON_KNIFE_URSUS:           return "Ursus Knife";
+        case WEAPON_KNIFE_GYPSY_JACKKNIFE: return "Navaja Knife";
+        case WEAPON_KNIFE_OUTDOOR:         return "Nomad Knife";
+        case WEAPON_KNIFE_STILETTO:        return "Stiletto Knife";
+        case WEAPON_KNIFE_WIDOWMAKER:      return "Talon Knife";
+        case WEAPON_KNIFE_SKELETON:        return "Skeleton Knife";
+        case WEAPON_KNIFE_KUKRI:           return "Kukri Knife";
+        case WEAPON_KNIFE_CT:              return "CT Knife";
+        case WEAPON_KNIFE_T:               return "T Knife";
+        case WEAPON_TASER:                 return "Zeus x27";
+        default:                           return "Unknown";
         }
     }
 
     const char* GetRarityName(SkinRarity r) {
         switch (r) {
-        case RARITY_COMMON: return "Consumer Grade"; case RARITY_UNCOMMON: return "Industrial Grade";
-        case RARITY_RARE: return "Mil-Spec Grade"; case RARITY_MYTHICAL: return "Restricted";
-        case RARITY_LEGENDARY: return "Classified"; case RARITY_ANCIENT: return "Covert";
-        case RARITY_CONTRABAND: return "Contraband"; default: return "Unknown";
+        case RARITY_COMMON:     return "Consumer Grade";
+        case RARITY_UNCOMMON:   return "Industrial Grade";
+        case RARITY_RARE:       return "Mil-Spec Grade";
+        case RARITY_MYTHICAL:   return "Restricted";
+        case RARITY_LEGENDARY:  return "Classified";
+        case RARITY_ANCIENT:    return "Covert";
+        case RARITY_CONTRABAND: return "Contraband";
+        default:                return "Unknown";
         }
     }
 
     const float* GetRarityColor(SkinRarity r) {
         static float c[][4] = {
-            {0.7f,0.7f,0.7f,1.f},{0.4f,0.6f,0.9f,1.f},{0.3f,0.4f,0.8f,1.f},
-            {0.5f,0.3f,0.8f,1.f},{0.8f,0.3f,0.6f,1.f},{0.9f,0.2f,0.2f,1.f},{0.95f,0.8f,0.1f,1.f}
+            {0.7f,0.7f,0.7f,1.f},  {0.4f,0.6f,0.9f,1.f}, {0.3f,0.4f,0.8f,1.f},
+            {0.5f,0.3f,0.8f,1.f},  {0.8f,0.3f,0.6f,1.f}, {0.9f,0.2f,0.2f,1.f},
+            {0.95f,0.8f,0.1f,1.f}
         };
         return (r >= 0 && r <= RARITY_CONTRABAND) ? c[r] : c[0];
     }
@@ -1074,7 +1090,6 @@ namespace skins {
     bool IsSetModelAvailable() { return g_fnSetModel != nullptr; }
     int  GetLoadoutItemCount() { try { return (int)ReadLoadout().size(); } catch (...) { return 0; } }
 
-    // Legacy single-weapon apply (still used by some UI paths)
     void ApplySkin(void* weapon, int weapon_id) {
         if (!weapon) return;
         auto it = user_skins.find(weapon_id);
