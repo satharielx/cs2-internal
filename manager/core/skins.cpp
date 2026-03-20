@@ -1,11 +1,3 @@
-/*
-Module Name: Skin application and engine function resolution (pattern-based)
-Authors: sathariel, martinmarinov
-Product: Nephilimgate Multicheat
-Tools used: imgui, a2x-cs2dumper
-© 2026 sathariel & martinmarinov
-*/
-
 #include "skins.h"
 #include "interfaces.h"
 #include "game_state.h"
@@ -23,7 +15,6 @@ Tools used: imgui, a2x-cs2dumper
 #include "../sdk/source2sdk_offsets.h"
 #include "debug_console.h"
 
-
 enum ScanType {
     NORMAL_SCAN,
     CALL_SCAN
@@ -34,6 +25,8 @@ enum Module {
     TIER0,
     ENGINEDLL
 };
+
+//DO NOT CHANGE THESE MACROS MANUALLY UPDATED
 
 // C_BaseModelEntity_SetModel(C_BaseModelEntity* entity, const char* modelSzName);
 #define SET_MODEL_SIGNATURE "40 53 48 83 EC ? 48 8B D9 4C 8B C2 48 8B 0D ? ? ? ? 48 8D 54 24 40"
@@ -77,6 +70,7 @@ enum Module {
 
 namespace skins {
 
+    // ==================== SAFE POINTER CHECK ====================
     static bool IsReadablePtr(uintptr_t ptr) {
         if (ptr == 0 || ptr < 0x10000 || ptr == 0xFFFFFFFFFFFFFFFFull) return false;
         MEMORY_BASIC_INFORMATION mbi{};
@@ -92,6 +86,7 @@ namespace skins {
         return true;
     }
 
+    // ==================== OFFSET CHAIN ====================
     static constexpr std::ptrdiff_t ECON_ITEM_VIEW_BASE =
         cs2_dumper::schemas::client_dll::C_EconEntity::m_AttributeManager +
         cs2_dumper::schemas::client_dll::C_AttributeContainer::m_Item;
@@ -126,29 +121,30 @@ namespace skins {
     static constexpr std::ptrdiff_t OFF_LOADOUT_VEC =
         cs2_dumper::schemas::client_dll::CCSPlayerController_InventoryServices::m_vecNetworkableLoadout;
 
-    struct KnifeData { int weapon_id; unsigned long subclass_hash; const char* model_path; };
+    // ==================== KNIFE DATA ====================
+    struct KnifeData { int weapon_id; uint32_t subclass_hash; const char* model_path; };
 
     static const KnifeData g_knife_data[] = {
-        { WEAPON_KNIFE_BAYONET,         3933374535ul, "weapons/models/knife/knife_bayonet/weapon_knife_bayonet.vmdl" },
-        { WEAPON_KNIFE_CLASSIC,         3787235507ul, "weapons/models/knife/knife_css/weapon_knife_css.vmdl" },
-        { WEAPON_KNIFE_FLIP,            4046390180ul, "weapons/models/knife/knife_flip/weapon_knife_flip.vmdl" },
-        { WEAPON_KNIFE_GUT,             2047704618ul, "weapons/models/knife/knife_gut/weapon_knife_gut.vmdl" },
-        { WEAPON_KNIFE_KARAMBIT,        1731408398ul, "weapons/models/knife/knife_karambit/weapon_knife_karambit.vmdl" },
-        { WEAPON_KNIFE_M9_BAYONET,      1638561588ul, "weapons/models/knife/knife_m9/weapon_knife_m9.vmdl" },
-        { WEAPON_KNIFE_TACTICAL,        2282479884ul, "weapons/models/knife/knife_tactical/weapon_knife_tactical.vmdl" },
-        { WEAPON_KNIFE_FALCHION,        3412259219ul, "weapons/models/knife/knife_falchion/weapon_knife_falchion.vmdl" },
-        { WEAPON_KNIFE_SURVIVAL_BOWIE,  2511498851ul, "weapons/models/knife/knife_bowie/weapon_knife_bowie.vmdl" },
-        { WEAPON_KNIFE_BUTTERFLY,       1353709123ul, "weapons/models/knife/knife_butterfly/weapon_knife_butterfly.vmdl" },
-        { WEAPON_KNIFE_PUSH,            4269888884ul, "weapons/models/knife/knife_push/weapon_knife_push.vmdl" },
-        { WEAPON_KNIFE_CORD,            1105782941ul, "weapons/models/knife/knife_cord/weapon_knife_cord.vmdl" },
-        { WEAPON_KNIFE_CANIS,           275962944ul,  "weapons/models/knife/knife_canis/weapon_knife_canis.vmdl" },
-        { WEAPON_KNIFE_URSUS,           1338637359ul, "weapons/models/knife/knife_ursus/weapon_knife_ursus.vmdl" },
-        { WEAPON_KNIFE_GYPSY_JACKKNIFE, 3230445913ul, "weapons/models/knife/knife_navaja/weapon_knife_navaja.vmdl" },
-        { WEAPON_KNIFE_OUTDOOR,         3206681373ul, "weapons/models/knife/knife_outdoor/weapon_knife_outdoor.vmdl" },
-        { WEAPON_KNIFE_STILETTO,        2595277776ul, "weapons/models/knife/knife_stiletto/weapon_knife_stiletto.vmdl" },
-        { WEAPON_KNIFE_WIDOWMAKER,      4029975521ul, "weapons/models/knife/knife_talon/weapon_knife_talon.vmdl" },
-        { WEAPON_KNIFE_SKELETON,        365028728ul,  "weapons/models/knife/knife_skeleton/weapon_knife_skeleton.vmdl" },
-        { WEAPON_KNIFE_KUKRI,           3845286452ul, "weapons/models/knife/knife_kukri/weapon_knife_kukri.vmdl" },
+        { WEAPON_KNIFE_BAYONET,         3933374535, "weapons/models/knife/knife_bayonet/weapon_knife_bayonet.vmdl" },
+        { WEAPON_KNIFE_CLASSIC,         3787235507, "weapons/models/knife/knife_css/weapon_knife_css.vmdl" },
+        { WEAPON_KNIFE_FLIP,            4046390180, "weapons/models/knife/knife_flip/weapon_knife_flip.vmdl" },
+        { WEAPON_KNIFE_GUT,             2047704618, "weapons/models/knife/knife_gut/weapon_knife_gut.vmdl" },
+        { WEAPON_KNIFE_KARAMBIT,        1731408398, "weapons/models/knife/knife_karambit/weapon_knife_karambit.vmdl" },
+        { WEAPON_KNIFE_M9_BAYONET,      1638561588, "weapons/models/knife/knife_m9/weapon_knife_m9.vmdl" },
+        { WEAPON_KNIFE_TACTICAL,        2282479884, "weapons/models/knife/knife_tactical/weapon_knife_tactical.vmdl" },
+        { WEAPON_KNIFE_FALCHION,        3412259219, "weapons/models/knife/knife_falchion/weapon_knife_falchion.vmdl" },
+        { WEAPON_KNIFE_SURVIVAL_BOWIE,  2511498851, "weapons/models/knife/knife_bowie/weapon_knife_bowie.vmdl" },
+        { WEAPON_KNIFE_BUTTERFLY,       1353709123, "weapons/models/knife/knife_butterfly/weapon_knife_butterfly.vmdl" },
+        { WEAPON_KNIFE_PUSH,            4269888884, "weapons/models/knife/knife_push/weapon_knife_push.vmdl" },
+        { WEAPON_KNIFE_CORD,            1105782941, "weapons/models/knife/knife_cord/weapon_knife_cord.vmdl" },
+        { WEAPON_KNIFE_CANIS,           275962944,  "weapons/models/knife/knife_canis/weapon_knife_canis.vmdl" },
+        { WEAPON_KNIFE_URSUS,           1338637359, "weapons/models/knife/knife_ursus/weapon_knife_ursus.vmdl" },
+        { WEAPON_KNIFE_GYPSY_JACKKNIFE, 3230445913, "weapons/models/knife/knife_navaja/weapon_knife_navaja.vmdl" },
+        { WEAPON_KNIFE_OUTDOOR,         3206681373, "weapons/models/knife/knife_outdoor/weapon_knife_outdoor.vmdl" },
+        { WEAPON_KNIFE_STILETTO,        2595277776, "weapons/models/knife/knife_stiletto/weapon_knife_stiletto.vmdl" },
+        { WEAPON_KNIFE_WIDOWMAKER,      4029975521, "weapons/models/knife/knife_talon/weapon_knife_talon.vmdl" },
+        { WEAPON_KNIFE_SKELETON,        365028728,  "weapons/models/knife/knife_skeleton/weapon_knife_skeleton.vmdl" },
+        { WEAPON_KNIFE_KUKRI,           3845286452, "weapons/models/knife/knife_kukri/weapon_knife_kukri.vmdl" },
     };
 
     static const KnifeData* GetKnifeData(int weapon_id) {
@@ -156,6 +152,8 @@ namespace skins {
             if (kd.weapon_id == weapon_id) return &kd;
         return nullptr;
     }
+
+    // ==================== ENGINE FUNCTION POINTERS ====================
 
     using fnSetModel = void(__fastcall*)(void*, const char*);
     using fnUpdateSubClass = void(__fastcall*)(void*);
@@ -295,6 +293,8 @@ namespace skins {
         }
     }
 
+    // ==================== SAFE CALLERS ====================
+
     static void CallSetModel(uintptr_t ent, const char* model) {
         if (!ent || !IsReadablePtr(ent) || !model) return;
         if (!g_fnSetModel || reinterpret_cast<uintptr_t>(g_fnSetModel) <= 0x10000) return;
@@ -332,6 +332,7 @@ namespace skins {
         return false;
     }
 
+    // ==================== SCENE NODE ====================
     static uintptr_t GetSceneNode(uintptr_t ent) {
         if (!ent || !IsReadablePtr(ent)) return 0;
         uintptr_t n = *(uintptr_t*)(ent + OFF_GAME_SCENE_NODE);
@@ -347,6 +348,7 @@ namespace skins {
         *reinterpret_cast<uint64_t*>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK) = mask;
     }
 
+    // ==================== ENTITY HELPERS ====================
     static uintptr_t GetLocalPawn() {
         uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
         if (!base) return 0;
@@ -423,6 +425,7 @@ namespace skins {
         return p ? *(uint8_t*)(p + OFF_TEAM_NUM) : 0;
     }
 
+    // ==================== INVENTORY BACKING ====================
     struct AddedItemInfo {
         uint64_t id;
         float    paintKit;
@@ -455,6 +458,8 @@ namespace skins {
         char* modelName = weaponData ? (char*)(weaponData + 0x640) : nullptr;
         return (modelName && IsReadablePtr((uintptr_t)modelName)) ? modelName : nullptr;
     }
+
+    // ==================== LOADOUT READING ====================
     struct LoadoutItem {
         uintptr_t item_view;
         uint16_t  def_index;
@@ -509,6 +514,8 @@ namespace skins {
             if (li.team == team && li.slot == 0) return &li;
         return nullptr;
     }
+
+    // ==================== UPDATESUBCLASS QUEUE ====================
     static std::mutex             s_subclass_mutex;
     static std::vector<uintptr_t> s_subclass_queue;
 
@@ -532,6 +539,8 @@ namespace skins {
             CallUpdateSubclassSafe(jobs[i]);
         }
     }
+
+    // ==================== APPLY WEAPON SKINS ====================
     void ApplyWeaponSkins() {
         ResolveEngineFunctions();
         if (!game_state::IsInGame()) return;
@@ -583,15 +592,41 @@ namespace skins {
         catch (...) {}
     }
 
+    // ==================== APPLY KNIFE SKINS ====================
+    //
+    // Call budget per state:
+    //
+    //   TYPE CHANGE frame (s_lastKnifeDefIndex != knifeDefIndex):
+    //     def_index write, subclass_hash write, UpdateSubclass x1,
+    //     SetModel x1, MeshGroupMask x1, UpdateComposite vfunc x1, UpdateCompositeSec vfunc x1
+    //     -> arms MeshGroupMask x1
+    //     s_subclassRefreshFrames = 5, s_compositeRefreshFrames = 3
+    //
+    //   REFRESH frame (s_subclassRefreshFrames > 0 || s_compositeRefreshFrames > 0):
+    //     def_index write, subclass_hash write always (server resets each tick)
+    //     UpdateSubclass if s_subclassRefreshFrames > 0
+    //     UpdateComposite vfuncs if s_compositeRefreshFrames > 0
+    //     NO SetModel (already set, calling again causes flicker)
+    //
+    //   STEADY frame (both counters == 0):
+    //     def_index write, subclass_hash write only — no engine calls at all
+    //     This is the safe steady state. The model is already correct.
+    //     MeshGroupMask re-applied every frame (cheap direct write, no engine call).
+
     static uint16_t  s_lastKnifeDefIndex = 0;
     static uintptr_t s_lastWeaponPtr = 0;
     static int       s_lastHealth = 0;
     static int       s_subclassRefreshFrames = 0;
+    static int       s_compositeRefreshFrames = 0; // gates UpdateComposite vfunc calls
     static int       s_respawnDelayFrames = 0;
+	static bool      engineFunctionsResolved = false;
 
     void ApplyKnifeSkins() {
-        ResolveEngineFunctions();
+
+        if (!engineFunctionsResolved) { ResolveEngineFunctions(); engineFunctionsResolved = true; }
+        
         if (!game_state::IsInGame()) return;
+
 
         uintptr_t weapon = GetActiveWeapon();
         if (!weapon) return;
@@ -599,10 +634,11 @@ namespace skins {
         uint16_t def_index = GetDefIndex(weapon);
         if (!IsKnife(def_index) && !IsDefaultKnife(def_index)) return;
 
-        // ---- Entity pointer change: new entity, reset state and bail this frame ----
+        // ---- New entity: reset state, skip this frame ----
         if (weapon != s_lastWeaponPtr) {
             s_lastKnifeDefIndex = 0;
             s_subclassRefreshFrames = 0;
+            s_compositeRefreshFrames = 0;
             s_lastWeaponPtr = weapon;
             debug_console::Console::Get().Info(
                 "[KNIFE] New weapon entity (0x%llX), state reset — skipping this frame", weapon);
@@ -626,6 +662,7 @@ namespace skins {
         const KnifeData* kd = GetKnifeData(knifeDefIndex);
         if (!kd) return;
 
+        // ---- Item ID / flags (every frame, cheap writes) ----
         if (melee && melee->item_id != 0) {
             *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = melee->item_id;
             *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = melee->item_id_high;
@@ -636,9 +673,10 @@ namespace skins {
             *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = (uint32_t)-1;
             *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = (uint32_t)-1;
         }
-        *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = false;
+        *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = true;
         *reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
 
+        // ---- Skin config (every frame, cheap writes) ----
         auto skin_cfg = user_skins.find(knifeDefIndex);
         if (skin_cfg != user_skins.end()) {
             *reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = skin_cfg->second.paint_kit;
@@ -648,22 +686,42 @@ namespace skins {
                 skin_cfg->second.stattrak ? skin_cfg->second.stattrak_count : -1;
         }
 
+        // ---- def_index + subclass: always re-write (server resets each tick) ----
+        *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
+        *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
+
+        // ---- MeshGroupMask: cheap direct write, safe every frame ----
+       
+
+        // ---- TYPE CHANGE: one-time engine calls ----
+        // SetModel, UpdateSubclass, UpdateComposite vfuncs — called ONCE on type change.
+        // Calling these every frame causes the material system to thrash and crash.
         if (s_lastKnifeDefIndex != knifeDefIndex) {
-            *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
-            *reinterpret_cast<unsigned long*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
-            CallUpdateSubclassSafe(weapon);
+            
             s_subclassRefreshFrames = 5;
+            s_compositeRefreshFrames = 3;
+
+            *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
+            *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
+
+            CallUpdateSubclassSafe(weapon);
+
             s_lastKnifeDefIndex = knifeDefIndex;
+
+            
             debug_console::Console::Get().Success(
                 "[KNIFE] Type change -> def=%u subclass=0x%X model=%s",
                 knifeDefIndex, kd->subclass_hash, kd->model_path);
+            
         }
 
-        *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
-        *reinterpret_cast<unsigned long*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
-
-        if (s_subclassRefreshFrames > 0) {
+       if (s_subclassRefreshFrames > 0) {
+            
             CallUpdateSubclassSafe(weapon);
+
+            try { CallSetModel(weapon, kd->model_path); }
+            catch (...) {}
+
             s_subclassRefreshFrames--;
             debug_console::Console::Get().Debug(
                 "[KNIFE] Burst UpdateSubclass, frames left: %d", s_subclassRefreshFrames);
@@ -674,7 +732,6 @@ namespace skins {
 
         uintptr_t node = GetSceneNode(weapon);
         if (node) SetMeshGroupMask(node, 2);
-
         uintptr_t arms = GetArmsEntity();
         if (arms) {
             uintptr_t arms_node = GetSceneNode(arms);
@@ -682,26 +739,61 @@ namespace skins {
         }
 
         try {
-            auto result = sdk::CallVFunc<7u, void*>(reinterpret_cast<void*>(weapon), 1);
-            if (result)
-                debug_console::Console::Get().Success("[KNIFE] Called UpdateComposite via vfunc");
-            else
-                debug_console::Console::Get().Warning("[KNIFE] Failed to call UpdateComposite via vfunc");
+            sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1);
+            debug_console::Console::Get().Debug("[KNIFE] UpdateComposite called on entity id: %ud", weapon);
         }
         catch (...) {
-            debug_console::Console::Get().Warning("[KNIFE] Failed to call UpdateComposite via vfunc");
+            debug_console::Console::Get().Error(
+                "[!][KNIFE] UpdateComposite failed calling on entity id: %d", weapon);
+        }
+        try {
+            sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1);
+
+            debug_console::Console::Get().Debug("[KNIFE] UpdateCompositeSec called on entity id: %d", weapon);
+        }
+        catch (...) {
+            debug_console::Console::Get().Error(
+                "[!][KNIFE] UpdateCompositeSec failed calling on entity id: %d", weapon);
         }
 
-        try {
-            auto result = sdk::CallVFunc<105u, void*>(reinterpret_cast<void*>(weapon), 1);
-            if (result)
-                debug_console::Console::Get().Success("[KNIFE] Called UpdateCompositeSec via vfunc");
-            else
-                debug_console::Console::Get().Warning("[KNIFE] Failed to call UpdateCompositeSec via vfunc");
-        }
-        catch (...) {
-            debug_console::Console::Get().Warning("[KNIFE] Failed to call UpdateCompositeSec via vfunc");
-        }
+
+        
+
+        // ---- BURST: UpdateSubclass for N frames after type change ----
+        // Beats server re-sync of m_nSubclassID without spamming engine calls forever.
+        
+
+        // ---- BURST: UpdateComposite vfuncs for N frames after type change ----
+        // Same idea — material system needs a few frames to settle after a model change.
+        // After that, do NOT call these again until the next type change.
+        /*if (s_compositeRefreshFrames > 0) {
+            try { 
+                sdk::CallVFunc<7u, void*>(reinterpret_cast<void*>(weapon), 1);
+                debug_console::Console::Get().Debug(
+                    "[KNIFE] UpdateComposite called on entity id: %d", weapon);
+            }
+            catch (...) {
+                debug_console::Console::Get().Error(
+                    "[!][KNIFE] UpdateComposite failed calling on entity id: %d", weapon);
+            }
+            try { 
+                sdk::CallVFunc<100u, void*>(reinterpret_cast<void*>(weapon), 1); 
+               
+                debug_console::Console::Get().Debug(
+                    "[KNIFE] UpdateCompositeSec called on entity id: %d", weapon);
+            }
+            catch (...) {
+                debug_console::Console::Get().Error(
+                    "[!][KNIFE] UpdateCompositeSec failed calling on entity id: %d", weapon);
+            }
+            s_compositeRefreshFrames--;
+            debug_console::Console::Get().Debug(
+                "[KNIFE] Burst composite, frames left: %d", s_compositeRefreshFrames);
+        }*/
+
+        // ---- STEADY STATE ----
+        // Both counters are 0. Only the cheap memory writes above run each frame.
+        // The model is already set, the material is already built — leave it alone.
     }
 
     // ==================== APPLY GLOVES ====================
@@ -748,24 +840,28 @@ namespace skins {
     void ApplyAllSkins() {
         if (!game_state::IsInGame()) return;
 
-        // ---- Safe health read ----
-        // GetLocalPawn() does an IsReadablePtr check internally, but the pawn can be freed
-        // between that check and our own dereference — especially on a kill command where
-        // CS2 tears down the pawn entity mid-frame. SafeReadInt re-validates at the exact
-        // point of the read, so a freed pawn produces health=0 rather than a crash.
         uintptr_t localPawn = GetLocalPawn();
         int health = 0;
         if (localPawn)
-            SafeReadInt(localPawn + OFF_HEALTH, health); // returns false and leaves health=0 if freed
+            SafeReadInt(localPawn + OFF_HEALTH, health);
 
-        // ---- Death / kill detection ----
-        // Triggers on: normal death, kill command, disconnect during life.
-        // Any transition to health <= 0 resets knife state and arms a delay so we never
-        // write into a weapon entity that CS2 is in the middle of destroying or rebuilding.
+        if (health > 0) {
+            try {
+				ApplyKnifeSkins();
+            }
+            catch(std::exception &e) {
+                debug_console::Console::Get().Error("[!][KNIFE] Exception in ApplyKnifeSkins: %s", e.what());
+            }
+            catch (...) {
+                debug_console::Console::Get().Error("[!][KNIFE] Unknown exception in ApplyKnifeSkins");
+			}
+        }
+
         if (s_lastHealth > 0 && health <= 0) {
             s_lastKnifeDefIndex = 0;
             s_lastWeaponPtr = 0;
             s_subclassRefreshFrames = 0;
+            s_compositeRefreshFrames = 0;
             s_respawnDelayFrames = 3;
             debug_console::Console::Get().Info(
                 "[KNIFE] Death detected (health %d -> %d) — delaying knife apply for %d frames",
@@ -775,9 +871,6 @@ namespace skins {
 
         if (health <= 0) return;
 
-        // ---- Initialization delay gate ----
-        // Do not call ApplyKnifeSkins while the weapon entity may still be mid-construction
-        // after a respawn. Decremented each frame, apply resumes when it hits 0.
         if (s_respawnDelayFrames > 0) {
             s_respawnDelayFrames--;
             debug_console::Console::Get().Debug(
@@ -785,8 +878,8 @@ namespace skins {
             return;
         }
 
-        try { ApplyKnifeSkins(); }
-        catch (...) {}
+        //try { ApplyKnifeSkins(); }
+        //catch (...) {}
 
         static auto g_last_apply = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();
@@ -802,6 +895,7 @@ namespace skins {
         s_lastKnifeDefIndex = 0;
         s_lastWeaponPtr = 0;
         s_subclassRefreshFrames = 0;
+        s_compositeRefreshFrames = 0;
         s_respawnDelayFrames = 0;
         debug_console::Console::Get().Success("[KNIFE] Selection changed, refreshing next frame");
     }
@@ -922,6 +1016,7 @@ namespace skins {
         s_lastKnifeDefIndex = 0;
         s_lastWeaponPtr = 0;
         s_subclassRefreshFrames = 0;
+        s_compositeRefreshFrames = 0;
         s_respawnDelayFrames = 0;
         debug_console::Console::Get().Info("[SKIN] Cleared");
     }

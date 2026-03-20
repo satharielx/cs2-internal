@@ -158,6 +158,10 @@ namespace skins {
     void ApplyDefaultPreset();
     void ApplyFactoryNewAll();
     void ApplyRandomSeeds();
+    const char* GetWeaponName(int id);
+    void ProcessQueuedUpdateSubclass();
+    const char* GetRarityName(SkinRarity r);
+    const float* GetRarityColor(SkinRarity r);
 
     struct WeaponDebugInfo {
         uintptr_t address;
