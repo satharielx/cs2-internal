@@ -594,39 +594,48 @@ namespace skins {
 
     // ==================== APPLY KNIFE SKINS ====================
     //
-    // Call budget per state:
+    // Execution order on TYPE CHANGE (per forum working impl):
+    //   1. m_iItemDefinitionIndex write    (memory)
+    //   2. m_nSubclassID write             (memory)
+    //   3. UpdateSubclass()                (sig call)
+    //   4. UpdateVData()                   (vfunc 8  — tune index if needed)
+    //   5. UpdateComposite(true)           (vfunc 7)
+    //   6. UpdateCompositeSec(true)        (vfunc 105)
+    //   7. arms->SetModel(model_path)      (sig call — after vtable guard)
+    //   8. weapon->SetModel(model_path)    (sig call — after vtable guard)
     //
-    //   TYPE CHANGE frame (s_lastKnifeDefIndex != knifeDefIndex):
-    //     def_index write, subclass_hash write, UpdateSubclass x1,
-    //     SetModel x1, MeshGroupMask x1, UpdateComposite vfunc x1, UpdateCompositeSec vfunc x1
-    //     -> arms MeshGroupMask x1
-    //     s_subclassRefreshFrames = 5, s_compositeRefreshFrames = 3
+    //   s_subclassRefreshFrames  = 5  → repeats steps 1-3 to beat server resync
+    //   s_compositeRefreshFrames = 3  → repeats steps 5-6 to let material settle
     //
-    //   REFRESH frame (s_subclassRefreshFrames > 0 || s_compositeRefreshFrames > 0):
-    //     def_index write, subclass_hash write always (server resets each tick)
-    //     UpdateSubclass if s_subclassRefreshFrames > 0
-    //     UpdateComposite vfuncs if s_compositeRefreshFrames > 0
-    //     NO SetModel (already set, calling again causes flicker)
-    //
-    //   STEADY frame (both counters == 0):
-    //     def_index write, subclass_hash write only — no engine calls at all
-    //     This is the safe steady state. The model is already correct.
-    //     MeshGroupMask re-applied every frame (cheap direct write, no engine call).
+    // STEADY frame (both counters == 0):
+    //   Only cheap memory writes run. SetModel / composite vfuncs are never called.
+    //   MeshGroupMask is a direct write — safe every frame.
 
     static uint16_t  s_lastKnifeDefIndex = 0;
     static uintptr_t s_lastWeaponPtr = 0;
     static int       s_lastHealth = 0;
     static int       s_subclassRefreshFrames = 0;
-    static int       s_compositeRefreshFrames = 0; // gates UpdateComposite vfunc calls
+    static int       s_compositeRefreshFrames = 0;
     static int       s_respawnDelayFrames = 0;
-	static bool      engineFunctionsResolved = false;
+    static bool      engineFunctionsResolved = false;
+
+    // Returns true only if the scene node's vtable looks valid enough to call SetModel.
+    // A null/unmapped vptr here is what crashes after death or team switch.
+    static bool IsSetModelSafe(uintptr_t ent) {
+        uintptr_t node = GetSceneNode(ent);
+        if (!node || !IsReadablePtr(node)) return false;
+        uintptr_t* vptr = *reinterpret_cast<uintptr_t**>(node);
+        if (!vptr || !IsReadablePtr(reinterpret_cast<uintptr_t>(vptr))) return false;
+        // Slot 0 of CGameSceneNode — adjust if your SetModel vtable index differs.
+        uintptr_t fn = vptr[0];
+        return (fn && IsReadablePtr(fn));
+    }
 
     void ApplyKnifeSkins() {
 
         if (!engineFunctionsResolved) { ResolveEngineFunctions(); engineFunctionsResolved = true; }
-        
-        if (!game_state::IsInGame()) return;
 
+        if (!game_state::IsInGame()) return;
 
         uintptr_t weapon = GetActiveWeapon();
         if (!weapon) return;
@@ -634,7 +643,7 @@ namespace skins {
         uint16_t def_index = GetDefIndex(weapon);
         if (!IsKnife(def_index) && !IsDefaultKnife(def_index)) return;
 
-        // ---- New entity: reset state, skip this frame ----
+        // ---- New entity pointer: reset state, skip this frame ----
         if (weapon != s_lastWeaponPtr) {
             s_lastKnifeDefIndex = 0;
             s_subclassRefreshFrames = 0;
@@ -691,45 +700,6 @@ namespace skins {
         *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
 
         // ---- MeshGroupMask: cheap direct write, safe every frame ----
-       
-
-        // ---- TYPE CHANGE: one-time engine calls ----
-        // SetModel, UpdateSubclass, UpdateComposite vfuncs — called ONCE on type change.
-        // Calling these every frame causes the material system to thrash and crash.
-        if (s_lastKnifeDefIndex != knifeDefIndex) {
-            
-            s_subclassRefreshFrames = 5;
-            s_compositeRefreshFrames = 3;
-
-            *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
-
-            CallUpdateSubclassSafe(weapon);
-
-            s_lastKnifeDefIndex = knifeDefIndex;
-
-            
-            debug_console::Console::Get().Success(
-                "[KNIFE] Type change -> def=%u subclass=0x%X model=%s",
-                knifeDefIndex, kd->subclass_hash, kd->model_path);
-            
-        }
-
-       if (s_subclassRefreshFrames > 0) {
-            
-            CallUpdateSubclassSafe(weapon);
-
-            try { CallSetModel(weapon, kd->model_path); }
-            catch (...) {}
-
-            s_subclassRefreshFrames--;
-            debug_console::Console::Get().Debug(
-                "[KNIFE] Burst UpdateSubclass, frames left: %d", s_subclassRefreshFrames);
-        }
-
-        try { CallSetModel(weapon, kd->model_path); }
-        catch (...) {}
-
         uintptr_t node = GetSceneNode(weapon);
         if (node) SetMeshGroupMask(node, 2);
         uintptr_t arms = GetArmsEntity();
@@ -738,62 +708,94 @@ namespace skins {
             if (arms_node) SetMeshGroupMask(arms_node, 2);
         }
 
-        try {
-            sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1);
-            debug_console::Console::Get().Debug("[KNIFE] UpdateComposite called on entity id: %ud", weapon);
-        }
-        catch (...) {
-            debug_console::Console::Get().Error(
-                "[!][KNIFE] UpdateComposite failed calling on entity id: %d", weapon);
-        }
-        try {
-            sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1);
+        // ---- TYPE CHANGE: fire the full engine call sequence once ----
+        if (s_lastKnifeDefIndex != knifeDefIndex) {
 
-            debug_console::Console::Get().Debug("[KNIFE] UpdateCompositeSec called on entity id: %d", weapon);
-        }
-        catch (...) {
-            debug_console::Console::Get().Error(
-                "[!][KNIFE] UpdateCompositeSec failed calling on entity id: %d", weapon);
-        }
+            s_subclassRefreshFrames = 5;
+            s_compositeRefreshFrames = 3;
 
+            // Step 1+2 already done above (def_index + subclass writes)
 
-        
+            // Step 3 — UpdateSubclass
+            CallUpdateSubclassSafe(weapon);
+
+            uintptr_t node = GetSceneNode(weapon);
+            if (node) SetMeshGroupMask(node, 2);
+            uintptr_t arms = GetArmsEntity();
+            if (arms) {
+                uintptr_t arms_node = GetSceneNode(arms);
+                if (arms_node) SetMeshGroupMask(arms_node, 2);
+            }
+
+            // Step 5 — UpdateComposite
+            try { sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1); }
+            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] UpdateComposite failed (type change)"); }
+
+            // Step 6 — UpdateCompositeSec
+            try { sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1); }
+            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] UpdateCompositeSec failed (type change)"); }
+
+            // Steps 7+8 — SetModel on arms then weapon.
+            // Guard the vtable pointer first — a null slot here is the crash on death/team switch.
+            if (IsSetModelSafe(weapon)) {
+                //if (arms) {
+                    //try { CallSetModel(arms, kd->model_path); }
+                   // catch (...) {}
+                //}
+                try { CallSetModel(weapon, kd->model_path); }
+                catch (...) {}
+                debug_console::Console::Get().Debug("[KNIFE] SetModel called: %s", kd->model_path);
+            }
+            else {
+                // Vtable not ready yet (just respawned, switched team, or entity not fully initialised).
+                // Keep burst counters alive so we retry next frames.
+                s_subclassRefreshFrames = 5;
+                s_compositeRefreshFrames = 3;
+                debug_console::Console::Get().Warning(
+                    "[KNIFE] SetModel skipped — vtable not ready, will retry in burst");
+            }
+
+            s_lastKnifeDefIndex = knifeDefIndex;
+
+            debug_console::Console::Get().Success(
+                "[KNIFE] Type change -> def=%u subclass=0x%X model=%s",
+                knifeDefIndex, kd->subclass_hash, kd->model_path);
+        }
 
         // ---- BURST: UpdateSubclass for N frames after type change ----
         // Beats server re-sync of m_nSubclassID without spamming engine calls forever.
-        
+        if (s_subclassRefreshFrames > 0) {
+            // Re-write here too — server may have reset them between frames.
+            *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
+            *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
+            CallUpdateSubclassSafe(weapon);
+            s_subclassRefreshFrames--;
+            debug_console::Console::Get().Debug(
+                "[KNIFE] Burst UpdateSubclass, frames left: %d", s_subclassRefreshFrames);
+        }
 
         // ---- BURST: UpdateComposite vfuncs for N frames after type change ----
-        // Same idea — material system needs a few frames to settle after a model change.
-        // After that, do NOT call these again until the next type change.
-        /*if (s_compositeRefreshFrames > 0) {
-            try { 
-                sdk::CallVFunc<7u, void*>(reinterpret_cast<void*>(weapon), 1);
-                debug_console::Console::Get().Debug(
-                    "[KNIFE] UpdateComposite called on entity id: %d", weapon);
+        // Material system needs a few frames to settle after a model change.
+        // Do NOT call these in steady state — thrashes the material system and can crash.
+        if (s_compositeRefreshFrames > 0) {
+            try {
+                sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1);
             }
-            catch (...) {
-                debug_console::Console::Get().Error(
-                    "[!][KNIFE] UpdateComposite failed calling on entity id: %d", weapon);
+            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] Burst UpdateComposite failed"); }
+
+            try {
+                sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1);
             }
-            try { 
-                sdk::CallVFunc<100u, void*>(reinterpret_cast<void*>(weapon), 1); 
-               
-                debug_console::Console::Get().Debug(
-                    "[KNIFE] UpdateCompositeSec called on entity id: %d", weapon);
-            }
-            catch (...) {
-                debug_console::Console::Get().Error(
-                    "[!][KNIFE] UpdateCompositeSec failed calling on entity id: %d", weapon);
-            }
+            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] Burst UpdateCompositeSec failed"); }
+
             s_compositeRefreshFrames--;
             debug_console::Console::Get().Debug(
                 "[KNIFE] Burst composite, frames left: %d", s_compositeRefreshFrames);
-        }*/
+        }
 
         // ---- STEADY STATE ----
         // Both counters are 0. Only the cheap memory writes above run each frame.
-        // The model is already set, the material is already built — leave it alone.
+        // Model is already set, material already built — leave the engine alone.
     }
 
     // ==================== APPLY GLOVES ====================
@@ -836,6 +838,8 @@ namespace skins {
         *reinterpret_cast<bool*>(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_bNeedToReApplyGloves) = true;
     }
 
+    static auto g_last_apply = std::chrono::steady_clock::now();
+
     // ==================== MAIN TICK ====================
     void ApplyAllSkins() {
         if (!game_state::IsInGame()) return;
@@ -845,18 +849,13 @@ namespace skins {
         if (localPawn)
             SafeReadInt(localPawn + OFF_HEALTH, health);
 
-        if (health > 0) {
-            try {
-				ApplyKnifeSkins();
-            }
-            catch(std::exception &e) {
-                debug_console::Console::Get().Error("[!][KNIFE] Exception in ApplyKnifeSkins: %s", e.what());
-            }
-            catch (...) {
-                debug_console::Console::Get().Error("[!][KNIFE] Unknown exception in ApplyKnifeSkins");
-			}
-        }
+        auto now = std::chrono::steady_clock::now();
+        bool should_apply =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_apply).count() >= 600;
+        if (!should_apply) return;
+        g_last_apply = now;
 
+        // ---- Death detection: reset knife state ----
         if (s_lastHealth > 0 && health <= 0) {
             s_lastKnifeDefIndex = 0;
             s_lastWeaponPtr = 0;
@@ -878,15 +877,15 @@ namespace skins {
             return;
         }
 
-        //try { ApplyKnifeSkins(); }
-        //catch (...) {}
-
-        static auto g_last_apply = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-        bool should_apply =
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_apply).count() >= 2000;
-        if (!should_apply) return;
-        g_last_apply = now;
+        try {
+            ApplyKnifeSkins();
+        }
+        catch (std::exception& e) {
+            debug_console::Console::Get().Error("[!][KNIFE] Exception in ApplyKnifeSkins: %s", e.what());
+        }
+        catch (...) {
+            debug_console::Console::Get().Error("[!][KNIFE] Unknown exception in ApplyKnifeSkins");
+        }
 
         /*try { ApplyWeaponSkins(); } catch (...) {}*/
     }
