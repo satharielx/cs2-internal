@@ -361,3 +361,22 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/manager/core/CODE_DOCUMENTATION_COMPLETE.md
+/manager/core/COMPLETION_SUMMARY.md
+/manager/core/CSOURCE2CLIENT_INTEGRATION_COMPLETE.md
+/manager/core/FINAL_STATUS.md
+/manager/core/FRAMESTAGNOTIFY_DEBUGGING_GUIDE.md
+/manager/core/FRAMESTAGNOTIFY_HOOK_COMPLETE.md
+/manager/core/FRAME_STAGE_HOOK_READY.md
+/manager/core/FRAME_STAGE_HOOK_SETUP.md
+/manager/core/Hook_FrameStageNotify.hpp
+/manager/core/HOOK_INTEGRATION_COMPLETE.md
+/manager/core/IMPLEMENTATION_COMPLETE.md
+/manager/core/KNIFE_CHANGER_APPROACH.md
+/manager/core/KNIFE_CHANGER_FLOW.md
+/manager/core/README.md
+/manager/core/REFACTOR_SUMMARY.md
+/manager/core/SKINS_INTEGRATION_COMPLETE.md
+/manager/core/START_HERE.md
+/manager/core/VISUAL_SUMMARY.md
+/manager/core/WHAT_CHANGED.md
