@@ -827,24 +827,25 @@ static std::vector<uintptr_t> playerPawns;
                 uintptr_t entity_list = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwEntityList);
                 if (!entity_list || !sdk::is_valid_ptr(entity_list)) return;
 
-                uintptr_t list1 = *(uintptr_t*)(entity_list + (8 * (entity_index & 0x7FFF) >> 9) + 16);
+                uintptr_t list1 = *(uintptr_t*)(entity_list + (0x8 * (entity_index >> 9) + 16));
                 if (!list1 || !sdk::is_valid_ptr(list1)) return;
 
                 uintptr_t controller = *(uintptr_t*)(list1 + 112 * (entity_index & 0x1FF));
                 if (!controller || !sdk::is_valid_ptr(controller)) return;
 
-                uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
+                /*uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
                 if (!pawnHandle) return;
 
                 uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
                 if (!list2 || !sdk::is_valid_ptr(list2)) return;
 
                 uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
-                if (!pawn || !sdk::is_valid_ptr(pawn)) return;
+                if (!pawn || !sdk::is_valid_ptr(pawn)) return;*/
 
-                int target_team = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+                int target_team = *(int*)(controller + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
                 int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-                int target_health = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+				int local_health = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);   
+                int target_health = *(int*)(controller + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
 
                 if (target_team != local_team && target_health > 0) {
                     DWORD now = GetTickCount();
@@ -854,6 +855,7 @@ static std::vector<uintptr_t> playerPawns;
                         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
                         mouse_down = true;
                         mouse_down_time = now;
+                        
                     }
                 }
             }
@@ -888,8 +890,8 @@ static std::vector<uintptr_t> playerPawns;
                 } 
 
                 int32_t spotted = *(int32_t*)(player + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpottedByMask);
-                bool spottedOriginal = *(bool*)(player + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpotted);
-                if (!(spotted & ((1 << localIndex) - 1))) spottedOriginal = true;
+                bool* spottedOriginal = (bool*)(player + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpotted);
+                if (!(spotted & ((1 << localIndex) - 1))) *spottedOriginal = true;
             }
             catch (...) {
                 continue;
