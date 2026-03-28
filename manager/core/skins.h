@@ -195,4 +195,7 @@ namespace skins {
 
     int GetLoadoutItemCount();
 
+    // Frame stage tracking (called from FrameStageNotify hook callback)
+    void SetCurrentFrameStage(int stage);
+
 }

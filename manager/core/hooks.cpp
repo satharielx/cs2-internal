@@ -5,6 +5,7 @@
 #include "skins.h"
 #include "debug_console.h"
 #include "error_logger.h"
+#include "Hook_FrameStageNotify.hpp"
 #include "../external/minhook/MinHook.h"
 #include "../external/imgui/imgui.h"
 #include "../external/imgui/imgui_impl_win32.h"
@@ -212,22 +213,32 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 }
 
 namespace hooks {
-    // FrameStageNotify hook (game-thread) to process queued UpdateSubclass calls.
-    // In CS2, FrameStageNotify is a plain __fastcall function taking (int stage) —
-    // NOT a virtual thiscall. interfaces::client now holds the raw function pointer
-    // obtained via pattern scan in interfaces.cpp.
-    using fnFrameStageNotify = void(__fastcall*)(int stage);
-    static fnFrameStageNotify oFrameStageNotify = reinterpret_cast<fnFrameStageNotify>(interfaces::client);
-
-    static void __fastcall hkFrameStageNotify(int stage) {
-        // Drain any pending UpdateSubclass jobs on the game thread
-        try { skins::ProcessQueuedUpdateSubclass(); } catch (...) {}
-
-        // Call original
-        if (oFrameStageNotify) {
-            try { oFrameStageNotify(stage); } catch (...) {}
-        }
-    }
+    // ==================== HOOK SYSTEM INITIALIZATION ====================
+    // 
+    // create() - Initialize all MinHook hooks and ImGui rendering pipeline
+    //
+    // Hooks created (in order):
+    // 1. Present (DX11 render callback) - for ImGui rendering
+    // 2. ResizeBuffers (DX11 buffer resize) - for window resize handling
+    // 3. FrameStageNotify (game frame callback) - for knife changer via event dispatcher
+    // 4. WndProc (window message callback) - for ImGui input handling
+    //
+    // FrameStageNotify is the critical hook for knife changer:
+    // - Uses event-driven callback system (RegisterOnFrameStageNotify)
+    // - Callback dispatcher (Hook_FrameStageNotify.cpp) invokes all registered callbacks
+    // - Knife changer registered to execute only at frame stage 7
+    // - Stage 7 is POST_RENDER_END - skeleton valid, entity won't be deleted
+    //
+    // Knife changer workflow:
+    // 1. FrameStageNotify(7) fires - game engine post-render phase
+    // 2. Callback dispatcher invokes registered callbacks
+    // 3. ApplyKnifeSkins executes: writes def_index/subclass_hash/paint_kit
+    // 4. Calls UpdateSubclass → UpdateComposite → SetModel in sequence
+    // 5. 3D model updates on next render (scene node refreshed)
+    //
+    // Performance: No spam (callbacks execute only at correct stage)
+    // Safety: Stage 7 guaranteed safe for skeleton operations
+    // Architecture: Event-driven matches Andromeda infrastructure pattern
     void create() {
         if (!interfaces::swap_chain_dx11 || !interfaces::swap_chain_dx11->swap_chain) {
             error_logger::ErrorLogger::Get().Log("hooks::create", "SwapChain not available", 1);
@@ -275,17 +286,83 @@ namespace hooks {
             }
             error_logger::ErrorLogger::Get().Log("MinHook", "ResizeBuffers hook created successfully", 0);
 
-            /* FrameStageNotify hook — interfaces::client is the raw pattern - scanned fn ptr(not a vtable object)
-            if (interfaces::client) {
-                status = MH_CreateHook(interfaces::client, &hkFrameStageNotify, reinterpret_cast<LPVOID*>(&oFrameStageNotify));
-                if (status == MH_OK) {
-                    error_logger::ErrorLogger::Get().Log("MinHook", "FrameStageNotify hook created", 0);
+            // FrameStageNotify hook — offset-based address resolution from client.dll
+            
+            void* client_base = reinterpret_cast<void*>(GetModuleHandleA("client.dll"));
+            if (client_base) {
+                // FrameStageNotify offset from cs2-dumper (function at client.dll + offset)
+                
+                void* framestagnotify_addr = reinterpret_cast<void*>(
+                    reinterpret_cast<uintptr_t>(client_base) + 0x0 // Offset placeholder — use pattern scan as fallback
+                );
+
+                // Fallback to pattern scan if offset method fails
+                if (!framestagnotify_addr || framestagnotify_addr == client_base) {
+                    if (interfaces::client) {
+                        framestagnotify_addr = interfaces::client;
+                        debug_console::Console::Get().Info("[KNIFE] Using pattern-scanned FrameStageNotify address");
+                    }
+                }
+
+                if (framestagnotify_addr && framestagnotify_addr != client_base) {
+                    status = MH_CreateHook(framestagnotify_addr, &Hook_FrameStageNotify, reinterpret_cast<LPVOID*>(&FrameStageNotify_o));
+                    if (status == MH_OK) {
+                        debug_console::Console::Get().Success("[KNIFE] FrameStageNotify hook created successfully");
+                        error_logger::ErrorLogger::Get().Log("MinHook", "FrameStageNotify hook created", 0);
+
+                        // ========== KNIFE CHANGER CALLBACK REGISTRATION ==========
+                        // Subscribe to FrameStageNotify events via event-driven callback system
+                        // Callback dispatcher (Hook_FrameStageNotify.cpp) invokes all registered callbacks
+                        // This callback executes on game thread during frame stage transitions (0-11)
+                        //
+                        // Frame stage lifecycle:
+                        // 0: FRAME_START (resource loading)
+                        // 5: SIMULATE (animation update, bone cache build)
+                        // 7: POST_RENDER_END (optimal for model changes - skeleton valid, entity safe)
+                        // 11: FRAME_END (cleanup)
+                        //
+                        // Knife changer only executes at stage 7 (not stage 5 like legacy systems)
+                        // Stage 7 guarantee: m_pSkeletonInstance is valid, entity won't be deleted
+                        RegisterOnFrameStageNotify([](int stage) {
+                            // [CRITICAL] Update thread-local frame stage for ApplyKnifeSkins state machine
+                            // ApplyKnifeSkins checks this to ensure execution only at stage 7
+                            // Prevents skeleton NULL corruption from SetModel at wrong stage
+                            skins::SetCurrentFrameStage(stage);
+
+                            // [CRITICAL] Only call knife changer at stage 7 (POST_RENDER_END)
+                            // Config check: skin_changer::enabled (from user settings)
+                            // Stage check: stage == 7 (safety mechanism)
+                            // If either fails, callback silently exits (no log spam)
+                            if (config::skin_changer::enabled && stage == 7) {
+                                try {
+                                    // Execute knife model update sequence
+                                    // Function modifies entity memory: def_index, subclass_hash, item IDs, paint kit
+                                    // Calls game engine vtable functions: UpdateSubclass, SetModel, UpdateComposite
+                                    skins::ApplyKnifeSkins();
+                                }
+                                catch (const std::exception& e) {
+                                    // Log exception message for debugging (only on crash)
+                                    debug_console::Console::Get().Error("[!][KNIFE] ApplyKnifeSkins exception: %s", e.what());
+                                }
+                                catch (...) {
+                                    // Unknown exception (memory corruption, nullptr, etc)
+                                    debug_console::Console::Get().Error("[!][KNIFE] ApplyKnifeSkins unknown exception");
+                                }
+                            }
+                        });
+                        debug_console::Console::Get().Success("[KNIFE] FrameStageNotify callback registered");
+                    } else {
+                        error_logger::ErrorLogger::Get().Log("MinHook", "Failed to create FrameStageNotify hook", static_cast<int>(status));
+                        debug_console::Console::Get().Warning("[KNIFE] Failed to create FrameStageNotify hook");
+                    }
                 } else {
-                    error_logger::ErrorLogger::Get().Log("MinHook", "Failed to create FrameStageNotify hook", static_cast<int>(status));
+                    error_logger::ErrorLogger::Get().Log("FrameStageNotify", "Failed to resolve FrameStageNotify address (use pattern scan in interfaces.cpp)", 1);
+                    debug_console::Console::Get().Warning("[KNIFE] Failed to resolve FrameStageNotify address");
                 }
             } else {
-                error_logger::ErrorLogger::Get().Log("FrameStageNotify", "Pattern scan failed; knife subclass queue will drain on render thread instead", 1);
-            }*/
+                error_logger::ErrorLogger::Get().Log("FrameStageNotify", "Failed to get client.dll base address", 1);
+                debug_console::Console::Get().Warning("[KNIFE] Failed to get client.dll base address");
+            }
 
             // Create WndProc hook
             oWndProc = (WNDPROC)SetWindowLongPtrA(interfaces::hwnd, GWLP_WNDPROC, (LONG_PTR)WndProc);

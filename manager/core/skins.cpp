@@ -66,6 +66,10 @@ enum Module {
 #define SEARCH_TYPE_EQUIP_ITEM_IN_LOADOUT NORMAL_SCAN
 #define LOCATION_EQUIP_ITEM_IN_LOADOUT CLIENT
 
+#define REGEN_WEAPON_SKINS_SIGNATURE "48 83 EC ? E8 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 48 8B 10"
+#define SEARCH_TYPE_REGEN_WEAPON_SKINS NORMAL_SCAN
+#define LOCATION_REGEN_WEAPON_SKINS CLIENT
+
 #pragma comment(lib, "wininet.lib")
 
 namespace skins {
@@ -293,62 +297,148 @@ namespace skins {
         }
     }
 
-    // ==================== SAFE CALLERS ====================
+    // ==================== ENTITY FLAGS ====================
+    enum e_entity_flags : uint32_t {
+        ef_is_invalid_ehandle = 0x1,
+        ef_spawn_in_progress = 0x2,
+        ef_in_staging_list = 0x4,
+        ef_in_post_data_update = 0x8,
+        ef_delete_in_progress = 0x10,
+        ef_in_stasis = 0x20,
+    };
 
-    static void CallSetModel(uintptr_t ent, const char* model) {
-        if (!ent || !IsReadablePtr(ent) || !model) return;
-        if (!g_fnSetModel || reinterpret_cast<uintptr_t>(g_fnSetModel) <= 0x10000) return;
-        g_fnSetModel(reinterpret_cast<void*>(ent), model);
+    struct CEntityIdentity {
+        uintptr_t _pad0[2];
+        uint32_t m_flags;
+
+        uint32_t flags() const { return m_flags; }
+    };
+
+    static CEntityIdentity* GetEntityIdentity(uintptr_t ent) {
+        if (!ent || !IsReadablePtr(ent)) return nullptr;
+        uintptr_t identity_ptr = *(uintptr_t*)(ent + 0x10);
+        return (identity_ptr && IsReadablePtr(identity_ptr)) 
+            ? reinterpret_cast<CEntityIdentity*>(identity_ptr) 
+            : nullptr;
     }
 
-    static void CallUpdateSubclassSafe(uintptr_t ent) {
-        if (!ent || !IsReadablePtr(ent)) return;
-        if (!g_fnUpdateSubClass || reinterpret_cast<uintptr_t>(g_fnUpdateSubClass) <= 0x10000) return;
-        g_fnUpdateSubClass(reinterpret_cast<void*>(ent));
+    static bool IsEntityInStagingList(uintptr_t ent) {
+        CEntityIdentity* identity = GetEntityIdentity(ent);
+        return identity && (identity->flags() & ef_in_staging_list);
     }
 
-    static void CallUpdateComposite(uintptr_t ent, bool force) {
-        if (!ent || !IsReadablePtr(ent)) return;
-        if (g_fnUpdateComposite && reinterpret_cast<uintptr_t>(g_fnUpdateComposite) > 0x10000)
-            g_fnUpdateComposite(reinterpret_cast<void*>(ent), force);
-    }
+	// ==================== SAFE CALLERS ====================
+	// Wrapper functions for game engine calls - all perform null/bounds checks
+	// Prevents crashes from invalid pointers during aggressive memory writes
 
-    static void CallUpdateSkin(uintptr_t ent, bool force) {
-        if (!ent || !IsReadablePtr(ent)) return;
-        if (g_fnUpdateSkin && reinterpret_cast<uintptr_t>(g_fnUpdateSkin) > 0x10000)
-            g_fnUpdateSkin(reinterpret_cast<void*>(ent), force);
-    }
+	// SetModel(entity, model_path) - changes 3D model for weapon
+	// Critical: Must only call at stage 7 when skeleton instance (m_pSkeletonInstance) valid
+	// SetModel invalidates all bone caches; next stage 7 will recalculate transforms
+	// If called during skeleton NULL state, causes heap corruption
+	static void CallSetModel(uintptr_t ent, const char* model) {
+		if (!ent || !IsReadablePtr(ent) || !model) return;
+		if (!g_fnSetModel || reinterpret_cast<uintptr_t>(g_fnSetModel) <= 0x10000) return;
+		g_fnSetModel(reinterpret_cast<void*>(ent), model);
+		debug_console::Console::Get().Info("[SKINS] Called SetModel for entity %p with model %s", reinterpret_cast<void*>(ent), model);
+	}
 
-    static void CallClearHudWeaponIcon(uintptr_t hud_weapon_selection, int unk1, int64_t unk2) {
-        if (!hud_weapon_selection || !IsReadablePtr(hud_weapon_selection)) return;
-        if (g_fnClearHudWeaponIcon && reinterpret_cast<uintptr_t>(g_fnClearHudWeaponIcon) > 0x10000)
-            g_fnClearHudWeaponIcon(reinterpret_cast<void*>(hud_weapon_selection), unk1, unk2);
-    }
+	// UpdateSubclass(entity) - rebuilds weapon subclass vftable
+	// Vftable pointer at entity+OFF_WEAPON_VEH_PTR
+	// After def_index change, old vftable stale; UpdateSubclass re-queries SDK registry
+	static void CallUpdateSubclassSafe(uintptr_t ent) {
+		if (!ent || !IsReadablePtr(ent)) return;
+		if (!g_fnUpdateSubClass || reinterpret_cast<uintptr_t>(g_fnUpdateSubClass) <= 0x10000) { 
+			debug_console::Console::Get().Warning("[SKINS] UpdateSubclass function pointer invalid, cannot call UpdateSubclass for entity %p", reinterpret_cast<void*>(ent));
+			return; 
+		}
+		g_fnUpdateSubClass(reinterpret_cast<void*>(ent));
+		debug_console::Console::Get().Info("[SKINS] Called UpdateSubclass for entity %p", reinterpret_cast<void*>(ent));
+	}
 
-    static bool CallEquipItemInLoadout(uintptr_t inventory_manager, int team, int slot, uint64_t itemID) {
-        if (!inventory_manager || !IsReadablePtr(inventory_manager)) return false;
-        if (g_fnEquipItemInLoadout && reinterpret_cast<uintptr_t>(g_fnEquipItemInLoadout) > 0x10000)
-            return g_fnEquipItemInLoadout(reinterpret_cast<void*>(inventory_manager), team, slot, itemID);
-        return false;
-    }
+	// UpdateComposite(entity, force) - flushes composite material render cache
+	// force=true bypasses change detection, forces immediate recalculation
+	// Must call after changing paint_kit/quality for effects to render
+	static void CallUpdateComposite(uintptr_t ent, bool force) {
+		if (!ent || !IsReadablePtr(ent)) return;
+		if (g_fnUpdateComposite && reinterpret_cast<uintptr_t>(g_fnUpdateComposite) > 0x10000)
+			g_fnUpdateComposite(reinterpret_cast<void*>(ent), force);
+	}
 
-    // ==================== SCENE NODE ====================
-    static uintptr_t GetSceneNode(uintptr_t ent) {
-        if (!ent || !IsReadablePtr(ent)) return 0;
-        uintptr_t n = *(uintptr_t*)(ent + OFF_GAME_SCENE_NODE);
-        return (n && IsReadablePtr(n)) ? n : 0;
-    }
+	// UpdateSkin(entity, force) - updates skin material properties
+	// Applies paint_kit texture/shader parameters to model
+	static void CallUpdateSkin(uintptr_t ent, bool force) {
+		if (!ent || !IsReadablePtr(ent)) return;
+		if (g_fnUpdateSkin && reinterpret_cast<uintptr_t>(g_fnUpdateSkin) > 0x10000)
+			g_fnUpdateSkin(reinterpret_cast<void*>(ent), force);
+	}
 
-    static void SetMeshGroupMask(uintptr_t scene_node, uint64_t mask) {
-        if (!scene_node || !IsReadablePtr(scene_node)) return;
-        if (g_fnSetMeshGroupMask && reinterpret_cast<uintptr_t>(g_fnSetMeshGroupMask) > 0x10000) {
-            g_fnSetMeshGroupMask(reinterpret_cast<void*>(scene_node), mask);
-            return;
-        }
-        *reinterpret_cast<uint64_t*>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK) = mask;
+	// ClearHudWeaponIcon(hud_selection, unk1, unk2) - removes weapon icon from HUD cache
+	// unk1, unk2 appear to be flags and item index
+	static void CallClearHudWeaponIcon(uintptr_t hud_weapon_selection, int unk1, int64_t unk2) {
+		if (!hud_weapon_selection || !IsReadablePtr(hud_weapon_selection)) return;
+		if (g_fnClearHudWeaponIcon && reinterpret_cast<uintptr_t>(g_fnClearHudWeaponIcon) > 0x10000)
+			g_fnClearHudWeaponIcon(reinterpret_cast<void*>(hud_weapon_selection), unk1, unk2);
+	}
+
+	// EquipItemInLoadout(inventory_mgr, team, slot, itemID) - writes loadout to shared object cache
+	// Server syncs inventory_mgr state; modifying directly bypasses server checks
+	static bool CallEquipItemInLoadout(uintptr_t inventory_manager, int team, int slot, uint64_t itemID) {
+		if (!inventory_manager || !IsReadablePtr(inventory_manager)) return false;
+		if (g_fnEquipItemInLoadout && reinterpret_cast<uintptr_t>(g_fnEquipItemInLoadout) > 0x10000)
+			return g_fnEquipItemInLoadout(reinterpret_cast<void*>(inventory_manager), team, slot, itemID);
+		return false;
+	}
+
+	// ==================== SCENE NODE ====================
+	// Scene node (m_pGameSceneNode) - root of entity's transform hierarchy
+	// Contains model state, transform matrices, mesh groups, material data
+	// Must re-fetch after SetModel call (can be deallocated/reallocated)
+	static uintptr_t GetSceneNode(uintptr_t ent) {
+		if (!ent || !IsReadablePtr(ent)) return 0;
+		// Off-by-one check: m_pGameSceneNode offset changes per Source2 version
+		uintptr_t n = *(uintptr_t*)(ent + OFF_GAME_SCENE_NODE);
+		return (n && IsReadablePtr(n)) ? n : 0;
+	}
+
+	// SetMeshGroupMask(scene_node, mask) - enables/disables mesh groups for rendering
+	// mask=2 typically means "visible" (0=hidden, 1=lod2, 2=normal, 3=lod0)
+	// Used to show/hide weapon parts based on distance/quality
+	static void SetMeshGroupMask(uintptr_t scene_node, uint64_t mask) {
+		if (!scene_node || !IsReadablePtr(scene_node)) return;
+		// Try vfunc call first, fallback to direct memory write
+		if (g_fnSetMeshGroupMask && reinterpret_cast<uintptr_t>(g_fnSetMeshGroupMask) > 0x10000) {
+			g_fnSetMeshGroupMask(reinterpret_cast<void*>(scene_node), mask);
+			return;
+		}
+		// Direct memory write: CGameSceneNode->m_nRenderAttributeCount + OFF_MESH_GROUP_MASK
+		*reinterpret_cast<uint64_t*>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK) = mask;
+	}
+
+	// IsSetModelSafe(entity) - validates entity state before SetModel call
+	// Checks: entity readable, scene node exists, vtable valid, destructor valid
+	// Stage 7 guarantee: entity won't be deleted during render phase
+	static bool IsSetModelSafe(uintptr_t ent) {
+		if (!ent || !IsReadablePtr(ent)) return false;
+
+		// Fetch scene node - if NULL or invalid, skeleton not ready
+		uintptr_t node = GetSceneNode(ent);
+
+        if (!node || !IsReadablePtr(node)) return false;
+
+        uintptr_t* vptr = *reinterpret_cast<uintptr_t**>(node);
+        if (!vptr || !IsReadablePtr(reinterpret_cast<uintptr_t>(vptr))) return false;
+
+        uintptr_t fn = vptr[0];
+        return (fn && IsReadablePtr(fn));
     }
 
     // ==================== ENTITY HELPERS ====================
+    // Core entity resolution functions - walk entity hierarchy to find specific entities
+
+    // GetLocalPawn() - fetch client.dll::dwLocalPlayerPawn pointer
+    // Returns C_CSPlayerPawn entity (local player character)
+    // Offset: client.dll + 0x22F0FB8 (from cs2-dumper)
+    // All weapon resolution flows through this pawn pointer
     static uintptr_t GetLocalPawn() {
         uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
         if (!base) return 0;
@@ -356,6 +446,10 @@ namespace skins {
         return (p && IsReadablePtr(p)) ? p : 0;
     }
 
+    // GetEntityList() - fetch client.dll::dwEntityList (entity array registry)
+    // Returns pointer to entity list array
+    // Offset: client.dll + 0x24ABF98 (from cs2-dumper)
+    // Required by ResolveHandle to convert entity handles to pointers
     static uintptr_t GetEntityList() {
         uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
         if (!base) return 0;
@@ -363,40 +457,60 @@ namespace skins {
         return (l && IsReadablePtr(l)) ? l : 0;
     }
 
+    // ResolveHandle(entity_list, handle) - convert entity handle to entity pointer
+    // Entity handles are 32-bit indices split across two level lookup table
+    // First level: (h >> 9) * 8 + 16 (bucket index)
+    // Second level: (h & 0x1FF) * 112 (entity offset within bucket)
+    // Sentinel: h=0 or h=0xFFFFFFFF means invalid/unequipped
     static uintptr_t ResolveHandle(uintptr_t el, uint32_t h) {
         if (!h || h == 0xFFFFFFFF || !el) return 0;
         try {
+            // First lookup: get bucket from list
             uintptr_t le = *(uintptr_t*)(el + 0x8 * ((h & 0x7FFF) >> 9) + 16);
             if (!le || !IsReadablePtr(le)) return 0;
+            // Second lookup: get entity from bucket
             uintptr_t e = *(uintptr_t*)(le + 112 * (h & 0x1FF));
             return (e && IsReadablePtr(e)) ? e : 0;
         }
         catch (...) { return 0; }
     }
 
+    // GetActiveWeapon() - resolve player's currently equipped weapon
+    // Walks: pawn -> CPlayer_WeaponServices -> m_hActiveWeapon handle -> resolve to entity
+    // Returns active weapon entity pointer
+    // Handle stored at: pawn + m_pWeaponServices + m_hActiveWeapon offset
     static uintptr_t GetActiveWeapon() {
         uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return 0;
         try {
+            // Fetch weapon services from pawn
             uintptr_t ws = *(uintptr_t*)(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices);
             if (!ws || !IsReadablePtr(ws)) return 0;
+            // Read active weapon handle (0xFFFFFFFF if no weapon equipped)
             uint32_t h = *(uint32_t*)(ws + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hActiveWeapon);
             return ResolveHandle(list, h);
         }
         catch (...) { return 0; }
     }
 
+    // GetAllWeapons() - enumerate all weapons player owns
+    // Walks: pawn -> CPlayer_WeaponServices -> m_hMyWeapons array (handles)
+    // Array length fixed at 64 slots (m16_hMyWeapons is CHandle array)
+    // Each handle resolved via ResolveHandle
+    // Returns vector of weapon entity pointers (empty entries skipped)
     static std::vector<uintptr_t> GetAllWeapons() {
         std::vector<uintptr_t> result;
         uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return result;
         try {
+            // Fetch weapon services from pawn
             uintptr_t ws = *(uintptr_t*)(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices);
             if (!ws || !IsReadablePtr(ws)) return result;
+            // Iterate weapon handles array (64 slots, each CHandle is 4 bytes)
             uintptr_t arr = ws + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hMyWeapons;
             for (int i = 0; i < 64; i++) {
                 uint32_t h = *(uint32_t*)(arr + i * 4);
-                if (!h || h == 0xFFFFFFFF) continue;
+                if (!h || h == 0xFFFFFFFF) continue;  // Skip empty slots
                 uintptr_t w = ResolveHandle(list, h);
                 if (w) result.push_back(w);
             }
@@ -405,6 +519,10 @@ namespace skins {
         return result;
     }
 
+    // GetArmsEntity() - fetch first-person arms model entity
+    // Arms stored as separate entity in pawn (third-person separates arms from body)
+    // Offset: OFF_HUD_MODEL_ARMS = 0x2400 (arms entity handle)
+    // Used to sync mesh visibility with weapon (when knife shown, arms shown)
     static uintptr_t GetArmsEntity() {
         uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return 0;
@@ -414,28 +532,38 @@ namespace skins {
             return ResolveHandle(list, h);
         }
         catch (...) { return 0; }
+
     }
 
+    // GetDefIndex(weapon) - read m_iItemDefinitionIndex from weapon entity
+    // def_index determines weapon type (530=knife, 533=ghost knife, etc)
+    // Offset: weapon + OFF_ITEM_DEF_INDEX (C_BaseEntity::m_iItemDefinitionIndex)
     static uint16_t GetDefIndex(uintptr_t w) {
         return *reinterpret_cast<uint16_t*>(w + OFF_ITEM_DEF_INDEX);
     }
 
+    // GetLocalTeam() - read team number from player pawn (TEAM_T=2, TEAM_CT=3)
+    // Off_TEAM_NUM: C_BaseEntity::m_iTeamNum (1=unassigned, 2=terrorist, 3=counter-terrorist)
+    // Used to lookup team-specific loadout items
     static uint8_t GetLocalTeam() {
         uintptr_t p = GetLocalPawn();
         return p ? *(uint8_t*)(p + OFF_TEAM_NUM) : 0;
     }
 
     // ==================== INVENTORY BACKING ====================
+    // Tracks custom items added via UI (item IDs, paint kits, etc)
     struct AddedItemInfo {
-        uint64_t id;
-        float    paintKit;
-        float    paintSeed;
-        float    paintWear;
-        bool     legacy;
+        uint64_t id;        // 64-bit inventory item ID (unique per user/item)
+        float    paintKit;  // Paint kit ID (0=default, 1-1000=various skins)
+        float    paintSeed; // Random seed for texture generation (0-1000)
+        float    paintWear; // Wear factor (0.0=factory new, 1.0=well worn)
+        bool     legacy;    // Whether to use legacy paint system (fallback)
     };
 
     static std::vector<AddedItemInfo> g_vecAddedItemsIDs;
 
+    // AddEconItemToList - register custom item to inventory system
+    // Prevents duplicate entries (removes old entry before adding)
     void AddEconItemToList(uint64_t itemID, float paintKit, float paintSeed, float paintWear, bool legacy) {
         g_vecAddedItemsIDs.erase(
             std::remove_if(g_vecAddedItemsIDs.begin(), g_vecAddedItemsIDs.end(),
@@ -592,218 +720,243 @@ namespace skins {
         catch (...) {}
     }
 
-    // ==================== APPLY KNIFE SKINS ====================
-    //
-    // Execution order on TYPE CHANGE (per forum working impl):
-    //   1. m_iItemDefinitionIndex write    (memory)
-    //   2. m_nSubclassID write             (memory)
-    //   3. UpdateSubclass()                (sig call)
-    //   4. UpdateVData()                   (vfunc 8  — tune index if needed)
-    //   5. UpdateComposite(true)           (vfunc 7)
-    //   6. UpdateCompositeSec(true)        (vfunc 105)
-    //   7. arms->SetModel(model_path)      (sig call — after vtable guard)
-    //   8. weapon->SetModel(model_path)    (sig call — after vtable guard)
-    //
-    //   s_subclassRefreshFrames  = 5  → repeats steps 1-3 to beat server resync
-    //   s_compositeRefreshFrames = 3  → repeats steps 5-6 to let material settle
-    //
-    // STEADY frame (both counters == 0):
-    //   Only cheap memory writes run. SetModel / composite vfuncs are never called.
-    //   MeshGroupMask is a direct write — safe every frame.
+	// ==================== FRAME STAGE TRACKING ====================
+	// Frame stage is passed via FrameStageNotify hook callback (see Hook_FrameStageNotify.cpp)
+	// Thread-local storage avoids race conditions in multithreaded render pipeline
+	// Only stage 7 (POST_RENDER_END) is safe for SetModel and skeleton operations
+	thread_local static int t_currentFrameStage = -1;
 
-    static uint16_t  s_lastKnifeDefIndex = 0;
-    static uintptr_t s_lastWeaponPtr = 0;
-    static int       s_lastHealth = 0;
-    static int       s_subclassRefreshFrames = 0;
-    static int       s_compositeRefreshFrames = 0;
-    static int       s_respawnDelayFrames = 0;
-    static bool      engineFunctionsResolved = false;
+	int GetCurrentFrameStage() {
+		return t_currentFrameStage;
+	}
 
-    // Returns true only if the scene node's vtable looks valid enough to call SetModel.
-    // A null/unmapped vptr here is what crashes after death or team switch.
-    static bool IsSetModelSafe(uintptr_t ent) {
-        uintptr_t node = GetSceneNode(ent);
-        if (!node || !IsReadablePtr(node)) return false;
-        uintptr_t* vptr = *reinterpret_cast<uintptr_t**>(node);
-        if (!vptr || !IsReadablePtr(reinterpret_cast<uintptr_t>(vptr))) return false;
-        // Slot 0 of CGameSceneNode — adjust if your SetModel vtable index differs.
-        uintptr_t fn = vptr[0];
-        return (fn && IsReadablePtr(fn));
-    }
+	void SetCurrentFrameStage(int stage) {
+		t_currentFrameStage = stage;
+	}
 
-    void ApplyKnifeSkins() {
+	// ==================== APPLY KNIFE SKINS ====================
+	// 
+	// [CRITICAL] Called ONLY from FrameStageNotify stage 7 callback 
+	// (registered in hooks.cpp via RegisterOnFrameStageNotify)
+	//
+	// Algorithm:
+	// 1. Detect new weapon pointer (weapon swap/equip) - reset all counters, skip frame
+	// 2. Cheap writes every frame: item IDs, paint kit, def_index (server resets each tick)
+	// 3. Type change detection: if def_index differs, trigger expensive operation burst
+	// 4. Execute model update sequence: UpdateSubclass → SetMeshGroupMask → UpdateComposite → SetModel
+	//
+	// Stage 7 guarantee: Entity won't be deleted (post-render, pre-cleanup)
+	// Skeleton instance guaranteed valid (created at stage 5, valid until cleanup)
+	// Scene node may be reallocated - must re-fetch after SetModel
+	//
+	// Burst counters (s_subclassRefreshFrames, s_compositeRefreshFrames):
+	// Old implementation - not used anymore, kept for future reference
+	// New: s_setModelDelayFrames allows UpdateSubclass cache to settle before SetModel
 
-        if (!engineFunctionsResolved) { ResolveEngineFunctions(); engineFunctionsResolved = true; }
+	// Static state tracking
+	static uint16_t  s_lastKnifeDefIndex = 0;      // Previous def_index to detect type changes
+	static uintptr_t s_lastWeaponPtr = 0;          // Track weapon entity pointer
+	static int       s_lastHealth = 0;              // UNUSED - kept for reference
+	static int       s_subclassRefreshFrames = 0;  // UNUSED - kept for reference (old burst logic)
+	static int       s_compositeRefreshFrames = 0; // UNUSED - kept for reference (old burst logic)
+	static int       s_respawnDelayFrames = 0;     // UNUSED - kept for reference
+	static bool      s_engineFunctionsResolved = false; // One-time function pointer resolution
+	static int       s_setModelDelayFrames = 0;    // Delay SetModel 1 frame after UpdateSubclass
 
-        if (!game_state::IsInGame()) return;
+	void ApplyKnifeSkins() {
+		// Resolve function pointers on first call: g_fnSetModel, g_fnUpdateSubClass, etc
+		// These are pattern-scanned from client.dll in ResolveEngineFunctions()
+		if (!s_engineFunctionsResolved) {
+			ResolveEngineFunctions();
+			s_engineFunctionsResolved = true;
+		}
+		if (!game_state::IsInGame()) return;
 
-        uintptr_t weapon = GetActiveWeapon();
-        if (!weapon) return;
+		// [SAFETY CHECK] This function should ONLY be called at stage 7
+		// If called at wrong stage, bail immediately (prevents skeleton NULL corruption)
+		if (t_currentFrameStage != 7) {
+			return;
+		}
 
-        uint16_t def_index = GetDefIndex(weapon);
-        if (!IsKnife(def_index) && !IsDefaultKnife(def_index)) return;
+		// Fetch active weapon (knife) entity pointer from player's weapon service
+		// Entity address may change on weapon swap/equip
+		uintptr_t weapon = GetActiveWeapon();
+		if (!weapon) return;
 
-        // ---- New entity pointer: reset state, skip this frame ----
-        if (weapon != s_lastWeaponPtr) {
-            s_lastKnifeDefIndex = 0;
-            s_subclassRefreshFrames = 0;
-            s_compositeRefreshFrames = 0;
-            s_lastWeaponPtr = weapon;
-            debug_console::Console::Get().Info(
-                "[KNIFE] New weapon entity (0x%llX), state reset — skipping this frame", weapon);
-            return;
-        }
+		// Read m_iItemDefinitionIndex from entity
+		// Offset: weapon + OFF_ITEM_DEF_INDEX (from cs2-dumper)
+		uint16_t def_index = GetDefIndex(weapon);
+		if (!IsKnife(def_index) && !IsDefaultKnife(def_index)) return;
 
-        std::vector<LoadoutItem> loadout;
-        try { loadout = ReadLoadout(); }
-        catch (...) {}
-        uint8_t team = GetLocalTeam();
+		// ========== NEW WEAPON DETECTION ==========
+		// When player equips new weapon or swaps: weapon pointer changes
+		// Must reset all state and skip this frame (next frame safe to process)
+		// Prevents calling functions on stale/reallocated entity
+		if (weapon != s_lastWeaponPtr) {
+			s_lastKnifeDefIndex = 0;      // Force type-change detection
+			s_subclassRefreshFrames = 0;
+			s_compositeRefreshFrames = 0;
+			s_setModelDelayFrames = 0;
+			s_lastWeaponPtr = weapon;
+			return;  // Skip processing this frame - wait for stable state
+		}
 
-        uint16_t knifeDefIndex = 0;
-        const LoadoutItem* melee = FindMeleeItem(loadout, team);
-        if (melee && melee->def_index >= 500)
-            knifeDefIndex = melee->def_index;
-        else if (selected_knife_id >= 500)
-            knifeDefIndex = static_cast<uint16_t>(selected_knife_id);
-        else
-            return;
+		// Read shared object loadout (inventory manager)
+		// Contains synchronized weapon configs (paint kits, item IDs, etc)
+		std::vector<LoadoutItem> loadout;
+		try { loadout = ReadLoadout(); }
+		catch (...) {}
+		uint8_t team = GetLocalTeam();
 
-        const KnifeData* kd = GetKnifeData(knifeDefIndex);
-        if (!kd) return;
+		// Determine target knife def_index (from loadout or user selection)
+		uint16_t knifeDefIndex = 0;
+		const LoadoutItem* melee = FindMeleeItem(loadout, team);
+		if (melee && melee->def_index >= 500)
+			knifeDefIndex = melee->def_index;
+		else if (selected_knife_id >= 500)
+			knifeDefIndex = static_cast<uint16_t>(selected_knife_id);
+		else
+			return;
 
-        // ---- Item ID / flags (every frame, cheap writes) ----
-        if (melee && melee->item_id != 0) {
-            *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = melee->item_id;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = melee->item_id_high;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = melee->item_id_low;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ACCOUNT_ID) = melee->account_id;
-        }
-        else {
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = (uint32_t)-1;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = (uint32_t)-1;
-        }
-        *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = true;
-        *reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
+		// Fetch knife metadata: model path, subclass hash, etc
+		const KnifeData* kd = GetKnifeData(knifeDefIndex);
+		if (!kd) return;
 
-        // ---- Skin config (every frame, cheap writes) ----
-        auto skin_cfg = user_skins.find(knifeDefIndex);
-        if (skin_cfg != user_skins.end()) {
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = skin_cfg->second.paint_kit;
-            *reinterpret_cast<float*>(weapon + OFF_FALLBACK_WEAR) = skin_cfg->second.wear;
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_SEED) = skin_cfg->second.seed;
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_STATTRAK) =
-                skin_cfg->second.stattrak ? skin_cfg->second.stattrak_count : -1;
-        }
+		// ========== CHEAP WRITES: Every frame ==========
+		// Item ID and ownership (accountID) written every frame
+		// Server may reset these on next tick, so persistent writes necessary
+		// Off_ITEM_ID: C_EconItemView::m_iItemID (64-bit)
+		// Off_ITEM_ID_HIGH/LOW: Split 64-bit ID across 32-bit reads (inventory syncing)
+		// Off_ACCOUNT_ID: C_EconItemView::m_iAccountID (owner of item)
+		// Off_DISALLOW_SOC: m_bDisallowSOC (block server-side modification)
+		// Off_RESTORE_MATERIAL: m_bRestoreCustomMaterialAfterPrecache (reload composite on next UpdateComposite)
+		if (melee && melee->item_id != 0) {
+			// Loadout item exists: write its IDs
+			*reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = melee->item_id;
+			*reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = melee->item_id_high;
+			*reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = melee->item_id_low;
+			*reinterpret_cast<uint32_t*>(weapon + OFF_ACCOUNT_ID) = melee->account_id;
+		} else {
+			// No loadout item: write sentinel values (server won't override)
+			*reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = (uint32_t)-1;
+			*reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = (uint32_t)-1;
+		}
+		// Always allow engine to override material/SOC flags
+		*reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = false;
+		*reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
 
-        // ---- def_index + subclass: always re-write (server resets each tick) ----
-        *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
-        *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
+		// Paint kit / skin config: lookup user's selected paint for this knife
+		// Off_FALLBACK_PAINT: C_EconItemView::m_nFallbackPaintKit (legacy paint kit ID)
+		// Off_FALLBACK_WEAR: C_EconItemView::m_flFallbackWear (0.0-1.0 wear factor)
+		// Off_FALLBACK_SEED: C_EconItemView::m_nFallbackSeed (RNG seed for texture generation)
+		// Off_FALLBACK_STATTRAK: C_EconItemView::m_nFallbackStatTrak (stat trak count, -1=disabled)
+		auto skin_cfg = user_skins.find(knifeDefIndex);
+		if (skin_cfg != user_skins.end()) {
+			*reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = skin_cfg->second.paint_kit;
+			*reinterpret_cast<float*>(weapon + OFF_FALLBACK_WEAR) = skin_cfg->second.wear;
+			*reinterpret_cast<int*>(weapon + OFF_FALLBACK_SEED) = skin_cfg->second.seed;
+			*reinterpret_cast<int*>(weapon + OFF_FALLBACK_STATTRAK) =
+				skin_cfg->second.stattrak ? skin_cfg->second.stattrak_count : -1;
+		}
 
-        // ---- MeshGroupMask: cheap direct write, safe every frame ----
-        uintptr_t node = GetSceneNode(weapon);
-        if (node) SetMeshGroupMask(node, 2);
-        uintptr_t arms = GetArmsEntity();
-        if (arms) {
-            uintptr_t arms_node = GetSceneNode(arms);
-            if (arms_node) SetMeshGroupMask(arms_node, 2);
-        }
+		// ========== SUBCLASS + DEF_INDEX: Rewrite every frame ==========
+		// Server resets m_iItemDefinitionIndex each tick (used for weapon selection logic)
+		// Subclass hash (C_BaseEntity::m_pNSubclassID + 0x08) must match def_index for vftable lookup
+		// After these writes, UpdateSubclass() must be called to re-query SDK registry
+		// (Wrong vftable = wrong material/model system behavior)
+		*reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
+		*reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
 
-        // ---- TYPE CHANGE: fire the full engine call sequence once ----
-        if (s_lastKnifeDefIndex != knifeDefIndex) {
+		// ========== TYPE CHANGE DETECTION ==========
+		// If def_index differs from last frame, trigger expensive operations
+		// Sets counter to 1, which delays SetModel by 1 frame (allows UpdateSubclass cache to settle)
+		if (s_lastKnifeDefIndex != knifeDefIndex) {
+			s_subclassRefreshFrames = 5;  // UNUSED - legacy burst logic
+			s_compositeRefreshFrames = 3; // UNUSED - legacy burst logic
+			s_setModelDelayFrames = 1;    // Delay SetModel 1 frame
 
-            s_subclassRefreshFrames = 5;
-            s_compositeRefreshFrames = 3;
+			s_lastKnifeDefIndex = knifeDefIndex;
+		}
 
-            // Step 1+2 already done above (def_index + subclass writes)
+		// ========== STAGE 7 EXECUTION: Model Update Sequence ==========
+		// Critical order: UpdateSubclass -> SetMeshGroupMask -> UpdateComposite -> SetModel
+		// Each step depends on previous (UpdateSubclass invalidates vftable, UpdateComposite reads new vtable)
+		// SetModel must be LAST because it reallocates scene node
 
-            // Step 3 — UpdateSubclass
-            CallUpdateSubclassSafe(weapon);
+		// Decrement delay counter until SetModel ready
+		if (s_setModelDelayFrames > 0) {
+			s_setModelDelayFrames--;
+		}
 
-            uintptr_t node = GetSceneNode(weapon);
-            if (node) SetMeshGroupMask(node, 2);
-            uintptr_t arms = GetArmsEntity();
-            if (arms) {
-                uintptr_t arms_node = GetSceneNode(arms);
-                if (arms_node) SetMeshGroupMask(arms_node, 2);
-            }
+		// When delay elapsed and subclass refresh >= 0: execute full sequence
+		if (s_setModelDelayFrames == 0 && s_subclassRefreshFrames >= 0) {
+			// Step 1: UpdateSubclass (vfunc 0 on entity vtable)
+			// Rebuilds vftable pointer from SDK registry (m_pNSubclassID->vtable)
+			// Critical: old vtable stale after def_index change
+			try {
+				CallUpdateSubclassSafe(weapon);
+			} catch (...) { }
 
-            // Step 5 — UpdateComposite
-            try { sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1); }
-            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] UpdateComposite failed (type change)"); }
+			// Step 2: SetMeshGroupMask for weapon (visibility control)
+			// mask=2 enables rendering (0=hidden, 1=lod2, 2=normal, 3=lod0)
+			// Ensures weapon parts visible after model change
+			try {
+				uintptr_t node = GetSceneNode(weapon);
+				if (node) {
+					SetMeshGroupMask(node, 2);
+				}
+			} catch (...) { }
 
-            // Step 6 — UpdateCompositeSec
-            try { sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1); }
-            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] UpdateCompositeSec failed (type change)"); }
+			// Step 2b: SetMeshGroupMask for player arms model
+			// Arms are separate entity (first-person hands)
+			// Must also show arms when knife displayed
+			try {
+				uintptr_t arms = GetArmsEntity();
+				if (arms) {
+					uintptr_t arms_node = GetSceneNode(arms);
+					if (arms_node) {
+						SetMeshGroupMask(arms_node, 2);
+					}
+				}
+			} catch (...) { }
 
-            // Steps 7+8 — SetModel on arms then weapon.
-            // Guard the vtable pointer first — a null slot here is the crash on death/team switch.
-            if (IsSetModelSafe(weapon)) {
-                //if (arms) {
-                    //try { CallSetModel(arms, kd->model_path); }
-                   // catch (...) {}
-                //}
-                try { CallSetModel(weapon, kd->model_path); }
-                catch (...) {}
-                debug_console::Console::Get().Debug("[KNIFE] SetModel called: %s", kd->model_path);
-            }
-            else {
-                // Vtable not ready yet (just respawned, switched team, or entity not fully initialised).
-                // Keep burst counters alive so we retry next frames.
-                s_subclassRefreshFrames = 5;
-                s_compositeRefreshFrames = 3;
-                debug_console::Console::Get().Warning(
-                    "[KNIFE] SetModel skipped — vtable not ready, will retry in burst");
-            }
+			// Step 3: UpdateComposite vfunc 7 (material composite rebuild)
+			// Rebuilds material composite from new subclass vftable
+			// Reads paint_kit values set earlier and generates textures
+			try {
+				sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1);
+			} catch (...) { }
 
-            s_lastKnifeDefIndex = knifeDefIndex;
+			// Step 4: UpdateComposite vfunc 105 (secondary material update)
+			// Some Source2 entities use vfunc 105 as secondary update
+			// Ensures all material LOD variants updated
+			try {
+				sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1);
+			} catch (...) { }
 
-            debug_console::Console::Get().Success(
-                "[KNIFE] Type change -> def=%u subclass=0x%X model=%s",
-                knifeDefIndex, kd->subclass_hash, kd->model_path);
-        }
-
-        // ---- BURST: UpdateSubclass for N frames after type change ----
-        // Beats server re-sync of m_nSubclassID without spamming engine calls forever.
-        if (s_subclassRefreshFrames > 0) {
-            // Re-write here too — server may have reset them between frames.
-            *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
-            CallUpdateSubclassSafe(weapon);
-            s_subclassRefreshFrames--;
-            debug_console::Console::Get().Debug(
-                "[KNIFE] Burst UpdateSubclass, frames left: %d", s_subclassRefreshFrames);
-        }
-
-        // ---- BURST: UpdateComposite vfuncs for N frames after type change ----
-        // Material system needs a few frames to settle after a model change.
-        // Do NOT call these in steady state — thrashes the material system and can crash.
-        if (s_compositeRefreshFrames > 0) {
-            try {
-                sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1);
-            }
-            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] Burst UpdateComposite failed"); }
-
-            try {
-                sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1);
-            }
-            catch (...) { debug_console::Console::Get().Error("[!][KNIFE] Burst UpdateCompositeSec failed"); }
-
-            s_compositeRefreshFrames--;
-            debug_console::Console::Get().Debug(
-                "[KNIFE] Burst composite, frames left: %d", s_compositeRefreshFrames);
-        }
-
-        // ---- STEADY STATE ----
-        // Both counters are 0. Only the cheap memory writes above run each frame.
-        // Model is already set, material already built — leave the engine alone.
-    }
+			// Step 5: SetModel (LAST - after all updates)
+			// Changes 3D model pointer (m_pModelData)
+			// Invalidates all bone caches; next render recalculates transforms
+			// Must be last because scene node may be deallocated/reallocated
+			// Re-fetch scene node after this call if further operations needed
+			try {
+				if (IsSetModelSafe(weapon)) {
+					CallSetModel(weapon, kd->model_path);
+				}
+			} catch (...) { }
+		}
+	}
 
     // ==================== APPLY GLOVES ====================
+    // Gloves are stored directly on player pawn, not in weapon list
+    // Offset: C_CSPlayerPawn::m_EconGloves (C_EconItemView structure)
+    // Glove def_index always 5028, paint kit applied via material system
     void ApplyGloves() {
         if (!game_state::IsInGame()) return;
         uintptr_t pawn = GetLocalPawn();
         if (!pawn) return;
 
+        // Gloves stored inline on pawn (not separate entity like weapons)
         uintptr_t gv = pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
 
         std::vector<LoadoutItem> loadout;
@@ -811,10 +964,12 @@ namespace skins {
         catch (...) {}
         uint8_t team = GetLocalTeam();
 
+        // Find gloves in loadout (slot 41 = glove slot)
         const LoadoutItem* gl = nullptr;
         for (const auto& li : loadout)
             if (li.team == team && li.slot == 41) { gl = &li; break; }
 
+        // Apply gloves if found in loadout
         if (gl && gl->item_id != 0) {
             *reinterpret_cast<uint16_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex) = gl->def_index;
             *reinterpret_cast<uint64_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemID) = gl->item_id;
@@ -825,6 +980,7 @@ namespace skins {
             *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bDisallowSOC) = false;
             *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bRestoreCustomMaterialAfterPrecache) = true;
         }
+        // Fallback to generic gloves if user selected paint kit
         else if (selected_glove_kit > 0) {
             *reinterpret_cast<uint16_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex) = 5028;
             *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh) = (uint32_t)-1;
@@ -835,19 +991,33 @@ namespace skins {
         }
         else return;
 
+        // Flag glove system to reapply material on next render
         *reinterpret_cast<bool*>(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_bNeedToReApplyGloves) = true;
     }
 
     static auto g_last_apply = std::chrono::steady_clock::now();
 
     // ==================== MAIN TICK ====================
+    // ApplyAllSkins() - called every frame from main game loop
+    // Runs weapon skin system (gloves, equipment skins, etc)
+    // 
+    // [IMPORTANT] ApplyKnifeSkins is NOT called here anymore
+    // Knife skins are now handled by FrameStageNotify stage 7 callback only
+    // (registered in hooks.cpp via RegisterOnFrameStageNotify)
+    // Calling it here would break stage-aware execution and cause SetModel at wrong stage
     void ApplyAllSkins() {
         if (!game_state::IsInGame()) return;
+
+        // NOTE: ApplyKnifeSkins is now called ONLY from FrameStageNotify stage 7 callback
+        // (via Hook_FrameStageNotify.cpp RegisterOnFrameStageNotify)
+        // Do NOT call it here — it breaks stage-aware execution!
 
         uintptr_t localPawn = GetLocalPawn();
         int health = 0;
         if (localPawn)
             SafeReadInt(localPawn + OFF_HEALTH, health);
+
+        if (health <= 0) return;
 
         auto now = std::chrono::steady_clock::now();
         bool should_apply =
@@ -868,7 +1038,7 @@ namespace skins {
         }
         s_lastHealth = health;
 
-        if (health <= 0) return;
+
 
         if (s_respawnDelayFrames > 0) {
             s_respawnDelayFrames--;
@@ -877,15 +1047,7 @@ namespace skins {
             return;
         }
 
-        try {
-            ApplyKnifeSkins();
-        }
-        catch (std::exception& e) {
-            debug_console::Console::Get().Error("[!][KNIFE] Exception in ApplyKnifeSkins: %s", e.what());
-        }
-        catch (...) {
-            debug_console::Console::Get().Error("[!][KNIFE] Unknown exception in ApplyKnifeSkins");
-        }
+
 
         /*try { ApplyWeaponSkins(); } catch (...) {}*/
     }
