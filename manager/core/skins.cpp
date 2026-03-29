@@ -339,7 +339,7 @@ namespace skins {
 		if (!ent || !IsReadablePtr(ent) || !model) return;
 		if (!g_fnSetModel || reinterpret_cast<uintptr_t>(g_fnSetModel) <= 0x10000) return;
 		g_fnSetModel(reinterpret_cast<void*>(ent), model);
-		debug_console::Console::Get().Info("[SKINS] Called SetModel for entity %p with model %s", reinterpret_cast<void*>(ent), model);
+		//debug_console::Console::Get().Info("[SKINS] Called SetModel for entity %p with model %s", reinterpret_cast<void*>(ent), model);
 	}
 
 	// UpdateSubclass(entity) - rebuilds weapon subclass vftable
@@ -348,11 +348,11 @@ namespace skins {
 	static void CallUpdateSubclassSafe(uintptr_t ent) {
 		if (!ent || !IsReadablePtr(ent)) return;
 		if (!g_fnUpdateSubClass || reinterpret_cast<uintptr_t>(g_fnUpdateSubClass) <= 0x10000) { 
-			debug_console::Console::Get().Warning("[SKINS] UpdateSubclass function pointer invalid, cannot call UpdateSubclass for entity %p", reinterpret_cast<void*>(ent));
+			//debug_console::Console::Get().Warning("[SKINS] UpdateSubclass function pointer invalid, cannot call UpdateSubclass for entity %p", reinterpret_cast<void*>(ent));
 			return; 
 		}
 		g_fnUpdateSubClass(reinterpret_cast<void*>(ent));
-		debug_console::Console::Get().Info("[SKINS] Called UpdateSubclass for entity %p", reinterpret_cast<void*>(ent));
+		//debug_console::Console::Get().Info("[SKINS] Called UpdateSubclass for entity %p", reinterpret_cast<void*>(ent));
 	}
 
 	// UpdateComposite(entity, force) - flushes composite material render cache
@@ -763,9 +763,12 @@ namespace skins {
 	static bool      s_engineFunctionsResolved = false; // One-time function pointer resolution
 	static int       s_setModelDelayFrames = 0;    // Delay SetModel 1 frame after UpdateSubclass
 
+    static int should_apply_set_model = true;
 	void ApplyKnifeSkins() {
 		// Resolve function pointers on first call: g_fnSetModel, g_fnUpdateSubClass, etc
 		// These are pattern-scanned from client.dll in ResolveEngineFunctions()
+
+       
 		if (!s_engineFunctionsResolved) {
 			ResolveEngineFunctions();
 			s_engineFunctionsResolved = true;
@@ -797,6 +800,7 @@ namespace skins {
 			s_subclassRefreshFrames = 0;
 			s_compositeRefreshFrames = 0;
 			s_setModelDelayFrames = 0;
+            should_apply_set_model = true;
 			s_lastWeaponPtr = weapon;
 			return;  // Skip processing this frame - wait for stable state
 		}
@@ -923,16 +927,16 @@ namespace skins {
 			// Step 3: UpdateComposite vfunc 7 (material composite rebuild)
 			// Rebuilds material composite from new subclass vftable
 			// Reads paint_kit values set earlier and generates textures
-			try {
+			/*try {
 				sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1);
-			} catch (...) { }
+			} catch (...) { }*/
 
 			// Step 4: UpdateComposite vfunc 105 (secondary material update)
 			// Some Source2 entities use vfunc 105 as secondary update
 			// Ensures all material LOD variants updated
-			try {
+			/*try {
 				sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1);
-			} catch (...) { }
+			} catch (...) { }*/
 
 			// Step 5: SetModel (LAST - after all updates)
 			// Changes 3D model pointer (m_pModelData)
@@ -940,8 +944,11 @@ namespace skins {
 			// Must be last because scene node may be deallocated/reallocated
 			// Re-fetch scene node after this call if further operations needed
 			try {
-				if (IsSetModelSafe(weapon)) {
+
+				if (should_apply_set_model && IsSetModelSafe(weapon)) {
+
 					CallSetModel(weapon, kd->model_path);
+					should_apply_set_model = false;
 				}
 			} catch (...) { }
 		}
@@ -1017,7 +1024,10 @@ namespace skins {
         if (localPawn)
             SafeReadInt(localPawn + OFF_HEALTH, health);
 
-        if (health <= 0) return;
+        if (health <= 0) {
+            should_apply_set_model = true;
+            return;
+        }
 
         auto now = std::chrono::steady_clock::now();
         bool should_apply =
@@ -1053,6 +1063,7 @@ namespace skins {
     }
 
     void ApplyKnife() {
+        should_apply_set_model = true;
         s_lastKnifeDefIndex = 0;
         s_lastWeaponPtr = 0;
         s_subclassRefreshFrames = 0;
