@@ -847,7 +847,7 @@ static std::vector<uintptr_t> playerPawns;
 				int local_health = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);   
                 int target_health = *(int*)(controller + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
 
-                if (target_team != local_team && target_health > 0) {
+                if (target_team != local_team && target_health > 0 && local_health > 0) {
                     DWORD now = GetTickCount();
                     DWORD delay = (DWORD)(config::misc::trigger_delay * 1000.0f);
 
