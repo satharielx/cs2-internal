@@ -851,7 +851,7 @@ namespace skins {
             SafeReadInt(localPawn + OFF_HEALTH, health);
 
         if (health <= 0) {
-            should_apply_set_model = true;
+            //should_apply_set_model = true;
             return;
         }
 
@@ -866,7 +866,7 @@ namespace skins {
     }
 
     void ApplyKnife() {
-        should_apply_set_model = true;
+        //should_apply_set_model = true;
         s_lastKnifeDefIndex = 0;
         s_lastWeaponPtr = 0;
         s_subclassRefreshFrames = 0;
