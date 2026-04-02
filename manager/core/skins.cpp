@@ -850,7 +850,10 @@ namespace skins {
         if (localPawn)
             SafeReadInt(localPawn + OFF_HEALTH, health);
 
-        if (health <= 0) return;
+        if (health <= 0) {
+            should_apply_set_model = true;
+            return;
+        }
 
         auto now = std::chrono::steady_clock::now();
         bool should_apply =
@@ -863,6 +866,7 @@ namespace skins {
     }
 
     void ApplyKnife() {
+        should_apply_set_model = true;
         s_lastKnifeDefIndex = 0;
         s_lastWeaponPtr = 0;
         s_subclassRefreshFrames = 0;
