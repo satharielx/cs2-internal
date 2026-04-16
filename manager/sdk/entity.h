@@ -32,6 +32,8 @@ namespace sdk {
         }
     };
 
+    using QAngle = Vector3;
+
     // CS2 Vector2
     struct Vector2 {
         float x, y;

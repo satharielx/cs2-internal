@@ -10,6 +10,7 @@ Tools used: imgui, a2x-cs2dumper
 #include <string>
 #include <vector>
 #include <map>
+#include <Windows.h>
 
 namespace skins {
     enum WeaponID {
@@ -162,6 +163,11 @@ namespace skins {
     void ProcessQueuedUpdateSubclass();
     const char* GetRarityName(SkinRarity r);
     const float* GetRarityColor(SkinRarity r);
+    uintptr_t ResolveHandle(uintptr_t el, uint32_t h);
+    uintptr_t GetLocalPawn();
+    uintptr_t GetEntityList();
+    uintptr_t GetActiveWeapon();
+    uint16_t GetDefIndex(uintptr_t w);
 
     struct WeaponDebugInfo {
         uintptr_t address;
@@ -197,5 +203,6 @@ namespace skins {
 
     // Frame stage tracking (called from FrameStageNotify hook callback)
     void SetCurrentFrameStage(int stage);
+  
 
 }

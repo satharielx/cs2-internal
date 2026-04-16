@@ -10527,6 +10527,12 @@
     <ClInclude Include="core\Hook_FrameStageNotify.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="sdk\usercmd.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="sdk\vector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="external\imgui\imgui.cpp">
@@ -10645,5 +10651,8 @@
     <Font Include="core\fonts\main_menu\variants\Orbitron-Medium.ttf" />
     <Font Include="core\fonts\main_menu\variants\Orbitron-Regular.ttf" />
     <Font Include="core\fonts\main_menu\variants\Orbitron-SemiBold.ttf" />
+    <Font Include="core\fonts\fa-regular-400.ttf" />
+    <Font Include="core\fonts\fa-brands-400.ttf" />
+    <Font Include="core\fonts\fa-solid-900.ttf" />
   </ItemGroup>
 </Project>

@@ -3636,6 +3636,8 @@
     <ClInclude Include="sdk\source2-sdk\types\utlmap.hpp" />
     <ClInclude Include="sdk\source2-sdk\types\utlvector.hpp" />
     <ClInclude Include="sdk\source2sdk_offsets.h" />
+    <ClInclude Include="sdk\usercmd.h" />
+    <ClInclude Include="sdk\vector.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="core\debug_console.cpp" />
@@ -3691,6 +3693,9 @@
     <Image Include="core\logo.png" />
   </ItemGroup>
   <ItemGroup>
+    <Font Include="core\fonts\fa-brands-400.ttf" />
+    <Font Include="core\fonts\fa-regular-400.ttf" />
+    <Font Include="core\fonts\fa-solid-900.ttf" />
     <Font Include="core\fonts\main_menu\Orbitron-VariableFont_wght.ttf" />
     <Font Include="core\fonts\main_menu\variants\Orbitron-Black.ttf" />
     <Font Include="core\fonts\main_menu\variants\Orbitron-Bold.ttf" />

@@ -341,21 +341,21 @@ namespace skins {
     }
 
     // ==================== ENTITY HELPERS ====================
-    static uintptr_t GetLocalPawn() {
+    uintptr_t GetLocalPawn() {
         uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
         if (!base) return 0;
         uintptr_t p = *(uintptr_t*)(base + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
         return (p && IsReadablePtr(p)) ? p : 0;
     }
 
-    static uintptr_t GetEntityList() {
+    uintptr_t GetEntityList() {
         uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
         if (!base) return 0;
         uintptr_t l = *(uintptr_t*)(base + cs2_dumper::offsets::client_dll::dwEntityList);
         return (l && IsReadablePtr(l)) ? l : 0;
     }
 
-    static uintptr_t ResolveHandle(uintptr_t el, uint32_t h) {
+    uintptr_t ResolveHandle(uintptr_t el, uint32_t h) {
         if (!h || h == 0xFFFFFFFF || !el) return 0;
         try {
             uintptr_t le = *(uintptr_t*)(el + 0x8 * ((h & 0x7FFF) >> 9) + 16);
@@ -366,7 +366,7 @@ namespace skins {
         catch (...) { return 0; }
     }
 
-    static uintptr_t GetActiveWeapon() {
+    uintptr_t GetActiveWeapon() {
         uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return 0;
         try {
@@ -408,7 +408,7 @@ namespace skins {
         catch (...) { return 0; }
     }
 
-    static uint16_t GetDefIndex(uintptr_t w) {
+    uint16_t GetDefIndex(uintptr_t w) {
         return *reinterpret_cast<uint16_t*>(w + OFF_ITEM_DEF_INDEX);
     }
 
@@ -700,11 +700,11 @@ namespace skins {
             }
 
             // Register fake item with the skin
-            AddEconItemToList(fakeItemID,
+            /*AddEconItemToList(fakeItemID,
                 static_cast<float>(paintKit),
                 static_cast<float>(seed),
                 wear,
-                true);  // legacy = true
+                true);  // legacy = true*/
 
             // Write the fake ID to the weapon
             *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = fakeItemID;
@@ -759,11 +759,11 @@ namespace skins {
             catch (...) {}
 
             // Step 3: UpdateComposite (vfunc 7)
-            try { sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1); }
-            catch (...) {}
+            //try { sdk::CallVFunc<7, void*>(reinterpret_cast<void*>(weapon), 1); }
+           // catch (...) {}
             // Step 4: UpdateComposite (vfunc 105)
-            try { sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1); }
-            catch (...) {}
+            //try { sdk::CallVFunc<105, void*>(reinterpret_cast<void*>(weapon), 1); }
+           // catch (...) {}
 
             // Step 5: SetModel (last)
             try {

@@ -7,6 +7,8 @@
 #include "../external/offsets/offsets.hpp"
 #include "../sdk/mem.h"
 #include "../sdk/source2sdk_offsets.h"
+#include "../sdk/usercmd.h"
+#include "skins.h"
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -16,17 +18,17 @@
 #include <atomic>
 
 namespace features {
-// Per-frame cached values (read from game_state atomics once per frame)
-static sdk::C_CSPlayerPawn* g_local_player = nullptr;
-static sdk::ViewMatrix g_view_matrix = {};
-static int g_screen_width = 1920;
-static int g_screen_height = 1080;
-    
-// Track resolution changes
-static int g_last_screen_width = 0;
-static int g_last_screen_height = 0;
+    // Per-frame cached values (read from game_state atomics once per frame)
+    static sdk::C_CSPlayerPawn* g_local_player = nullptr;
+    static sdk::ViewMatrix g_view_matrix = {};
+    static int g_screen_width = 1920;
+    static int g_screen_height = 1080;
 
-static std::vector<uintptr_t> playerPawns;
+    // Track resolution changes
+    static int g_last_screen_width = 0;
+    static int g_last_screen_height = 0;
+
+    static std::vector<uintptr_t> playerPawns;
 
     // Aimbot thread control
     static std::atomic<bool> s_aimbot_running{ false };
@@ -35,7 +37,7 @@ static std::vector<uintptr_t> playerPawns;
     // Get screen dimensions from multiple sources with fallback priority
     static void UpdateScreenDimensions() {
         bool success = false;
-        
+
         // METHOD 1: Get from DX11 swap chain back buffer (most reliable for DX11 games)
         if (interfaces::swap_chain_dx11 && interfaces::swap_chain_dx11->swap_chain) {
             try {
@@ -46,10 +48,10 @@ static std::vector<uintptr_t> playerPawns;
                         g_screen_width = desc.BufferDesc.Width;
                         g_screen_height = desc.BufferDesc.Height;
                         success = true;
-                        
+
                         static bool logged_once = false;
                         if (!logged_once) {
-                            debug_console::Console::Get().Success("[Resolution] Swap chain: %dx%d", 
+                            debug_console::Console::Get().Success("[Resolution] Swap chain: %dx%d",
                                 g_screen_width, g_screen_height);
                             logged_once = true;
                         }
@@ -60,30 +62,30 @@ static std::vector<uintptr_t> playerPawns;
                 // Fall through to next method
             }
         }
-        
+
         // METHOD 2: Get from window client rect (fallback)
         if (!success && interfaces::hwnd) {
             RECT rect;
             if (GetClientRect(interfaces::hwnd, &rect)) {
                 int width = rect.right - rect.left;
                 int height = rect.bottom - rect.top;
-                
+
                 // Only update if dimensions are valid
                 if (width > 0 && height > 0) {
                     g_screen_width = width;
                     g_screen_height = height;
                     success = true;
-                    
+
                     static bool logged_once = false;
                     if (!logged_once) {
-                        debug_console::Console::Get().Info("[Resolution] Window rect: %dx%d", 
+                        debug_console::Console::Get().Info("[Resolution] Window rect: %dx%d",
                             g_screen_width, g_screen_height);
                         logged_once = true;
                     }
                 }
             }
         }
-        
+
         // METHOD 3: Read from CS2 game memory (additional verification)
         // CS2 stores screen resolution in memory, can be used to verify
         // This is optional but provides extra validation
@@ -100,24 +102,24 @@ static std::vector<uintptr_t> playerPawns;
         catch (...) {
             // Silent fail
         }
-        
+
         // Ensure we have valid dimensions (default to 1920x1080 if all methods fail)
         if (g_screen_width <= 0 || g_screen_height <= 0) {
             g_screen_width = 1920;
             g_screen_height = 1080;
-            
+
             static bool logged_default = false;
             if (!logged_default) {
-                debug_console::Console::Get().Warning("[Resolution] Using default: %dx%d", 
+                debug_console::Console::Get().Warning("[Resolution] Using default: %dx%d",
                     g_screen_width, g_screen_height);
                 logged_default = true;
             }
         }
-        
+
         // Detect and log resolution changes (windowed/fullscreen switches, Alt+Tab, etc.)
         if (g_last_screen_width != g_screen_width || g_last_screen_height != g_screen_height) {
             if (g_last_screen_width != 0 && g_last_screen_height != 0) {
-                debug_console::Console::Get().Info("[Resolution] Changed: %dx%d -> %dx%d", 
+                debug_console::Console::Get().Info("[Resolution] Changed: %dx%d -> %dx%d",
                     g_last_screen_width, g_last_screen_height,
                     g_screen_width, g_screen_height);
             }
@@ -126,28 +128,22 @@ static std::vector<uintptr_t> playerPawns;
         }
     }
 
-    // World to screen projection
-    bool WorldToScreen(const sdk::Vector3& world, sdk::Vector2& screen, const sdk::ViewMatrix& matrix, int screen_width, int screen_height) {
-        float w = matrix.matrix[3][0] * world.x + matrix.matrix[3][1] * world.y +
-            matrix.matrix[3][2] * world.z + matrix.matrix[3][3];
-
-        if (w < 0.001f) return false;
-
-        float x = matrix.matrix[0][0] * world.x + matrix.matrix[0][1] * world.y +
-            matrix.matrix[0][2] * world.z + matrix.matrix[0][3];
-        float y = matrix.matrix[1][0] * world.x + matrix.matrix[1][1] * world.y +
-            matrix.matrix[1][2] * world.z + matrix.matrix[1][3];
-
-        x /= w;
-        y /= w;
-
-        screen.x = (screen_width / 2.0f) + (x * screen_width / 2.0f);
-        screen.y = (screen_height / 2.0f) - (y * screen_height / 2.0f);
-
-        return true;
+    // ======================== MATH / ANGLE HELPERS ========================
+    void ClampAnglesA(sdk::QAngle& ang) {
+        while (ang.x > 89.0f) ang.x -= 180.0f;
+        while (ang.x < -89.0f) ang.x += 180.0f;
+        while (ang.y > 180.0f) ang.y -= 360.0f;
+        while (ang.y < -180.0f) ang.y += 360.0f;
+        ang.z = 0.0f;
     }
 
-    // Calculate angle between two positions
+    float GetFovA(const sdk::QAngle& viewAngles, const sdk::QAngle& aimAngles) {
+        sdk::QAngle delta = aimAngles - viewAngles;
+        while (delta.y > 180.0f) delta.y -= 360.0f;
+        while (delta.y < -180.0f) delta.y += 360.0f;
+        return sqrtf(delta.x * delta.x + delta.y * delta.y);
+    }
+
     sdk::Vector2 CalcAngle(const sdk::Vector3& src, const sdk::Vector3& dst) {
         sdk::Vector3 delta = src - dst;
         float hyp = sqrtf(delta.x * delta.x + delta.y * delta.y);
@@ -169,20 +165,12 @@ static std::vector<uintptr_t> playerPawns;
         return angles;
     }
 
-    // Get current screen resolution (updates every frame)
-    void GetScreenResolution(int& width, int& height) {
-        width = g_screen_width;
-        height = g_screen_height;
-    }
-
-    // Normalize angle delta
     static float NormalizeAngle(float angle) {
         while (angle > 180.0f) angle -= 360.0f;
         while (angle < -180.0f) angle += 360.0f;
         return angle;
     }
 
-    // Calculate FOV distance between current view and aim angles
     float GetFov(const sdk::Vector2& view_angles, const sdk::Vector2& aim_angles) {
         sdk::Vector2 delta;
         delta.x = NormalizeAngle(aim_angles.x - view_angles.x);
@@ -190,14 +178,334 @@ static std::vector<uintptr_t> playerPawns;
         return sqrtf(delta.x * delta.x + delta.y * delta.y);
     }
 
-    // ESP Drawing Functions
+    void GetScreenResolution(int& width, int& height) {
+        width = g_screen_width;
+        height = g_screen_height;
+    }
+
+    // ======================== BONE / EYE HELPERS (raw pointers) ========================
+    static sdk::Vector3 GetBonePositionRaw(uintptr_t pawn, int bone_index) {
+        uintptr_t game_scene_node = *(uintptr_t*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
+        if (!game_scene_node || !sdk::is_valid_ptr(game_scene_node)) return sdk::Vector3();
+
+        uintptr_t bone_array = *(uintptr_t*)(game_scene_node + (cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState + 0x80));
+        if (!bone_array || !sdk::is_valid_ptr(bone_array)) return sdk::Vector3();
+
+        return *(sdk::Vector3*)(bone_array + bone_index * 32);
+    }
+
+    static sdk::Vector3 GetEyePositionRaw(uintptr_t pawn) {
+        sdk::Vector3 origin = *(sdk::Vector3*)(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
+        sdk::Vector3 view_offset = *(sdk::Vector3*)(pawn + cs2_dumper::schemas::client_dll::C_BaseModelEntity::m_vecViewOffset);
+        return origin + view_offset;
+    }
+
+    // RCS offsets
+    constexpr std::ptrdiff_t rcs_m_iShotsFired = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_iShotsFired;
+    constexpr std::ptrdiff_t rcs_m_aimPunchAngle = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_aimPunchAngle;
+
+    // ======================== SILENT AIM (CreateMove) ========================
+    void RunSilentAim(CUserCmd* cmd) {
+        if (!cmd || !cmd->csgoUserCmd.pBaseCmd) return;
+        if (!config::aimbot::enabled || !config::aimbot::silent_aim) return;
+        if (!game_state::IsInGame()) return;
+        if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) return;
+
+        uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+        if (!client) return;
+        uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+        if (!localPawn || !sdk::is_valid_ptr(localPawn)) return;
+        if (*(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) <= 0) return;
+        if (!(cmd->csgoUserCmd.pBaseCmd->pInButtonState->nValue & sdk::IN_ATTACK)) return;
+
+        sdk::Vector3 localEye = GetEyePositionRaw(localPawn);
+        int localTeam = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+        uintptr_t entity_list = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwEntityList);
+        if (!entity_list || !sdk::is_valid_ptr(entity_list)) return;
+
+        // Find local index for visibility check
+        int localIndex = -1;
+        for (int i = 1; i < 64; i++) {
+            uintptr_t list1 = *(uintptr_t*)(entity_list + (8 * (i & 0x7FFF) >> 9) + 16);
+            if (!list1 || !sdk::is_valid_ptr(list1)) continue;
+            uintptr_t controller = *(uintptr_t*)(list1 + 112 * (i & 0x1FF));
+            if (!controller) continue;
+            uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
+            if (!pawnHandle) continue;
+            uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
+            if (!list2) continue;
+            uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
+            if (pawn == localPawn) {
+                localIndex = i;
+                break;
+            }
+        }
+
+        sdk::C_CSPlayerPawn* bestTarget = nullptr;
+        float bestFov = config::aimbot::fov;
+        sdk::Vector3 bestPos;
+
+        for (int i = 1; i < 64; i++) {
+            uintptr_t list1 = *(uintptr_t*)(entity_list + (8 * (i & 0x7FFF) >> 9) + 16);
+            if (!list1 || !sdk::is_valid_ptr(list1)) continue;
+            uintptr_t controller = *(uintptr_t*)(list1 + 112 * (i & 0x1FF));
+            if (!controller) continue;
+            uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
+            if (!pawnHandle) continue;
+            uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
+            if (!list2) continue;
+            uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
+            if (!pawn || pawn == localPawn) continue;
+
+            int health = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+            if (health <= 0) continue;
+
+            if (config::aimbot::team_check) {
+                int playerTeam = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+                if (localTeam == playerTeam) continue;
+            }
+
+            if (config::aimbot::visible_check && localIndex != -1) {
+                int32_t spottedMask = *(int32_t*)(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpottedByMask);
+                if (!(spottedMask & (1 << (localIndex - 1)))) continue;
+            }
+
+            sdk::Vector3 headPos = GetBonePositionRaw(pawn, 6);
+            float dist = localEye.Distance(headPos);
+            if (dist > config::aimbot::max_distance) continue;
+
+            sdk::Vector2 aimAngles2D = CalcAngle(localEye, headPos);
+            sdk::QAngle aimAngles(aimAngles2D.x, aimAngles2D.y, 0.0f);
+            sdk::QAngle currentAngles = cmd->csgoUserCmd.pBaseCmd->pViewAngles->angValue;
+
+            float fov = GetFovA(currentAngles, aimAngles);
+            if (fov < bestFov) {
+                bestFov = fov;
+                bestTarget = reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn);
+                bestPos = headPos;
+            }
+        }
+
+        if (!bestTarget) return;
+
+        sdk::Vector2 aim2D = CalcAngle(localEye, bestPos);
+        sdk::QAngle targetAngles(aim2D.x, aim2D.y, 0.0f);
+        sdk::QAngle current = cmd->csgoUserCmd.pBaseCmd->pViewAngles->angValue;
+
+        if (config::aimbot::smoothing > 0.0f) {
+            sdk::QAngle delta = targetAngles - current;
+            ClampAnglesA(delta);
+            targetAngles = current + delta * (1.0f - config::aimbot::smoothing);
+        }
+
+        if (config::rcs::enabled) {
+            sdk::Vector3 punch = *(sdk::Vector3*)(localPawn + rcs_m_aimPunchAngle);
+            targetAngles.x -= punch.x * 2.0f * config::rcs::strength;
+            targetAngles.y -= punch.y * 2.0f * config::rcs::strength;
+        }
+
+        targetAngles.x = std::clamp(targetAngles.x, -89.0f, 89.0f);
+        targetAngles.y = std::fmod(targetAngles.y, 360.0f);
+        if (targetAngles.y > 180.0f) targetAngles.y -= 360.0f;
+        if (targetAngles.y < -180.0f) targetAngles.y += 360.0f;
+
+        cmd->SetSubTickAngle(targetAngles);
+
+        if (config::aimbot::auto_shoot) {
+            cmd->csgoUserCmd.pBaseCmd->pInButtonState->nValue |= sdk::IN_ATTACK;
+        }
+    }
+
+    // ======================== NORMAL AIM THREAD (dwViewAngles) ========================
+    static void AimbotLoop() {
+        debug_console::Console::Get().Info("[Aimbot] Normal aim thread started");
+        int localIndex = -1;
+        sdk::Vector2 old_punch = { 0.0f, 0.0f };
+
+        while (s_aimbot_running.load()) {
+            // Pause thread if disabled, silent aim active, or not in game
+            if (!config::aimbot::enabled || config::aimbot::silent_aim || !game_state::IsInGame()) {
+                old_punch = { 0.0f, 0.0f };
+                Sleep(50);
+                continue;
+            }
+            if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) {
+                Sleep(1);
+                continue;
+            }
+
+            try {
+                uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+                if (!client) { Sleep(50); continue; }
+
+                uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+                if (!localPawn || !sdk::is_valid_ptr(localPawn)) { Sleep(1); continue; }
+                if (*(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) <= 0) { Sleep(1); continue; }
+
+                int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+                sdk::Vector3 local_eye = GetEyePositionRaw(localPawn);
+
+                uintptr_t entity_list = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwEntityList);
+                if (!entity_list || !sdk::is_valid_ptr(entity_list)) { Sleep(1); continue; }
+
+                // Find local index for visibility
+                localIndex = -1;
+                for (int i = 1; i < 64; i++) {
+                    uintptr_t list1 = *(uintptr_t*)(entity_list + (8 * (i & 0x7FFF) >> 9) + 16);
+                    if (!list1 || !sdk::is_valid_ptr(list1)) continue;
+                    uintptr_t controller = *(uintptr_t*)(list1 + 112 * (i & 0x1FF));
+                    if (!controller) continue;
+                    uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
+                    if (!pawnHandle) continue;
+                    uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
+                    if (!list2) continue;
+                    uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
+                    if (pawn == localPawn) {
+                        localIndex = i;
+                        break;
+                    }
+                }
+
+                uintptr_t closest_pawn = 0;
+                float closest_dist = config::aimbot::max_distance;
+                sdk::Vector2* va = reinterpret_cast<sdk::Vector2*>(client + cs2_dumper::offsets::client_dll::dwViewAngles);
+                sdk::Vector2 current_angles = *va;
+
+                for (int i = 1; i < 64; i++) {
+                    uintptr_t list1 = *(uintptr_t*)(entity_list + (8 * (i & 0x7FFF) >> 9) + 16);
+                    if (!list1 || !sdk::is_valid_ptr(list1)) continue;
+                    uintptr_t controller = *(uintptr_t*)(list1 + 112 * (i & 0x1FF));
+                    if (!controller) continue;
+                    uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
+                    if (!pawnHandle) continue;
+                    uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
+                    if (!list2) continue;
+                    uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
+                    if (!pawn || pawn == localPawn) continue;
+
+                    int health = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+                    if (health <= 0) continue;
+
+                    if (config::aimbot::team_check) {
+                        int team = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+                        if (team == local_team) continue;
+                    }
+
+                    if (config::aimbot::visible_check && localIndex != -1) {
+                        int32_t spotted = *(int32_t*)(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpottedByMask);
+                        if (!(spotted & (1 << (localIndex - 1)))) continue;
+                    }
+
+                    sdk::Vector3 head_pos = GetBonePositionRaw(pawn, 6);
+                    if (head_pos.x == 0.0f && head_pos.y == 0.0f && head_pos.z == 0.0f) continue;
+
+                    sdk::Vector2 target_angles = CalcAngle(local_eye, head_pos);
+                    float fov = GetFov(current_angles, target_angles);
+                    if (fov > config::aimbot::fov) continue;
+
+                    float dist = local_eye.Distance(head_pos);
+                    if (dist < closest_dist) {
+                        closest_dist = dist;
+                        closest_pawn = pawn;
+                    }
+                }
+
+				DWORD shots_fired = *(DWORD*)(localPawn + rcs_m_iShotsFired);
+
+                if (closest_pawn && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) && !skins::IsKnife(skins::GetDefIndex(skins::GetActiveWeapon()))) {
+                    sdk::Vector3 head_pos = GetBonePositionRaw(closest_pawn, 6);
+                    sdk::Vector2 target_angles = CalcAngle(local_eye, head_pos);
+
+                    sdk::Vector2 delta;
+                    delta.x = NormalizeAngle(target_angles.x - current_angles.x);
+                    delta.y = NormalizeAngle(target_angles.y - current_angles.y);
+
+                    float smooth_factor = 1.0f - config::aimbot::smoothing;
+                    delta.x *= smooth_factor;
+                    delta.y *= smooth_factor;
+
+                    sdk::Vector2 new_angles;
+                    new_angles.x = current_angles.x + delta.x;
+                    new_angles.y = current_angles.y + delta.y;
+
+                    new_angles.x = std::clamp(new_angles.x, -89.0f, 89.0f);
+                    while (new_angles.y > 180.0f) new_angles.y -= 360.0f;
+                    while (new_angles.y < -180.0f) new_angles.y += 360.0f;
+
+                    *va = new_angles;
+                }
+
+                // RCS
+                if (config::rcs::enabled) {
+                    int shots_fired = *(int*)(localPawn + rcs_m_iShotsFired);
+                    if (shots_fired > 0) {
+                        sdk::Vector3 punch = *(sdk::Vector3*)(localPawn + rcs_m_aimPunchAngle);
+                        sdk::Vector2 cur_punch = { punch.x, punch.y };
+                        sdk::Vector2 delta;
+                        delta.x = (cur_punch.x - old_punch.x) * 2.0f * config::rcs::strength;
+                        delta.y = (cur_punch.y - old_punch.y) * 2.0f * config::rcs::strength;
+                        sdk::Vector2 angles = *va;
+                        angles.x -= delta.x;
+                        angles.y -= delta.y;
+                        angles.x = std::clamp(angles.x, -89.0f, 89.0f);
+                        while (angles.y > 180.0f) angles.y -= 360.0f;
+                        while (angles.y < -180.0f) angles.y += 360.0f;
+                        *va = angles;
+                        old_punch = cur_punch;
+                    }
+                    else {
+                        old_punch = { 0.0f, 0.0f };
+                    }
+                }
+            }
+            catch (...) {}
+
+            Sleep(1);
+        }
+        debug_console::Console::Get().Info("[Aimbot] Normal aim thread stopped");
+    }
+
+    void StartAimbotThread() {
+        if (s_aimbot_running.load()) return;
+        s_aimbot_running.store(true);
+        s_aimbot_thread = std::thread(AimbotLoop);
+        debug_console::Console::Get().Success("[Aimbot] Normal aim thread launched");
+    }
+
+    void StopAimbotThread() {
+        s_aimbot_running.store(false);
+        if (s_aimbot_thread.joinable()) {
+            s_aimbot_thread.join();
+        }
+        debug_console::Console::Get().Info("[Aimbot] Normal aim thread joined");
+    }
+
+    // ======================== ESP & DRAWING FUNCTIONS ========================
+    bool WorldToScreen(const sdk::Vector3& world, sdk::Vector2& screen, const sdk::ViewMatrix& matrix, int screen_width, int screen_height) {
+        float w = matrix.matrix[3][0] * world.x + matrix.matrix[3][1] * world.y +
+            matrix.matrix[3][2] * world.z + matrix.matrix[3][3];
+
+        if (w < 0.001f) return false;
+
+        float x = matrix.matrix[0][0] * world.x + matrix.matrix[0][1] * world.y +
+            matrix.matrix[0][2] * world.z + matrix.matrix[0][3];
+        float y = matrix.matrix[1][0] * world.x + matrix.matrix[1][1] * world.y +
+            matrix.matrix[1][2] * world.z + matrix.matrix[1][3];
+
+        x /= w;
+        y /= w;
+
+        screen.x = (screen_width / 2.0f) + (x * screen_width / 2.0f);
+        screen.y = (screen_height / 2.0f) - (y * screen_height / 2.0f);
+
+        return true;
+    }
+
     void DrawBox(const sdk::Vector2& top, const sdk::Vector2& bottom, float width, const float color[4]) {
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
-
         float height = bottom.y - top.y;
         ImVec2 top_left(top.x - width / 2, top.y);
         ImVec2 bottom_right(top.x + width / 2, bottom.y);
-
         ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
         draw_list->AddRect(top_left, bottom_right, col, 0.0f, 0, 2.0f);
     }
@@ -211,8 +519,6 @@ static std::vector<uintptr_t> playerPawns;
     void DrawText(const sdk::Vector2& pos, const char* text, const float color[4]) {
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
-
-        // Add text outline for better visibility
         ImU32 outline_col = ImGui::ColorConvertFloat4ToU32(ImVec4(0.0f, 0.0f, 0.0f, 0.8f));
         for (int x = -1; x <= 1; x++) {
             for (int y = -1; y <= 1; y++) {
@@ -220,7 +526,6 @@ static std::vector<uintptr_t> playerPawns;
                 draw_list->AddText(ImVec2(pos.x + x, pos.y + y), outline_col, text);
             }
         }
-
         draw_list->AddText(ImVec2(pos.x, pos.y), col, text);
     }
 
@@ -234,21 +539,18 @@ static std::vector<uintptr_t> playerPawns;
         float height = bottom.y - top.y;
         float health_height = (health / (float)max_health) * height;
 
-        // Background (dark)
         float bg_color[4] = { 0.1f, 0.1f, 0.1f, 0.8f };
         DrawFilledRect(sdk::Vector2(top.x - 8, top.y), sdk::Vector2(4, height), bg_color);
 
-        // Health bar (gradient from red to green)
         float health_percent = health / (float)max_health;
         float hp_color[4] = {
-            1.0f - health_percent,  // Red component
-            health_percent,          // Green component
+            1.0f - health_percent,
+            health_percent,
             0.0f,
             0.9f
         };
         DrawFilledRect(sdk::Vector2(top.x - 8, bottom.y - health_height), sdk::Vector2(4, health_height), hp_color);
 
-        // Health value text
         if (health < 100) {
             char health_text[8];
             sprintf_s(health_text, "%d", health);
@@ -257,7 +559,6 @@ static std::vector<uintptr_t> playerPawns;
     }
 
     void DrawSkeleton(sdk::C_CSPlayerPawn* player, const sdk::ViewMatrix& view_matrix, int screen_width, int screen_height, const float color[4]) {
-        // Define bone connections for realistic skeleton
         const int bone_connections[][2] = {
             {sdk::BONE_HEAD, sdk::BONE_NECK},
             {sdk::BONE_NECK, sdk::BONE_CHEST},
@@ -288,16 +589,15 @@ static std::vector<uintptr_t> playerPawns;
         }
     }
 
-    // Get all players from entity list
+    // ======================== ENTITY LIST MANAGEMENT ========================
     std::vector<sdk::C_CSPlayerPawn*> GetPlayerList() {
         playerPawns.clear();
         std::vector<sdk::C_CSPlayerPawn*> players;
 
         if (!game_state::IsInGame()) return players;
 
-		uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-
-	    auto entity_list = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwEntityList);
+        uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+        auto entity_list = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwEntityList);
         if (!entity_list || !sdk::is_valid_ptr(entity_list)) return players;
 
         try {
@@ -308,18 +608,18 @@ static std::vector<uintptr_t> playerPawns;
                 uintptr_t playerController = *(uintptr_t*)(entityList1 + 112 * (i & 0x1FF));
                 if (!playerController) continue;
 
-                uint32_t playerPawn = *(uint32_t*)(playerController 
+                uint32_t playerPawn = *(uint32_t*)(playerController
                     + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
                 if (!playerPawn) continue;
 
-				uintptr_t entityList2 = *(uintptr_t*)(entity_list + 0x8 
+                uintptr_t entityList2 = *(uintptr_t*)(entity_list + 0x8
                     * ((playerPawn & 0x7FFF) >> 9) + 16);
-				if (!entityList2) continue;
+                if (!entityList2) continue;
 
-				uintptr_t pCSPlayerPawn = *(uintptr_t*)(entityList2 + 112 * (playerPawn & 0x1FF));
-				if (!pCSPlayerPawn) continue;
+                uintptr_t pCSPlayerPawn = *(uintptr_t*)(entityList2 + 112 * (playerPawn & 0x1FF));
+                if (!pCSPlayerPawn) continue;
 
-				int health = *(int*)(pCSPlayerPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+                int health = *(int*)(pCSPlayerPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
                 if (health < 0 || !health) continue;
 
                 playerPawns.push_back(pCSPlayerPawn);
@@ -329,34 +629,27 @@ static std::vector<uintptr_t> playerPawns;
                 if (!player->IsAlive()) continue;
 
                 players.push_back(player);
-
-				
             }
         }
-        catch (const std::exception &e) {
-			debug_console::Console::Get().Error("Exception in GetPlayerList: %s", e.what());
+        catch (const std::exception& e) {
+            debug_console::Console::Get().Error("Exception in GetPlayerList: %s", e.what());
         }
 
         return players;
     }
 
-    // Get local player
     sdk::C_CSPlayerPawn* GetLocalPlayer() {
         return game_state::GetLocalPawn();
     }
 
-    // Per-frame cache update — refreshes playerPawns + view matrix at most once per tick
     static DWORD g_last_cache_tick = 0;
-
     static void UpdateCache() {
         DWORD now = GetTickCount();
-        if (now == g_last_cache_tick) return; // already ran this tick
+        if (now == g_last_cache_tick) return;
         g_last_cache_tick = now;
 
-        // Refresh player list every frame
         GetPlayerList();
 
-        // Refresh view matrix every frame
         HMODULE client_mod = GetModuleHandleA("client.dll");
         if (client_mod) {
             uintptr_t base = reinterpret_cast<uintptr_t>(client_mod);
@@ -369,86 +662,16 @@ static std::vector<uintptr_t> playerPawns;
         UpdateScreenDimensions();
     }
 
-    // Main ESP rendering
     void RenderESP() {
         if (!config::esp::enabled) return;
         if (!game_state::IsInGame()) return;
 
-		UpdateCache();
+        UpdateCache();
 
-		uintptr_t client = (uintptr_t)GetModuleHandle(L"client.dll");
-
-		auto localPawnHandle = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
-
-
-
-		g_local_player = GetLocalPlayer();
+        uintptr_t client = (uintptr_t)GetModuleHandle(L"client.dll");
+        auto localPawnHandle = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+        g_local_player = GetLocalPlayer();
         if (!g_local_player) return;
-
-        // Debug logging - Display local player info
-        static int debug_log_frame = 0;
-        if (debug_log_frame % 300 == 0) {  // Every 5 seconds
-            try {
-				int local_team = localPawnHandle ? *reinterpret_cast<int*>(localPawnHandle + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum) : -1;  // m_iTeamNum
-				int local_health = localPawnHandle ? *reinterpret_cast<int*>(localPawnHandle + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) : -1;  // m_iHealth
-
-                sdk::Vector3 pos = *(sdk::Vector3*)(localPawnHandle + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
-
-                
-                debug_console::Console::Get().Info("=== LOCAL PLAYER INFO ===");
-                debug_console::Console::Get().Info("Address: 0x%llX", &localPawnHandle);
-                debug_console::Console::Get().Info("Team: %d (1=Spectator, 2=Terrorist, 3=CT)", local_team);
-                debug_console::Console::Get().Info("Health: %d / 100", local_health);
-                debug_console::Console::Get().Info("Position: X=%.2f Y=%.2f Z=%.2f", 
-                    pos.x, 
-                    pos.y, 
-                    pos.z);
-                debug_console::Console::Get().Info("Alive: %s", local_health > 0 ? "YES" : "NO");
-                //debug_console::Console::Get().Info("Dormant: %s", g_local_player->IsDormant() ? "YES" : "NO");
-
-                // Log all players in entity list
-                debug_console::Console::Get().Info("=== ENTITY LIST ===");
-                std::vector<sdk::C_CSPlayerPawn*> players = GetPlayerList();
-                debug_console::Console::Get().Info("Total players: %zu", playerPawns.size());
-                
-                for (int i = 0; i < playerPawns.size(); i++) {
-                    auto player = playerPawns[i];
-                    if (!player) continue;
-                    
-                    try {
-						int team = *(int*)(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-						int health = *(int*)(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
-                        bool is_self = player == localPawnHandle;
-                        
-                        const char* team_str = "Unknown";
-                        if (team == 1) team_str = "Spectator";
-                        else if (team == 2) team_str = "Terrorist";
-                        else if (team == 3) team_str = "CT";
-                        
-                        debug_console::Console::Get().Debug(
-                            "  [%zu] Addr:0x%llX | Team:%s | Health:%d | Alive:%s%s",
-                            i,
-                            (player),
-                            team_str,
-                            health,
-                            health > 0 ? "YES" : "NO",
-                            is_self ? " (LOCAL)" : ""
-                        );
-                    }
-                    catch (...) {
-                        debug_console::Console::Get().Error("Failed to read player %zu info", i);
-                    }
-                }
-                debug_console::Console::Get().Info("======================");
-            }
-            catch (const std::exception& e) {
-                debug_console::Console::Get().Error("Exception in debug logging: %s", e.what());
-            }
-            catch (...) {
-                debug_console::Console::Get().Error("Unknown exception in debug logging");
-            }
-        }
-        debug_log_frame++;
 
         int local_team = *(int*)(localPawnHandle + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
 
@@ -456,18 +679,16 @@ static std::vector<uintptr_t> playerPawns;
             if (!player || player == localPawnHandle) continue;
 
             int player_team = *(int*)(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-			int health = *(int*)(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+            int health = *(int*)(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
             if (config::esp::team_check && player_team == local_team) continue;
 
             try {
-				sdk::Vector3 origin = *(sdk::Vector3*)(player + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
+                sdk::Vector3 origin = *(sdk::Vector3*)(player + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
                 sdk::Vector3 head_pos = { origin.x, origin.y, origin.z + 65.0f };
                 head_pos.z += 10.0f;
 
-				sdk::Vector3 ourpos = *(sdk::Vector3*)(localPawnHandle + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
-
+                sdk::Vector3 ourpos = *(sdk::Vector3*)(localPawnHandle + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
                 float distance = ourpos.Distance(origin);
-                //if (distance > config::esp::max_distance) continue;
 
                 sdk::Vector2 screen_pos, screen_head;
                 if (!WorldToScreen(origin, screen_pos, g_view_matrix, g_screen_width, g_screen_height)) continue;
@@ -489,7 +710,7 @@ static std::vector<uintptr_t> playerPawns;
                 }
 
                 if (config::esp::skeleton) {
-                    //DrawSkeleton(player, g_view_matrix, g_screen_width, g_screen_height, config::esp::skeleton_color);
+                    // DrawSkeleton(player, g_view_matrix, g_screen_width, g_screen_height, config::esp::skeleton_color);
                 }
 
                 if (config::esp::distance) {
@@ -508,244 +729,7 @@ static std::vector<uintptr_t> playerPawns;
         }
     }
 
-    // =========================================================================
-    // Aimbot — runs on its own thread, reads game memory independently of ESP
-    // =========================================================================
-
-    // Helper: get bone position from raw pawn address
-    static sdk::Vector3 GetBonePositionRaw(uintptr_t pawn, int bone_index) {
-        uintptr_t game_scene_node = *(uintptr_t*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
-        if (!game_scene_node || !sdk::is_valid_ptr(game_scene_node)) return sdk::Vector3();
-
-        uintptr_t bone_array = *(uintptr_t*)(game_scene_node + (cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState + 0x80));
-        if (!bone_array || !sdk::is_valid_ptr(bone_array)) return sdk::Vector3();
-
-        return *(sdk::Vector3*)(bone_array + bone_index * 32);
-    }
-
-    // Helper: get eye position from raw pawn address
-    static sdk::Vector3 GetEyePositionRaw(uintptr_t pawn) {
-        sdk::Vector3 origin = *(sdk::Vector3*)(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
-        sdk::Vector3 view_offset = *(sdk::Vector3*)(pawn + cs2_dumper::schemas::client_dll::C_BaseModelEntity::m_vecViewOffset);
-        return origin + view_offset;
-    }
-
-    // RCS offsets — fill these in from cs2-dumper
-    // C_CSPlayerPawn::m_iShotsFired
-    constexpr std::ptrdiff_t rcs_m_iShotsFired = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_iShotsFired;      // TODO: find m_iShotsFired
-    // C_CSPlayerPawn::m_aimPunchAngle
-    constexpr std::ptrdiff_t rcs_m_aimPunchAngle = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_aimPunchAngle;     // TODO: find m_aimPunchAngle
-
-    // Aimbot thread loop — human-like aim toward closest enemy head
-    static void AimbotLoop() {
-        debug_console::Console::Get().Info("[Aimbot] Thread started");
-        int localIndex = -1;
-
-        // RCS state — tracks previous punch for delta calculation
-        sdk::Vector2 old_punch = { 0.0f, 0.0f };
-
-        while (s_aimbot_running.load()) {
-            // Sleep only when idle
-            if ((!config::aimbot::enabled && !config::rcs::enabled) || !game_state::IsInGame()) {
-                old_punch = { 0.0f, 0.0f };
-                Sleep(50);
-                continue;
-            }
-
-            // Hold pause key to temporarily disable
-            if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) {
-                Sleep(1);
-                continue;
-            }
-
-            try {
-                uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-                if (!client) { Sleep(50); continue; }
-
-                uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
-                if (!localPawn || !sdk::is_valid_ptr(localPawn)) { Sleep(1); continue; }
-
-                int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-                sdk::Vector3 local_eye = GetEyePositionRaw(localPawn);
-
-                // Walk entity list directly (independent of ESP's playerPawns)
-                uintptr_t entity_list = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwEntityList);
-                if (!entity_list || !sdk::is_valid_ptr(entity_list)) { Sleep(1); continue; }
-
-                uintptr_t closest_pawn = 0;
-                float closest_dist = 9999;
-
-                for (int i = 1; i < 64; i++) {
-                    uintptr_t list1 = *(uintptr_t*)(entity_list + (8 * (i & 0x7FFF) >> 9) + 16);
-                    if (!list1 || !sdk::is_valid_ptr(list1)) continue;
-
-                    uintptr_t controller = *(uintptr_t*)(list1 + 112 * (i & 0x1FF));
-                    if (!controller) continue;
-
-                    uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-                    if (!pawnHandle) continue;
-
-                    uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
-                    if (!list2) continue;
-
-                    uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
-                    if (!pawn) continue;
-                    if (pawn == localPawn) { localIndex = i; continue; }
-
-                    int health = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
-                    if (health <= 0) continue;
-
-                    int team = *(int*)(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-                    if (config::aimbot::team_check && team == local_team) continue;
-
-                    if (config::aimbot::visible_check) {
-                        int32_t spotted = *(int32_t*)(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpottedByMask);
-                        if (!(spotted & ((1 << localIndex) - 1))) continue;
-                    }
-
-                    // Calculate distance to HEAD position for accurate long-range targeting
-                    sdk::Vector3 head_pos = GetBonePositionRaw(pawn, 6);
-                    if (head_pos.x == 0.0f && head_pos.y == 0.0f && head_pos.z == 0.0f) continue; // Invalid bone
-                    
-                    float dist = local_eye.Distance(head_pos);
-                    
-                    // Apply max distance check
-                    if (dist > config::aimbot::max_distance) continue;
-                    
-                    if (dist < closest_dist) {
-                        closest_dist = dist;
-                        closest_pawn = pawn;
-                    }
-                }
-
-                // ── Silent Aim: instant micro-flick only during shot ──
-                if (config::aimbot::enabled && closest_pawn) {
-                    int shots_fired = *(int*)(localPawn + rcs_m_iShotsFired);
-                    
-                    // Only aim when actively shooting
-                    if (shots_fired > 0) {
-                        sdk::Vector3 head_pos = GetBonePositionRaw(closest_pawn, 6);
-                        sdk::Vector2 target_angles = CalcAngle(local_eye, head_pos);
-                        
-                        // Get current view angles
-                        sdk::Vector2* va = reinterpret_cast<sdk::Vector2*>(
-                            client + cs2_dumper::offsets::client_dll::dwViewAngles);
-                        sdk::Vector2 current_angles = *va;
-                        
-                        // Check if target is within FOV
-                        float fov_to_target = GetFov(current_angles, target_angles);
-                        
-                        if (fov_to_target <= config::aimbot::fov) {
-                            if (config::aimbot::silent_aim) {
-                                // Silent aim mode: instant micro-flick (external approach)
-                                // Save current angles for restoration
-                                static sdk::Vector2 saved_angles = current_angles;
-                                static bool angles_modified = false;
-                                static DWORD last_shot_time = 0;
-                                DWORD current_time = GetTickCount64();
-                                
-                                // Apply instant angle on first shot frame
-                                if (!angles_modified || (current_time - last_shot_time) > 100) {
-                                    saved_angles = current_angles;
-                                    
-                                    // Instant snap to target
-                                    target_angles.x = std::clamp(target_angles.x, -89.0f, 89.0f);
-                                    while (target_angles.y > 180.0f) target_angles.y -= 360.0f;
-                                    while (target_angles.y < -180.0f) target_angles.y += 360.0f;
-                                    
-                                    *va = target_angles;
-                                    angles_modified = true;
-                                    last_shot_time = current_time;
-                                } 
-                                // Restore after 2 frames (~16ms)
-                                else if (angles_modified && (current_time - last_shot_time) >= 16) {
-                                    *va = saved_angles;
-                                    angles_modified = false;
-                                }
-                            } else {
-                                // Smooth aim mode
-                                sdk::Vector2 delta;
-                                delta.x = NormalizeAngle(target_angles.x - current_angles.x);
-                                delta.y = NormalizeAngle(target_angles.y - current_angles.y);
-                                
-                                // Apply smoothing
-                                float smooth_factor = 1.0f - config::aimbot::smoothing;
-                                delta.x *= smooth_factor;
-                                delta.y *= smooth_factor;
-                                
-                                // Calculate new angles
-                                sdk::Vector2 new_angles;
-                                new_angles.x = current_angles.x + delta.x;
-                                new_angles.y = current_angles.y + delta.y;
-                                
-                                // Clamp and normalize
-                                new_angles.x = std::clamp(new_angles.x, -89.0f, 89.0f);
-                                while (new_angles.y > 180.0f) new_angles.y -= 360.0f;
-                                while (new_angles.y < -180.0f) new_angles.y += 360.0f;
-                                
-                                *va = new_angles;
-                            }
-                        }
-                    }
-                }
-
-                // ── RCS: compensate recoil only while actively shooting ──
-                if (config::rcs::enabled) {
-                    int shots_fired = *(int*)(localPawn + rcs_m_iShotsFired);
-
-                    if (shots_fired > 1) {
-                        sdk::Vector3 punch = *(sdk::Vector3*)(localPawn + rcs_m_aimPunchAngle);
-                        sdk::Vector2 cur_punch = { punch.x, punch.y };
-
-                        sdk::Vector2 delta;
-                        delta.x = (cur_punch.x - old_punch.x) * 2.0f * config::rcs::strength;
-                        delta.y = (cur_punch.y - old_punch.y) * 2.0f * config::rcs::strength;
-
-                        sdk::Vector2* va = reinterpret_cast<sdk::Vector2*>(
-                            client + cs2_dumper::offsets::client_dll::dwViewAngles);
-                        sdk::Vector2 angles = *va;
-
-                        angles.x -= delta.x;
-                        angles.y -= delta.y;
-
-                        angles.x = std::clamp(angles.x, -89.0f, 89.0f);
-                        while (angles.y > 180.0f) angles.y -= 360.0f;
-                        while (angles.y < -180.0f) angles.y += 360.0f;
-
-                        *va = angles;
-                        old_punch = cur_punch;
-                    } else {
-                        old_punch = { 0.0f, 0.0f };
-                    }
-                }
-            }
-            catch (...) {
-                // Silently recover
-            }
-
-            // ~500 Hz tick — matches typical mouse polling, gives smooth visual movement
-            Sleep(1);
-        }
-
-        debug_console::Console::Get().Info("[Aimbot] Thread stopped");
-    }
-
-    void StartAimbotThread() {
-        if (s_aimbot_running.load()) return;
-        s_aimbot_running.store(true);
-        s_aimbot_thread = std::thread(AimbotLoop);
-        debug_console::Console::Get().Success("[Aimbot] Thread launched");
-    }
-
-    void StopAimbotThread() {
-        s_aimbot_running.store(false);
-        if (s_aimbot_thread.joinable()) {
-            s_aimbot_thread.join();
-        }
-        debug_console::Console::Get().Info("[Aimbot] Thread joined");
-    }
-
-    // Bunny hop
+    // ======================== MISC FEATURES ========================
     void BunnyHop() {
         if (!config::misc::bunny_hop) return;
         if (!game_state::IsInGame()) return;
@@ -758,8 +742,8 @@ static std::vector<uintptr_t> playerPawns;
 
         try {
             static bool was_in_air = false;
-            int flags = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags); // m_fFlags
-            bool is_on_ground = (flags & 1) != 0; // FL_ONGROUND
+            int flags = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags);
+            bool is_on_ground = (flags & 1) != 0;
 
             if (GetAsyncKeyState(VK_SPACE) & 0x8000) {
                 if (is_on_ground && !was_in_air) {
@@ -773,7 +757,6 @@ static std::vector<uintptr_t> playerPawns;
         catch (...) {}
     }
 
-    // No flash
     void NoFlash() {
         if (!config::misc::no_flash) return;
         if (!game_state::IsInGame()) return;
@@ -785,7 +768,7 @@ static std::vector<uintptr_t> playerPawns;
         if (!localPawn || !sdk::is_valid_ptr(localPawn)) return;
 
         try {
-            float* flash_duration = reinterpret_cast<float*>(localPawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flFlashDuration); // m_flFlashDuration
+            float* flash_duration = reinterpret_cast<float*>(localPawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flFlashDuration);
             if (*flash_duration > 0.0f) {
                 *flash_duration = 0.0f;
             }
@@ -793,13 +776,11 @@ static std::vector<uintptr_t> playerPawns;
         catch (...) {}
     }
 
-    // Trigger bot — fires mouse_event when crosshair passes over an enemy
     void TriggerBot() {
         static DWORD last_shot = 0;
         static bool mouse_down = false;
         static DWORD mouse_down_time = 0;
 
-        // Release mouse if we pressed it on a previous frame
         if (mouse_down) {
             DWORD now = GetTickCount64();
             if (now - mouse_down_time >= 10) {
@@ -811,7 +792,6 @@ static std::vector<uintptr_t> playerPawns;
         }
 
         if (!config::misc::trigger_bot) return;
-        //if (!(GetAsyncKeyState(config::misc::trigger_key) & 0x8000)) return;
         if (!game_state::IsInGame()) return;
 
         uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
@@ -833,18 +813,9 @@ static std::vector<uintptr_t> playerPawns;
                 uintptr_t controller = *(uintptr_t*)(list1 + 112 * (entity_index & 0x1FF));
                 if (!controller || !sdk::is_valid_ptr(controller)) return;
 
-                /*uint32_t pawnHandle = *(uint32_t*)(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-                if (!pawnHandle) return;
-
-                uintptr_t list2 = *(uintptr_t*)(entity_list + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 16);
-                if (!list2 || !sdk::is_valid_ptr(list2)) return;
-
-                uintptr_t pawn = *(uintptr_t*)(list2 + 112 * (pawnHandle & 0x1FF));
-                if (!pawn || !sdk::is_valid_ptr(pawn)) return;*/
-
                 int target_team = *(int*)(controller + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
                 int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-				int local_health = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);   
+                int local_health = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
                 int target_health = *(int*)(controller + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
 
                 if (target_team != local_team && target_health > 0 && local_health > 0) {
@@ -855,30 +826,27 @@ static std::vector<uintptr_t> playerPawns;
                         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
                         mouse_down = true;
                         mouse_down_time = now;
-                        
                     }
                 }
             }
         }
-        catch (...) {
-        }
+        catch (...) {}
     }
 
-    // Radar hack - sets m_bSpotted on all enemy players so they appear on radar
     void RadarHack() {
         if (!config::misc::radar_hack) return;
-		if (!game_state::IsInGame()) return;
-		int localIndex = -1;
-		int count = 1;
-		uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-		if (!client) return;
+        if (!game_state::IsInGame()) return;
+        int localIndex = -1;
+        int count = 1;
+        uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+        if (!client) return;
 
-		uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
-		if (!localPawn || !sdk::is_valid_ptr(localPawn)) return;
+        uintptr_t localPawn = *(uintptr_t*)(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+        if (!localPawn || !sdk::is_valid_ptr(localPawn)) return;
 
-		int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+        int local_team = *(int*)(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
 
-		for (uintptr_t player : playerPawns) {
+        for (uintptr_t player : playerPawns) {
             if (!player || player == localPawn) continue;
 
             try {
@@ -887,7 +855,7 @@ static std::vector<uintptr_t> playerPawns;
                     localIndex = count;
                     count++;
                     continue;
-                } 
+                }
 
                 int32_t spotted = *(int32_t*)(player + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpottedByMask);
                 bool* spottedOriginal = (bool*)(player + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState + cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpotted);

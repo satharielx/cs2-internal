@@ -29,7 +29,7 @@ namespace config {
         inline float max_distance = 10000.0f;  // Very high limit for long-range (in game units)
         inline float fov = 10.0f;  // FOV limit for aimlock (degrees) - increased for long-range
         inline float smoothing = 0.3f;  // Smoothing factor (0.0 = instant, 1.0 = no aim)
-        inline bool silent_aim = false;  // Enable instant silent aim (micro-flick)
+        inline bool silent_aim = true; // Enable instant silent aim (micro-flick)
     }
 
     // RCS (Recoil Control System) — only active while shooting

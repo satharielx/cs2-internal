@@ -10,8 +10,13 @@
 #include "../external/imgui/imgui.h"
 #include "../external/imgui/imgui_impl_win32.h"
 #include "../external/imgui/imgui_impl_dx11.h"
+#include "../sdk/usercmd.h"
+#include "../external/minhook/MinHook.h"
 #include <stdexcept>
 #include "skins.h"
+#include "menu_advanced.h"
+#include <Shlwapi.h>
+#pragma comment(lib, "Shlwapi.lib")
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -20,6 +25,46 @@ namespace globals {
     inline bool console_open = true; // Enable debug console on launch
     inline bool imgui_initialized = false;
     inline sdk::C_CSPlayerPawn* g_local_player = nullptr;
+}
+
+using CreateMoveFn = bool(__fastcall*)(void*, CUserCmd*);
+inline CreateMoveFn oCreateMove = nullptr;
+
+bool __fastcall hkCreateMove(void* ecx, CUserCmd* cmd) {
+    bool ret = oCreateMove(ecx, cmd);
+    if (!cmd) return ret;
+
+    // Silent aim is handled here; normal aim runs in separate thread
+    if (!config::aimbot::enabled && config::aimbot::silent_aim) {
+        features::RunSilentAim(cmd);
+    }
+
+    return ret;
+}
+
+void HookCreateMove() {
+    uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+    if (!client) {
+        error_logger::ErrorLogger::Get().Log("CreateMove", "client.dll not loaded", 1);
+        return;
+    }
+
+    auto addr = sdk::find_pattern("client.dll",
+        "85 D2 0F 85 ? ? ? ? 48 8B C4 44 88 40 18");
+    if (!addr) {
+        error_logger::ErrorLogger::Get().Log("CreateMove", "Pattern not found", 1);
+        debug_console::Console::Get().Error("[HOOK] CreateMove pattern not found");
+        return;
+    }
+
+    MH_STATUS status = MH_CreateHook((void*)addr, &hkCreateMove, (void**)&oCreateMove);
+    if (status == MH_OK) {
+        MH_EnableHook((void*)addr);
+        debug_console::Console::Get().Success("[HOOK] CreateMove hooked at 0x%llX", (uintptr_t)addr);
+    }
+    else {
+        error_logger::ErrorLogger::Get().Log("MinHook", "Failed to create CreateMove hook", (int)status);
+    }
 }
 
 HRESULT __stdcall hkPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT flags) {
@@ -71,6 +116,7 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* swap_chain, UINT sync_interval, UINT
             // Aimbot runs on its own thread � see features::StartAimbotThread()
 
             // Misc features � run every frame
+			try { features::StartAimbotThread(); } catch (...) {}
             try { features::TriggerBot(); } catch (...) {}
             try { features::BunnyHop(); } catch (...) {}
             try { features::NoFlash(); } catch (...) {}
@@ -363,7 +409,7 @@ namespace hooks {
                 error_logger::ErrorLogger::Get().Log("FrameStageNotify", "Failed to get client.dll base address", 1);
                 debug_console::Console::Get().Warning("[KNIFE] Failed to get client.dll base address");
             }
-
+            HookCreateMove();
             // Create WndProc hook
             oWndProc = (WNDPROC)SetWindowLongPtrA(interfaces::hwnd, GWLP_WNDPROC, (LONG_PTR)WndProc);
             if (!oWndProc) {
@@ -385,42 +431,92 @@ namespace hooks {
                 }
             }
 
-            // Load Orbitron fonts � build path relative to DLL
             {
-                char dll_path[MAX_PATH];
-                HMODULE hm = nullptr;
-                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                    (LPCSTR)&hkPresent, &hm);
-                GetModuleFileNameA(hm, dll_path, MAX_PATH);
-                std::string base(dll_path);
-                size_t sep = base.find_last_of("\\/");
-                if (sep != std::string::npos) base = base.substr(0, sep + 1);
-
-                std::string font_regular = base + "fonts\\main_menu\\variants\\Orbitron-Regular.ttf";
-                std::string font_bold    = base + "fonts\\main_menu\\variants\\Orbitron-Bold.ttf";
-                std::string font_medium  = base + "fonts\\main_menu\\variants\\Orbitron-Medium.ttf";
-
-                // Fallback to hardcoded path if DLL-relative doesn't exist
-                if (GetFileAttributesA(font_regular.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                    font_regular = "C:\\Windows\\manager\\manager\\core\\fonts\\main_menu\\variants\\Orbitron-Regular.ttf";
-                    font_bold    = "C:\\Windows\\manager\\manager\\core\\fonts\\main_menu\\variants\\Orbitron-Bold.ttf";
-                    font_medium  = "C:\\Windows\\manager\\manager\\core\\fonts\\main_menu\\variants\\Orbitron-Medium.ttf";
-                }
-
                 ImGuiIO& io = ImGui::GetIO();
-                // Fonts[0] = Regular 14px (default body text)
-                ImFont* f0 = io.Fonts->AddFontFromFileTTF(font_regular.c_str(), 14.0f);
-                // Fonts[1] = Bold 22px (brand / headings)
-                ImFont* f1 = io.Fonts->AddFontFromFileTTF(font_bold.c_str(), 22.0f);
-                // Fonts[2] = Medium 11px (section labels)
-                ImFont* f2 = io.Fonts->AddFontFromFileTTF(font_medium.c_str(), 11.0f);
 
-                if (f0 && f1 && f2) {
-                    error_logger::ErrorLogger::Get().Log("ImGui", "Orbitron fonts loaded (Regular/Bold/Medium)", 0);
-                } else {
-                    error_logger::ErrorLogger::Get().Log("ImGui", "Some Orbitron fonts failed to load � using defaults", 1);
-                    if (!f0) io.Fonts->AddFontDefault();
+                // Helper to get the directory containing the DLL
+                auto GetDllDir = []() -> std::string {
+                    char dll_path[MAX_PATH];
+                    HMODULE hm = nullptr;
+                    // Get handle to this module (the cheat DLL)
+                    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                        (LPCSTR)&hkPresent, &hm))
+                        return "";
+                    if (!GetModuleFileNameA(hm, dll_path, MAX_PATH))
+                        return "";
+                    // Remove filename to get directory
+                    char* last_slash = strrchr(dll_path, '\\');
+                    if (last_slash) *last_slash = '\0';
+                    return std::string(dll_path) + "\\";
+                    };
+
+                std::string dll_dir = GetDllDir();
+                debug_console::Console::Get().Info("[FONTS] DLL directory: %s", dll_dir.c_str());
+
+                // Search paths for fonts (in priority order)
+                std::vector<std::string> search_dirs = {
+                    dll_dir + "fonts\\",
+                    dll_dir + "..\\fonts\\",
+                    dll_dir + "core\\fonts\\",
+                    "C:\\Windows\\manager\\manager\\core\\fonts\\",
+                    ".\\fonts\\"
+                };
+
+                // Orbitron font file names (relative to search_dirs)
+                const char* regular_file = "main_menu\\variants\\Orbitron-Regular.ttf";
+                const char* bold_file = "main_menu\\variants\\Orbitron-Bold.ttf";
+                const char* medium_file = "main_menu\\variants\\Orbitron-Medium.ttf";
+
+                ImFont* f0 = nullptr; // Regular (14px)
+                ImFont* f1 = nullptr; // Bold (22px)
+                ImFont* f2 = nullptr; // Medium (11px)
+
+                // Attempt to load each font from the search paths
+                for (const auto& dir : search_dirs) {
+                    if (f0 && f1 && f2) break; // All loaded
+
+                    std::string reg_path = dir + regular_file;
+                    std::string bold_path = dir + bold_file;
+                    std::string med_path = dir + medium_file;
+
+                    if (!f0 && GetFileAttributesA(reg_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        f0 = io.Fonts->AddFontFromFileTTF(reg_path.c_str(), 14.0f);
+                        if (f0) debug_console::Console::Get().Success("[FONTS] Orbitron Regular loaded from: %s", reg_path.c_str());
+                    }
+                    if (!f1 && GetFileAttributesA(bold_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        f1 = io.Fonts->AddFontFromFileTTF(bold_path.c_str(), 22.0f);
+                        if (f1) debug_console::Console::Get().Success("[FONTS] Orbitron Bold loaded from: %s", bold_path.c_str());
+                    }
+                    if (!f2 && GetFileAttributesA(med_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        f2 = io.Fonts->AddFontFromFileTTF(med_path.c_str(), 11.0f);
+                        if (f2) debug_console::Console::Get().Success("[FONTS] Orbitron Medium loaded from: %s", med_path.c_str());
+                    }
                 }
+
+                // Fallbacks: if any font failed to load, use default ImGui font
+                if (!f0) {
+                    f0 = io.Fonts->AddFontDefault();
+                    debug_console::Console::Get().Warning("[FONTS] Orbitron Regular not found, using default font.");
+                }
+                if (!f1) {
+                    f1 = f0; // Use regular as fallback for bold
+                    debug_console::Console::Get().Warning("[FONTS] Orbitron Bold not found, using regular.");
+                }
+                if (!f2) {
+                    f2 = f0; // Use regular as fallback for medium
+                    debug_console::Console::Get().Warning("[FONTS] Orbitron Medium not found, using regular.");
+                }
+
+                // Store the fonts in the ImGui font atlas order:
+                // Fonts[0] = Regular (14px) - default body
+                // Fonts[1] = Bold (22px) - headings
+                // Fonts[2] = Medium (11px) - section labels
+                // The order matches what the menu expects (index 0,1,2)
+
+                error_logger::ErrorLogger::Get().Log("ImGui", "Fonts initialized (with fallbacks if needed)", 0);
+
+                // Now load the icon font (FontAwesome) - this will be merged or standalone
+                menu_advanced::LoadIconFont();
             }
 
             if (!ImGui_ImplWin32_Init(interfaces::hwnd)) {
@@ -447,6 +543,8 @@ namespace hooks {
 
             globals::imgui_initialized = true;
             error_logger::ErrorLogger::Get().Log("hooks::create", "All hooks created and initialized successfully", 0);
+
+
         }
         catch (const std::exception& ex) {
             error_logger::ErrorLogger::Get().LogException("hooks::create", ex);
