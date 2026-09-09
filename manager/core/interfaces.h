@@ -2,15 +2,18 @@
 #include <d3d11.h>
 #include "../sdk/interfaces/cs_io.h"
 #include "../sdk/interfaces/input_system.h"
-#include "../sdk/interfaces/swap_chain_dx11.h"
+
+class CGameEntitySystem;
 
 namespace interfaces {
     void create();
     void destroy();
+    CGameEntitySystem* GameEntitySystem();
 
     inline sdk::interface_cs_io* cs_io = nullptr;
     inline sdk::interface_input_system* input_system = nullptr;
-    inline sdk::interface_swap_chain_dx11* swap_chain_dx11 = nullptr;
+    // Owned COM reference captured from the Present callback.
+    inline IDXGISwapChain* swap_chain = nullptr;
     // Client interface pointer (IBaseClientDLL / CHLClient) captured via CreateInterface
     inline void* client = nullptr;
 
@@ -21,4 +24,6 @@ namespace interfaces {
 
     void create_render_target();
     void destroy_render_target();
+    void create_d3d11_resources(IDXGISwapChain* chain);
+    void destroy_d3d11_resources();
 }

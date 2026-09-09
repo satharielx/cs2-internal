@@ -159,14 +159,19 @@ namespace sdk {
         uint8_t pad03[0x20];
 
         CCSGOInputHistoryEntryPB* GetInputHistoryEntry(int nIndex) {
-            if (nIndex >= csgoUserCmd.inputHistoryField.pRep->nAllocatedSize ||
+            if (nIndex < 0 || !csgoUserCmd.inputHistoryField.pRep ||
+                nIndex >= csgoUserCmd.inputHistoryField.pRep->nAllocatedSize ||
                 nIndex >= csgoUserCmd.inputHistoryField.nCurrentSize)
                 return nullptr;
             return csgoUserCmd.inputHistoryField.pRep->tElements[nIndex];
         }
 
         void SetSubTickAngle(const QAngle& angView) {
-            for (int i = 0; i < csgoUserCmd.inputHistoryField.pRep->nAllocatedSize; i++) {
+            if (!csgoUserCmd.inputHistoryField.pRep || !sdk::finite(angView)) return;
+            const int count = (std::min)(csgoUserCmd.inputHistoryField.nCurrentSize,
+                csgoUserCmd.inputHistoryField.pRep->nAllocatedSize);
+            if (count < 0 || count > 256) return;
+            for (int i = 0; i < count; i++) {
                 CCSGOInputHistoryEntryPB* pEntry = GetInputHistoryEntry(i);
                 if (!pEntry || !pEntry->pViewAngles)
                     continue;
@@ -175,7 +180,7 @@ namespace sdk {
         }
 
         bool IsButtonPressed(uint64_t button) const {
-            if (!csgoUserCmd.pBaseCmd)
+            if (!csgoUserCmd.pBaseCmd || !csgoUserCmd.pBaseCmd->pInButtonState)
                 return false;
             return csgoUserCmd.pBaseCmd->pInButtonState->nValue & button;
         }

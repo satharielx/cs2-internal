@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-04-13 22:20:29.962555200 UTC
+// 2026-08-29 09:27:12.680043800 UTC
 
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace cs2_dumper {
     namespace schemas {
         // Module: resourcesystem.dll
-        // Class count: 58
+        // Class count: 59
         // Enum count: 2
         namespace resourcesystem_dll {
             // Alignment: 1
@@ -36,14 +36,13 @@ namespace cs2_dumper {
             //
             // Metadata:
             // MResourceTypeForInfoType
-            namespace InfoForResourceTypeCNmIKRig {
+            namespace InfoForResourceTypeCResponseRulesList {
             }
             // Parent: None
-            // Field count: 0
-            //
-            // Metadata:
-            // MResourceTypeForInfoType
-            namespace InfoForResourceTypeCResponseRulesList {
+            // Field count: 2
+            namespace AABBWS_t {
+                constexpr std::ptrdiff_t m_vMinBounds = 0x0; // VectorWS
+                constexpr std::ptrdiff_t m_vMaxBounds = 0xC; // VectorWS
             }
             // Parent: None
             // Field count: 0
@@ -375,6 +374,13 @@ namespace cs2_dumper {
             // Metadata:
             // MResourceTypeForInfoType
             namespace InfoForResourceTypeIPulseGraphDef {
+            }
+            // Parent: None
+            // Field count: 0
+            //
+            // Metadata:
+            // MResourceTypeForInfoType
+            namespace InfoForResourceTypeCVDataItemDefs {
             }
             // Parent: None
             // Field count: 5

@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 #include "core/interfaces.h"
 #include "core/hooks.h"
 #include "core/error_logger.h"
@@ -49,22 +50,39 @@ MessageBoxA(nullptr,
     
 // Wait for critical CS2 modules with timeout
 DWORD maxWait = 45000;  // 45 seconds max
-DWORD waited = 0;
+const ULONGLONG waitStarted = GetTickCount64();
+const char* requiredModules[] = {
+    "client.dll", "engine2.dll", "rendersystemdx11.dll", "gameoverlayrenderer64.dll"
+};
 
 error_logger::ErrorLogger::Get().Log("Module Loading", "Waiting for CS2 modules...", 0);
 printf("[WAIT] Waiting for CS2 modules to load...\n");
     
-    while (!GetModuleHandleA("client.dll") ||
-        !GetModuleHandleA("engine2.dll") ||
-        !GetModuleHandleA("rendersystemdx11.dll")) {
-        if (waited >= maxWait) {
-            error_logger::ErrorLogger::Get().Log("Module Loading", "Timeout: CS2 modules not loaded after 45 seconds", 1);
-            MessageBoxA(nullptr, "Timeout: CS2 modules not loaded\n\nCheck cs2_cheat_errors.log for details", "Injection Failed", MB_ICONERROR);
+    std::string lastMissing;
+    for (;;) {
+        std::string missing;
+        for (const char* module : requiredModules) {
+            if (!GetModuleHandleA(module)) {
+                if (!missing.empty()) missing += ", ";
+                missing += module;
+            }
+        }
+        if (missing.empty()) break;
+        if (missing != lastMissing) {
+            const std::string message = "Waiting for: " + missing;
+            error_logger::ErrorLogger::Get().Log("Module Loading", message.c_str(), 0);
+            lastMissing = missing;
+        }
+        if (GetTickCount64() - waitStarted >= maxWait) {
+            const std::string message = "Timed out after 45 seconds. Missing modules:\n" + missing +
+                "\n\nSee cs2_cheat_errors.log for details.";
+            error_logger::ErrorLogger::Get().Log("Module Loading", message.c_str(), 1);
+            MessageBoxA(nullptr, message.c_str(), "Injection Failed", MB_ICONERROR);
+            FreeConsole();
             FreeLibraryAndExitThread((HMODULE)instance, 0);
             return 0;
         }
         Sleep(200);
-        waited += 200;
     }
 
     // Verify modules are loaded
@@ -98,6 +116,10 @@ printf("[WAIT] Waiting for CS2 modules to load...\n");
     }
     catch (const std::exception& e) {
         error_logger::ErrorLogger::Get().LogException("MainThread", e);
+        hooks::destroy();
+        features::StopAimbotThread();
+        game_state::Stop();
+        interfaces::destroy();
         char buf[1024];
         sprintf_s(buf, "Initialization failed:\n\n%s\n\nCheck cs2_cheat_errors.log for details\n\nThe cheat will now unload.", e.what());
         MessageBoxA(nullptr, buf, "Error", MB_ICONERROR);
@@ -106,6 +128,10 @@ printf("[WAIT] Waiting for CS2 modules to load...\n");
     }
     catch (...) {
         error_logger::ErrorLogger::Get().Log("MainThread", "Unknown exception during initialization", 1);
+        hooks::destroy();
+        features::StopAimbotThread();
+        game_state::Stop();
+        interfaces::destroy();
         MessageBoxA(nullptr, "Unknown exception during initialization!\n\nCheck cs2_cheat_errors.log for details\n\nThe cheat will now unload.", "Critical Error", MB_ICONERROR);
         FreeLibraryAndExitThread((HMODULE)instance, 0);
         return 0;
@@ -120,9 +146,9 @@ printf("[WAIT] Waiting for CS2 modules to load...\n");
     // Cleanup
     error_logger::ErrorLogger::Get().Log("Cleanup", "Starting cleanup...", 0);
     try {
+        hooks::destroy();
         features::StopAimbotThread();
         game_state::Stop();
-        hooks::destroy();
         interfaces::destroy();
         error_logger::ErrorLogger::Get().Log("Cleanup", "Cleanup completed successfully", 0);
     }

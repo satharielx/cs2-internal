@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-04-13 22:20:29.962555200 UTC
+// 2026-08-29 09:27:12.680043800 UTC
 
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace cs2_dumper {
     namespace schemas {
         // Module: engine2.dll
-        // Class count: 55
+        // Class count: 58
         // Enum count: 2
         namespace engine2_dll {
             // Alignment: 4
@@ -29,14 +29,10 @@ namespace cs2_dumper {
             };
             // Parent: None
             // Field count: 3
-            //
-            // Metadata:
-            // NetworkVarNames: m_pEntity (CEntityIdentity*)
-            // NetworkVarNames: m_CScriptComponent (CScriptComponent::Storage_t)
             namespace CEntityInstance {
                 constexpr std::ptrdiff_t m_iszPrivateVScripts = 0x8; // CUtlSymbolLarge
                 constexpr std::ptrdiff_t m_pEntity = 0x10; // CEntityIdentity*
-                constexpr std::ptrdiff_t m_CScriptComponent = 0x30; // CScriptComponent*
+                constexpr std::ptrdiff_t m_CScriptComponent = 0x28; // CScriptComponent*
             }
             // Parent: None
             // Field count: 0
@@ -44,6 +40,9 @@ namespace cs2_dumper {
             }
             // Parent: CEntityComponent
             // Field count: 1
+            //
+            // Metadata:
+            // MGetKV3ClassDefaults
             namespace CScriptComponent {
                 constexpr std::ptrdiff_t m_scriptClassName = 0x30; // CUtlSymbolLarge
             }
@@ -51,9 +50,9 @@ namespace cs2_dumper {
             // Field count: 12
             //
             // Metadata:
-            // NetworkVarNames: m_nameStringableIndex (int32)
+            // MGetKV3ClassDefaults
             namespace CEntityIdentity {
-                constexpr std::ptrdiff_t m_nameStringableIndex = 0x14; // int32
+                constexpr std::ptrdiff_t m_nameStringTableIndex = 0x14; // int32
                 constexpr std::ptrdiff_t m_name = 0x18; // CUtlSymbolLarge
                 constexpr std::ptrdiff_t m_designerName = 0x20; // CUtlSymbolLarge
                 constexpr std::ptrdiff_t m_flags = 0x30; // uint32
@@ -124,6 +123,21 @@ namespace cs2_dumper {
             // Parent: None
             // Field count: 0
             namespace EventServerBeginSimulate_t {
+            }
+            // Parent: None
+            // Field count: 8
+            //
+            // Metadata:
+            // MGetKV3ClassDefaults
+            namespace EntityIOQueuePrioritizedEvent_t {
+                constexpr std::ptrdiff_t m_flFireTime = 0x4; // GameTime_t
+                constexpr std::ptrdiff_t m_targetType = 0x8; // EntityIOTargetType_t
+                constexpr std::ptrdiff_t m_pTarget = 0x10; // CUtlSymbolLarge
+                constexpr std::ptrdiff_t m_pTargetInput = 0x18; // CUtlSymbolLarge
+                constexpr std::ptrdiff_t m_hActivator = 0x20; // CEntityHandle
+                constexpr std::ptrdiff_t m_hCaller = 0x24; // CEntityHandle
+                constexpr std::ptrdiff_t m_hEntTarget = 0x28; // CEntityHandle
+                constexpr std::ptrdiff_t m_variantValue = 0x30; // CVariantBase<CVariantDefaultAllocator>
             }
             // Parent: None
             // Field count: 0
@@ -219,8 +233,8 @@ namespace cs2_dumper {
             // Parent: None
             // Field count: 2
             namespace CEntityAttributeTable {
-                constexpr std::ptrdiff_t m_Attributes = 0x0; // CUtlOrderedMap<CUtlStringToken,Attribute_t>
-                constexpr std::ptrdiff_t m_Names = 0x28; // CUtlOrderedMap<CUtlStringToken,CUtlString>
+                constexpr std::ptrdiff_t m_Attributes = 0x0; // CUtlOrderedMap<CUtlStringTokenNoRegistration,Attribute_t>
+                constexpr std::ptrdiff_t m_Names = 0x28; // CUtlOrderedMap<CUtlStringTokenNoRegistration,CUtlString>
             }
             // Parent: None
             // Field count: 0
@@ -244,7 +258,16 @@ namespace cs2_dumper {
             }
             // Parent: None
             // Field count: 0
+            namespace EventBugBug_t {
+            }
+            // Parent: None
+            // Field count: 0
             namespace CVariantDefaultAllocator {
+            }
+            // Parent: None
+            // Field count: 1
+            namespace EventBugBugComplete_t {
+                constexpr std::ptrdiff_t m_pPayload = 0x0; // EventBugBug_t*
             }
             // Parent: None
             // Field count: 0
@@ -285,15 +308,15 @@ namespace cs2_dumper {
                 constexpr std::ptrdiff_t m_flTickRemainder = 0x58; // float64
             }
             // Parent: None
-            // Field count: 0
-            namespace EntOutput_t {
-            }
-            // Parent: None
             // Field count: 3
             namespace EventSimulate_t {
                 constexpr std::ptrdiff_t m_LoopState = 0x0; // EngineLoopState_t
                 constexpr std::ptrdiff_t m_bFirstTick = 0x28; // bool
                 constexpr std::ptrdiff_t m_bLastTick = 0x29; // bool
+            }
+            // Parent: None
+            // Field count: 0
+            namespace CEntityKeyValues {
             }
             // Parent: None
             // Field count: 0

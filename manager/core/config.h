@@ -1,8 +1,10 @@
 #pragma once
 #include <array>
 #include <Windows.h>
+#include <mutex>
 
 namespace config {
+    inline std::recursive_mutex mutex;
     // ESP Settings
     namespace esp {
         inline bool enabled = false;

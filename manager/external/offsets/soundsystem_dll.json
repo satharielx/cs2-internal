@@ -106,6 +106,166 @@
         ],
         "parent": null
       },
+      "CRandomPannerControls": {
+        "fields": {
+          "m_flMaxVolume": 20,
+          "m_flMinVolume": 16,
+          "m_panningControlInputName": 0,
+          "m_strVectorStackParam": 24,
+          "m_volumeControlInputName": 8
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyDescription",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndBeatPattern": {
+        "fields": {
+          "m_bLooping": 32,
+          "m_flLength": 28,
+          "m_flPlayBeatMult": 48,
+          "m_flSyncBeatMult": 40,
+          "m_flSyncPriority": 16,
+          "m_keyType": 52,
+          "m_launchSyncEventType": 36,
+          "m_launchSyncType": 12,
+          "m_name": 0,
+          "m_playEventType": 44,
+          "m_timeSignature": 20,
+          "m_vecPatternFloats": 80,
+          "m_vecPatternKeys": 56,
+          "m_vecPatternMidi": 128,
+          "m_vecPatternSndEvts": 104
+        },
+        "metadata": [
+          {
+            "name": "MPropertyArrayElementNameKey",
+            "type": "Unknown"
+          },
+          {
+            "name": "MVDataOutlinerNameExpr",
+            "type": "Unknown"
+          },
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndBeatPatternManager": {
+        "fields": {
+          "m_vecActiveTracks": 112,
+          "m_vecPatterns": 56
+        },
+        "metadata": [
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          },
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndBeatTrack": {
+        "fields": {
+          "m_bSyncToVoice": 40,
+          "m_flBPM": 44,
+          "m_nTranspose": 36,
+          "m_name": 0,
+          "m_playbackType": 32
+        },
+        "metadata": [
+          {
+            "name": "MPropertyArrayElementNameKey",
+            "type": "Unknown"
+          },
+          {
+            "name": "MVDataOutlinerNameExpr",
+            "type": "Unknown"
+          },
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndSeqInstBaseSchema": {
+        "fields": {
+          "m_bStopCurrentEvents": 14,
+          "m_flBPM": 16,
+          "m_flBPMFactor": 20,
+          "m_flBPMInvFactor": 24,
+          "m_nType": 8
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndSeqInstMidiSampler": {
+        "fields": {
+          "m_bBeatEnvelopes": 52,
+          "m_bIsSoundEvent": 32,
+          "m_bStopPrevious": 33,
+          "m_flAttack": 44,
+          "m_flMaxVelocityAtten": 40,
+          "m_flMinVelocityAtten": 36,
+          "m_flRelease": 48,
+          "m_hSoundEventHash": 216,
+          "m_nMaxNote": 35,
+          "m_nMinNote": 34,
+          "m_nNextVoiceSlot": 212
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndSeqInstSndEvtSchema": {
+        "fields": {},
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSndSeqInstruments": {
+        "fields": {},
+        "metadata": [],
+        "parent": null
+      },
       "CSosGroupActionLimitSchema": {
         "fields": {
           "m_bCountStopped": 21,
@@ -136,6 +296,27 @@
           "m_nBaseCount": 8,
           "m_nTargetCount": 12,
           "m_resultVarName": 32
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CSosGroupActionOcclusionSchema": {
+        "fields": {
+          "m_flCalculationInterval": 8,
+          "m_flOcclusionMax": 24,
+          "m_flOcclusionMin": 20,
+          "m_flOcclusionScale": 16,
+          "m_flRadius": 12,
+          "m_flTestDepth": 28
         },
         "metadata": [
           {
@@ -324,9 +505,10 @@
       },
       "CSoundContainerReference": {
         "fields": {
-          "m_bUseReference": 0,
-          "m_pSound": 16,
-          "m_sound": 8
+          "m_bUseReference": 8,
+          "m_namespace": 0,
+          "m_pSound": 24,
+          "m_sound": 16
         },
         "metadata": [
           {
@@ -959,17 +1141,15 @@
       },
       "CVSound": {
         "fields": {
-          "m_Sentences": 24,
-          "m_encodedHeader": 88,
-          "m_flDuration": 20,
-          "m_nChannels": 8,
-          "m_nFormat": 4,
-          "m_nLoopEnd": 80,
-          "m_nLoopStart": 12,
-          "m_nRate": 0,
-          "m_nSampleCount": 16,
-          "m_nSeekTable": 56,
-          "m_nStreamingSize": 48
+          "m_Sentences": 0,
+          "m_flDuration": 36,
+          "m_nChannels": 24,
+          "m_nFormat": 20,
+          "m_nLoopEnd": 44,
+          "m_nLoopStart": 28,
+          "m_nRate": 16,
+          "m_nSampleCount": 32,
+          "m_nStreamingSize": 40
         },
         "metadata": [
           {
@@ -981,7 +1161,7 @@
       },
       "CVoiceContainerAmpedDecayingSineWave": {
         "fields": {
-          "m_flGainAmount": 176
+          "m_flGainAmount": 120
         },
         "metadata": [
           {
@@ -1001,8 +1181,7 @@
       },
       "CVoiceContainerAnalysisBase": {
         "fields": {
-          "m_bRegenerateCurveOnCompile": 8,
-          "m_curve": 16
+          "m_curve": 8
         },
         "metadata": [
           {
@@ -1036,7 +1215,7 @@
       },
       "CVoiceContainerBase": {
         "fields": {
-          "m_pEnvelopeAnalyzer": 160,
+          "m_pEnvelopeAnalyzer": 104,
           "m_vSound": 40
         },
         "metadata": [
@@ -1065,9 +1244,9 @@
       },
       "CVoiceContainerBlender": {
         "fields": {
-          "m_firstSound": 168,
-          "m_flBlendFactor": 216,
-          "m_secondSound": 192
+          "m_firstSound": 112,
+          "m_flBlendFactor": 176,
+          "m_secondSound": 144
         },
         "metadata": [
           {
@@ -1087,8 +1266,8 @@
       },
       "CVoiceContainerDecayingSineWave": {
         "fields": {
-          "m_flDecayTime": 172,
-          "m_flFrequency": 168
+          "m_flDecayTime": 116,
+          "m_flFrequency": 112
         },
         "metadata": [
           {
@@ -1126,30 +1305,9 @@
       },
       "CVoiceContainerEnum": {
         "fields": {
-          "m_flCrossfadeTime": 228,
-          "m_iSelection": 224,
-          "m_soundsToPlay": 168
-        },
-        "metadata": [
-          {
-            "name": "MGetKV3ClassDefaults",
-            "type": "Unknown"
-          },
-          {
-            "name": "MPropertyFriendlyName",
-            "type": "Unknown"
-          },
-          {
-            "name": "MPropertyDescription",
-            "type": "Unknown"
-          }
-        ],
-        "parent": null
-      },
-      "CVoiceContainerEnvelope": {
-        "fields": {
-          "m_analysisContainer": 176,
-          "m_sound": 168
+          "m_flCrossfadeTime": 172,
+          "m_iSelection": 168,
+          "m_soundsToPlay": 112
         },
         "metadata": [
           {
@@ -1169,9 +1327,9 @@
       },
       "CVoiceContainerEnvelopeAnalyzer": {
         "fields": {
-          "m_fAnalysisWindowMs": 84,
-          "m_flThreshold": 88,
-          "m_mode": 80
+          "m_fAnalysisWindowMs": 76,
+          "m_flThreshold": 80,
+          "m_mode": 72
         },
         "metadata": [
           {
@@ -1201,12 +1359,12 @@
       },
       "CVoiceContainerGranulator": {
         "fields": {
-          "m_bShouldWraparound": 200,
-          "m_flGrainCrossfadeAmount": 188,
-          "m_flGrainLength": 184,
-          "m_flPlaybackJitter": 196,
-          "m_flStartJitter": 192,
-          "m_sourceAudio": 208
+          "m_bShouldWraparound": 144,
+          "m_flGrainCrossfadeAmount": 132,
+          "m_flGrainLength": 128,
+          "m_flPlaybackJitter": 140,
+          "m_flStartJitter": 136,
+          "m_sourceAudio": 152
         },
         "metadata": [
           {
@@ -1222,11 +1380,31 @@
       },
       "CVoiceContainerLoopTrigger": {
         "fields": {
-          "m_bCrossFade": 204,
-          "m_flFadeTime": 200,
-          "m_flRetriggerTimeMax": 196,
-          "m_flRetriggerTimeMin": 192,
-          "m_sound": 168
+          "m_bCrossFade": 124,
+          "m_flFadeTime": 120,
+          "m_flRetriggerTimeMax": 116,
+          "m_flRetriggerTimeMin": 112,
+          "m_sound": 128
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyDescription",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CVoiceContainerLoopTriggerWithRandomPanner": {
+        "fields": {
+          "m_randomPannerControls": 160
         },
         "metadata": [
           {
@@ -1246,14 +1424,14 @@
       },
       "CVoiceContainerLoopXFade": {
         "fields": {
-          "m_bEqualPow": 210,
-          "m_bPlayHead": 208,
-          "m_bPlayTail": 209,
-          "m_flFadeIn": 204,
-          "m_flFadeOut": 200,
-          "m_flLoopEnd": 192,
-          "m_flLoopStart": 196,
-          "m_sound": 168
+          "m_bEqualPow": 162,
+          "m_bPlayHead": 160,
+          "m_bPlayTail": 161,
+          "m_flFadeIn": 156,
+          "m_flFadeOut": 152,
+          "m_flLoopEnd": 144,
+          "m_flLoopStart": 148,
+          "m_sound": 112
         },
         "metadata": [
           {
@@ -1273,9 +1451,9 @@
       },
       "CVoiceContainerMultiBlender": {
         "fields": {
-          "m_flBlendFactor": 224,
-          "m_flCrossover": 228,
-          "m_soundsToPlay": 168
+          "m_flBlendFactor": 168,
+          "m_flCrossover": 172,
+          "m_soundsToPlay": 112
         },
         "metadata": [
           {
@@ -1313,14 +1491,14 @@
       },
       "CVoiceContainerParameterBlender": {
         "fields": {
-          "m_bEnableDistanceBlend": 352,
-          "m_bEnableOcclusionBlend": 216,
-          "m_curve1": 224,
-          "m_curve2": 288,
-          "m_curve3": 360,
-          "m_curve4": 424,
-          "m_firstSound": 168,
-          "m_secondSound": 192
+          "m_bEnableDistanceBlend": 312,
+          "m_bEnableOcclusionBlend": 176,
+          "m_curve1": 184,
+          "m_curve2": 248,
+          "m_curve3": 320,
+          "m_curve4": 384,
+          "m_firstSound": 112,
+          "m_secondSound": 144
         },
         "metadata": [
           {
@@ -1340,12 +1518,12 @@
       },
       "CVoiceContainerRandomSampler": {
         "fields": {
-          "m_flAmplitude": 184,
-          "m_flAmplitudeJitter": 188,
-          "m_flMaxLength": 196,
-          "m_flTimeJitter": 192,
-          "m_grainResources": 208,
-          "m_nNumDelayVariations": 200
+          "m_flAmplitude": 128,
+          "m_flAmplitudeJitter": 132,
+          "m_flMaxLength": 140,
+          "m_flTimeJitter": 136,
+          "m_grainResources": 152,
+          "m_nNumDelayVariations": 144
         },
         "metadata": [
           {
@@ -1365,9 +1543,9 @@
       },
       "CVoiceContainerRealtimeFMSineWave": {
         "fields": {
-          "m_flCarrierFrequency": 168,
-          "m_flModulatorAmount": 176,
-          "m_flModulatorFrequency": 172
+          "m_flCarrierFrequency": 112,
+          "m_flModulatorAmount": 120,
+          "m_flModulatorFrequency": 116
         },
         "metadata": [
           {
@@ -1387,9 +1565,9 @@
       },
       "CVoiceContainerSelector": {
         "fields": {
-          "m_fProbabilityWeights": 232,
-          "m_mode": 168,
-          "m_soundsToPlay": 176
+          "m_fProbabilityWeights": 176,
+          "m_mode": 112,
+          "m_soundsToPlay": 120
         },
         "metadata": [
           {
@@ -1409,7 +1587,7 @@
       },
       "CVoiceContainerSet": {
         "fields": {
-          "m_soundsToPlay": 168
+          "m_soundsToPlay": 112
         },
         "metadata": [
           {
@@ -1429,7 +1607,7 @@
       },
       "CVoiceContainerSetElement": {
         "fields": {
-          "m_flVolumeDB": 24,
+          "m_flVolumeDB": 32,
           "m_sound": 0
         },
         "metadata": [
@@ -1442,15 +1620,15 @@
       },
       "CVoiceContainerShapedNoise": {
         "fields": {
-          "m_bUseCurveForAmplitude": 312,
-          "m_bUseCurveForFrequency": 168,
-          "m_bUseCurveForResonance": 240,
-          "m_flFrequency": 172,
-          "m_flGainInDecibels": 316,
-          "m_flResonance": 244,
-          "m_frequencySweep": 176,
-          "m_gainSweep": 320,
-          "m_resonanceSweep": 248
+          "m_bUseCurveForAmplitude": 256,
+          "m_bUseCurveForFrequency": 112,
+          "m_bUseCurveForResonance": 184,
+          "m_flFrequency": 116,
+          "m_flGainInDecibels": 260,
+          "m_flResonance": 188,
+          "m_frequencySweep": 120,
+          "m_gainSweep": 264,
+          "m_resonanceSweep": 192
         },
         "metadata": [
           {
@@ -1470,7 +1648,7 @@
       },
       "CVoiceContainerStaticAdditiveSynth": {
         "fields": {
-          "m_tones": 184
+          "m_tones": 128
         },
         "metadata": [
           {
@@ -1537,7 +1715,7 @@
       },
       "CVoiceContainerSwitch": {
         "fields": {
-          "m_soundsToPlay": 168
+          "m_soundsToPlay": 112
         },
         "metadata": [
           {
@@ -1557,10 +1735,10 @@
       },
       "CVoiceContainerTapePlayer": {
         "fields": {
-          "m_bShouldWraparound": 184,
-          "m_flTapeSpeedAttackTime": 200,
-          "m_flTapeSpeedReleaseTime": 204,
-          "m_sourceAudio": 192
+          "m_bShouldWraparound": 128,
+          "m_flTapeSpeedAttackTime": 144,
+          "m_flTapeSpeedReleaseTime": 148,
+          "m_sourceAudio": 136
         },
         "metadata": [
           {
@@ -1574,9 +1752,230 @@
         ],
         "parent": null
       },
+      "CVoiceContainerVMixSnd": {
+        "fields": {},
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyDescription",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CVoiceContainerVsndRadioButton": {
+        "fields": {
+          "m_namespace": 112,
+          "m_slot1": 120,
+          "m_slot10": 1344,
+          "m_slot11": 1480,
+          "m_slot12": 1616,
+          "m_slot13": 1752,
+          "m_slot14": 1888,
+          "m_slot15": 2024,
+          "m_slot16": 2160,
+          "m_slot2": 256,
+          "m_slot3": 392,
+          "m_slot4": 528,
+          "m_slot5": 664,
+          "m_slot6": 800,
+          "m_slot7": 936,
+          "m_slot8": 1072,
+          "m_slot9": 1208
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyDescription",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CVoiceContainerVsndTrigger": {
+        "fields": {
+          "m_namespace": 112,
+          "m_slot1": 120,
+          "m_slot10": 1344,
+          "m_slot11": 1480,
+          "m_slot12": 1616,
+          "m_slot13": 1752,
+          "m_slot14": 1888,
+          "m_slot15": 2024,
+          "m_slot16": 2160,
+          "m_slot2": 256,
+          "m_slot3": 392,
+          "m_slot4": 528,
+          "m_slot5": 664,
+          "m_slot6": 800,
+          "m_slot7": 936,
+          "m_slot8": 1072,
+          "m_slot9": 1208
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyFriendlyName",
+            "type": "Unknown"
+          },
+          {
+            "name": "MPropertyDescription",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CVsndRadioButtonSlot": {
+        "fields": {
+          "m_bEnableEndcap": 40,
+          "m_bEnableLoopcap": 80,
+          "m_bEnableVsnd": 0,
+          "m_endcapVsnd": 48,
+          "m_fadeOut": 128,
+          "m_group": 120,
+          "m_loopcapVsnd": 88,
+          "m_mode": 132,
+          "m_volume": 124,
+          "m_vsnd": 8
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "CVsndTriggerSlot": {
+        "fields": {
+          "m_bEnableEndcap": 40,
+          "m_bEnableLoopcap": 80,
+          "m_bEnableVsnd": 0,
+          "m_endcapVsnd": 48,
+          "m_fadeOut": 124,
+          "m_loopcapVsnd": 88,
+          "m_mode": 128,
+          "m_volume": 120,
+          "m_vsnd": 8
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "ISndSeqInstruments": {
+        "fields": {},
+        "metadata": [],
+        "parent": null
+      },
+      "KeyGroup_t": {
+        "fields": {
+          "nCenterNote": 0,
+          "nMaxNote": 2,
+          "nMinNote": 1,
+          "nNumVelocityZones": 3,
+          "pVelocityZones": 8
+        },
+        "metadata": [],
+        "parent": null
+      },
+      "SamplerVoice_t": {
+        "fields": {
+          "nNoteNum": 0
+        },
+        "metadata": [],
+        "parent": null
+      },
       "SelectedEditItemInfo_t": {
         "fields": {
           "m_EditItems": 0
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "SndBeatEventKeyedFloats_t": {
+        "fields": {
+          "m_flFloat": 16
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "SndBeatEventKeyedMidiNotes_t": {
+        "fields": {
+          "m_nNote": 17,
+          "m_nStatus": 16,
+          "m_nVelocity": 18
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "SndBeatEventKeyedSndEvts_t": {
+        "fields": {
+          "m_strSoundEventName": 16
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "SndBeatEventKeys_t": {
+        "fields": {
+          "m_flKey": 8
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          },
+          {
+            "name": "MVDataNodeType",
+            "type": "Unknown"
+          }
+        ],
+        "parent": null
+      },
+      "SndBeatTimeSignature_t": {
+        "fields": {
+          "nDenominator": 1,
+          "nNumerator": 0
         },
         "metadata": [
           {
@@ -2054,6 +2453,16 @@
           }
         ],
         "parent": null
+      },
+      "VelocityZone_t": {
+        "fields": {
+          "nMaxVel": 0,
+          "nNextSelection": 1,
+          "nNumSamples": 2,
+          "pSamples": 4
+        },
+        "metadata": [],
+        "parent": null
       }
     },
     "enums": {
@@ -2094,6 +2503,22 @@
         },
         "type": "uint32"
       },
+      "EVsndPlaybackMode": {
+        "alignment": 4,
+        "members": {
+          "Gate": 1,
+          "Trigger": 0
+        },
+        "type": "uint32"
+      },
+      "EVsndTriggerMode": {
+        "alignment": 4,
+        "members": {
+          "Gate": 1,
+          "Trigger": 0
+        },
+        "type": "uint32"
+      },
       "EWaveform": {
         "alignment": 1,
         "members": {
@@ -2113,6 +2538,69 @@
           "RandomNoRepeats": 1,
           "RandomWeights": 4,
           "Sequential": 3
+        },
+        "type": "uint32"
+      },
+      "SndBeatEventType_t": {
+        "alignment": 4,
+        "members": {
+          "eSndBeatEventTypeBar": 2,
+          "eSndBeatEventTypeBeat": 1,
+          "eSndBeatEventTypeInvalid": 0,
+          "eSndBeatEventTypeKeys": 5,
+          "eSndBeatEventTypeLength": 4,
+          "eSndBeatEventTypePhrase": 3
+        },
+        "type": "uint32"
+      },
+      "SndBeatKeyType_t": {
+        "alignment": 4,
+        "members": {
+          "eSndBeatPatternTypeKeyedFloats": 2,
+          "eSndBeatPatternTypeKeyedMidi": 4,
+          "eSndBeatPatternTypeKeyedSndEvts": 3,
+          "eSndBeatPatternTypeKeys": 1,
+          "eSndBeatPatternTypeNone": 0
+        },
+        "type": "uint32"
+      },
+      "SndBeatLaunchSyncType_t": {
+        "alignment": 4,
+        "members": {
+          "eSndBeatLaunchSyncTypeInvalid": 0,
+          "eSndBeatLaunchSyncTypeQueue": 1,
+          "eSndBeatLaunchSyncTypeReset": 3,
+          "eSndBeatLaunchSyncTypeSeek": 2
+        },
+        "type": "uint32"
+      },
+      "SndBeatMidiStatusType_t": {
+        "alignment": 4,
+        "members": {
+          "SndSeqMidiStatusChannelPressure": 13,
+          "SndSeqMidiStatusCtrlChange": 11,
+          "SndSeqMidiStatusKeyPressure": 10,
+          "SndSeqMidiStatusNoteOff": 8,
+          "SndSeqMidiStatusNoteOn": 9,
+          "SndSeqMidiStatusPitchBend": 14,
+          "SndSeqMidiStatusProgramChange": 12
+        },
+        "type": "uint32"
+      },
+      "SndBeatTrackPlaybackType_t": {
+        "alignment": 4,
+        "members": {
+          "eSndBeatTrackPlaybackTypeFwd": 1,
+          "eSndBeatTrackPlaybackTypeStep": 0
+        },
+        "type": "uint32"
+      },
+      "SndSeqInstrumentType_t": {
+        "alignment": 4,
+        "members": {
+          "eSndSeqInstMidiSampler": 2,
+          "eSndSeqInstNull": 0,
+          "eSndSeqInstSndEvt": 1
         },
         "type": "uint32"
       },
@@ -2216,7 +2704,7 @@
       "VMixGraphCommandID_t": {
         "alignment": 4,
         "members": {
-          "CMD_BLEND_VSNDS_TO_IMPULSERESPONSE": 37,
+          "CMD_BLEND_VSNDS_TO_IMPULSERESPONSE": 38,
           "CMD_CONTROL_COND_COPY_IF_NEGATIVE": 8,
           "CMD_CONTROL_COPY": 7,
           "CMD_CONTROL_EVALUATE_CURVE": 6,
@@ -2233,27 +2721,28 @@
           "CMD_CONTROL_SINE_BLEND": 16,
           "CMD_CONTROL_TRANSIENT_INPUT_RESET": 4,
           "CMD_CONTROL_TRANSIENT_INPUT_STORE": 3,
-          "CMD_IMPULSERESPONSE_DELAY": 38,
-          "CMD_IMPULSERESPONSE_INPUT_STORE": 33,
-          "CMD_IMPULSERESPONSE_RESET": 36,
+          "CMD_IMPULSERESPONSE_DELAY": 39,
+          "CMD_IMPULSERESPONSE_INPUT_STORE": 34,
+          "CMD_IMPULSERESPONSE_RESET": 37,
           "CMD_INVALID": -1,
           "CMD_PROCESSOR_SET_CONTROL_ARRAYVALUE": 19,
           "CMD_PROCESSOR_SET_CONTROL_VALUE": 17,
-          "CMD_PROCESSOR_SET_IMPULSERESPONSE_VALUE": 34,
+          "CMD_PROCESSOR_SET_IMPULSERESPONSE_VALUE": 35,
           "CMD_PROCESSOR_SET_NAME_INPUT": 18,
           "CMD_PROCESSOR_SET_VSND_VALUE": 21,
           "CMD_PROCESSOR_STORE_CONTROL_VALUE": 20,
-          "CMD_REMAP_VSND_TO_IMPULSERESPONSE": 35,
-          "CMD_SUBMIX_ACCUMULATE": 30,
-          "CMD_SUBMIX_COPY": 29,
-          "CMD_SUBMIX_DEBUG": 25,
+          "CMD_REMAP_VSND_TO_IMPULSERESPONSE": 36,
+          "CMD_SUBMIX_ACCUMULATE": 31,
+          "CMD_SUBMIX_COPY": 30,
+          "CMD_SUBMIX_DEBUG": 26,
+          "CMD_SUBMIX_EXTRACTCONTAINER": 25,
           "CMD_SUBMIX_GENERATE": 23,
           "CMD_SUBMIX_GENERATE_SIDECHAIN": 24,
-          "CMD_SUBMIX_METER": 31,
-          "CMD_SUBMIX_METER_SPECTRUM": 32,
-          "CMD_SUBMIX_MIX2x1": 26,
-          "CMD_SUBMIX_OUTPUT": 27,
-          "CMD_SUBMIX_OUTPUTx2": 28,
+          "CMD_SUBMIX_METER": 32,
+          "CMD_SUBMIX_METER_SPECTRUM": 33,
+          "CMD_SUBMIX_MIX2x1": 27,
+          "CMD_SUBMIX_OUTPUT": 28,
+          "CMD_SUBMIX_OUTPUTx2": 29,
           "CMD_SUBMIX_PROCESS": 22
         },
         "type": "uint32"

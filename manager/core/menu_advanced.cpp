@@ -40,6 +40,7 @@ namespace menu_advanced {
     // ==================== ICON FONT LOADING ====================
     static ImFont* g_icon_font = nullptr;
     static ImFont* g_icon_font_large = nullptr;
+    static bool g_fonts_loaded = false;
 
     bool LoadIconFont() {
         if (g_icon_font) return true;
@@ -99,6 +100,22 @@ namespace menu_advanced {
     static int g_logo_width = 0;
     static int g_logo_height = 0;
     static bool g_logo_load_attempted = false;
+
+    void ResetRendererResources() {
+        // The font atlas owns these fonts; clearing the pointers avoids reuse
+        // after the ImGui context is destroyed and a new atlas is created.
+        g_icon_font = nullptr;
+        g_icon_font_large = nullptr;
+        g_fonts_loaded = false;
+
+        if (g_logo_srv) {
+            g_logo_srv->Release();
+            g_logo_srv = nullptr;
+        }
+        g_logo_width = 0;
+        g_logo_height = 0;
+        g_logo_load_attempted = false;
+    }
 
     static bool LoadLogoTexture() {
         if (g_logo_load_attempted) return g_logo_srv != nullptr;
@@ -286,7 +303,7 @@ namespace menu_advanced {
         ImGui::Dummy(ImVec2(0, 10));
         ImGui::Text("Max Distance:");
         ImGui::PushItemWidth(280);
-        ImGui::SliderFloat("##MaxDistESP", &config::esp::max_distance, 50.0f, 500.0f, "%.0f units");
+        ImGui::SliderFloat("##MaxDistESP", &config::esp::max_distance, 50.0f, 500.0f, "%.0f m");
         ImGui::PopItemWidth();
         ImGui::Unindent(10);
         EndAnimatedCard();
@@ -326,7 +343,7 @@ namespace menu_advanced {
         ImGui::Checkbox("Enable Aimbot", &config::aimbot::enabled);
         ImGui::Checkbox("Auto Shoot", &config::aimbot::auto_shoot);
         ImGui::Checkbox("Team Check", &config::aimbot::team_check);
-        ImGui::Checkbox("Visible Check", &config::aimbot::visible_check);
+        ImGui::Checkbox("Spotted Check", &config::aimbot::visible_check);
         ImGui::Checkbox("Silent Aim", &config::aimbot::silent_aim);
         ImGui::Dummy(ImVec2(0, 10));
         ImGui::Text("FOV (degrees):");
@@ -461,10 +478,7 @@ namespace menu_advanced {
     }
 
     // ==================== SKIN CHANGER STATE ====================
-    static int selected_knife = 507; // Karambit
-    static int selected_glove = 0;
-    static const int glove_ids[] = { 10006, 10007, 10015, 10016, 10018, 10024 };
-    static const char* glove_names[] = { "Superconductor", "Arid", "Pandora's Box", "Foundation", "Vice", "Emerald Web" };
+    static int selected_knife = skins::selected_knife_id;
 
     struct KnifeInfo { int id; const char* name; int price; };
     const KnifeInfo knives[] = {
@@ -616,7 +630,7 @@ namespace menu_advanced {
             ImGui::Checkbox("StatTrak", &cfg.stattrak);
             if (cfg.stattrak) ImGui::SliderInt("Kills", &cfg.stattrak_count, 0, 99999);
             if (ImGui::Button("Apply Now", ImVec2(-1, 30)))
-                skins::ApplyAllSkins();
+                config::skin_changer::enabled = true;
             if (ImGui::Button("Remove Skin", ImVec2(-1, 0)))
                 skins::user_skins.erase(sel_wep);
         }
@@ -704,15 +718,14 @@ namespace menu_advanced {
             }
             if (ImGui::BeginTabItem("Gloves")) {
                 ImGui::BeginChild("GloveList", ImVec2(0, 200), true);
-                for (int i = 0; i < 6; i++) {
-                    if (ImGui::Selectable(glove_names[i], selected_glove == i)) {
-                        selected_glove = i;
-                        skins::selected_glove_kit = glove_ids[i];
-                    }
+                if (skins::glove_database.empty()) ImGui::TextDisabled("Load the skin database to choose gloves.");
+                for (const auto& glove : skins::glove_database) {
+                    if (ImGui::Selectable(glove.name.c_str(), skins::selected_glove_kit == glove.paint_kit))
+                        skins::selected_glove_kit = glove.paint_kit;
                 }
                 ImGui::EndChild();
                 if (ImGui::Button("Apply Gloves", ImVec2(150, 30)))
-                    skins::ApplyGloves();
+                    config::skin_changer::enabled = true;
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Debug")) {
@@ -738,7 +751,10 @@ namespace menu_advanced {
                     }
                 }
                 else {
-                    ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Not in game");
+                    const auto state = game_state::GetSnapshot();
+                    ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Gameplay data unavailable");
+                    ImGui::TextWrapped("%s", state.status);
+                    ImGui::Text("Entity system: %p | Controller: %p | Pawn: %p", reinterpret_cast<void*>(state.entity_list), reinterpret_cast<void*>(state.controller), reinterpret_cast<void*>(state.pawn));
                 }
                 ImGui::EndTabItem();
             }
@@ -760,10 +776,9 @@ namespace menu_advanced {
     void RenderMainMenu() {
         static int weapon_tab = 0;
         LoadLogoTexture();
-        static bool fonts_loaded = false;
-        if (!fonts_loaded) {
+        if (!g_fonts_loaded) {
             LoadIconFont();
-            fonts_loaded = true;
+            g_fonts_loaded = true;
         }
 
         ImGui::SetNextWindowSize(ImVec2(900, 650), ImGuiCond_FirstUseEver);

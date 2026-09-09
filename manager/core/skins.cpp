@@ -2,6 +2,9 @@
 #include "interfaces.h"
 #include "game_state.h"
 #include "../sdk/mem.h"
+#include "../sdk/feature_support.h"
+#include <cmath>
+#include "pattern_resolver.h"
 #include <Windows.h>
 #include <wininet.h>
 #include <sstream>
@@ -39,7 +42,7 @@ enum Module {
 
 // C_CSWeaponBase_UpdateSubclass(C_CSWeaponBase* weapon);
 #define UPDATE_SUBCLASS_SIGNATURE "4C 8B DC 53 48 81 EC ? ? ? ? 48 8B 41"
-#define SEARCH_TYPE_UPDATE_SUBCLASS NORMAL_SCAN
+#define SEARCH_TYPE_UPDATE_SUBCLASS CALL_SCAN
 #define LOCATION_UPDATE_SUBCLASS CLIENT
 
 // C_CSWeaponBase_UpdateCompositeMaterial(C_CSWeaponBase* weapon);
@@ -66,9 +69,13 @@ enum Module {
 #define SEARCH_TYPE_EQUIP_ITEM_IN_LOADOUT NORMAL_SCAN
 #define LOCATION_EQUIP_ITEM_IN_LOADOUT CLIENT
 
-#define REGEN_WEAPON_SKINS_SIGNATURE "48 83 EC ? E8 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 48 8B 10"
+#define REGEN_WEAPON_SKINS_SIGNATURE "40 55 53 41 57 48 8D AC 24 ? ? ? ? 48 81 EC ? ? ? ? 44 0F B6 FA 48 8B D9 BA ? ? ? ? 48 8D 0D ? ? ? ? E8 ? ? ? ?"
 #define SEARCH_TYPE_REGEN_WEAPON_SKINS NORMAL_SCAN
 #define LOCATION_REGEN_WEAPON_SKINS CLIENT
+
+#define UPDATE_BODY_GROUP_CHOICE "E8 ? ? ? ? 4C 8B AC 24 ? ? ? ? 48 8B BC 24"
+#define SEARCH_TYPE_UPDATE_BODY_GROUP_CHOICE CALL_SCAN
+#define LOCATION_UPDATE_BODY_GROUP_CHOICE CLIENT
 
 #pragma comment(lib, "wininet.lib")
 
@@ -86,7 +93,7 @@ namespace skins {
 
     static bool SafeReadInt(uintptr_t addr, int& out) {
         if (!IsReadablePtr(addr)) return false;
-        out = *reinterpret_cast<int*>(addr);
+        out = sdk::read_value<int>(addr);
         return true;
     }
 
@@ -176,6 +183,8 @@ namespace skins {
     static fnClearHudWeaponIcon g_fnClearHudWeaponIcon = nullptr;
     static fnEquipItemInLoadout g_fnEquipItemInLoadout = nullptr;
     static fnSetMeshGroupMask   g_fnSetMeshGroupMask = nullptr;
+    using fnSetAttribute = void(__fastcall*)(void*, const char*, float);
+    static fnSetAttribute g_fnSetAttribute = nullptr;
     static bool                 g_engine_funcs_resolved = false;
 
     // FindHudElement function pointer
@@ -183,7 +192,7 @@ namespace skins {
 
     static void ResolveFindHudElement() {
         if (g_fnFindHudElement) return;
-        uint8_t* pattern = sdk::find_pattern("client.dll", "4C 8B DC 53 48 83 EC 50 48 8B 05");
+        uint8_t* pattern = sdk::find_pattern("client.dll", "4C 8B DC 53 48 83 EC ? 48 8B 05");
         if (pattern) {
             g_fnFindHudElement = reinterpret_cast<void* (*)(const char*)>(pattern);
             debug_console::Console::Get().Success("[SKINS] FindHudElement at 0x%llX", (uintptr_t)pattern);
@@ -245,7 +254,9 @@ namespace skins {
         }
         else con.Warning("[SKINS] EquipItemInLoadout NOT found");
 
-        ResolveFindHudElement();
+        g_fnSetMeshGroupMask = reinterpret_cast<fnSetMeshGroupMask>(sdk::find_pattern("client.dll", SET_MESH_GROUP_MASK_SIGNATURE));
+        if (auto call = sdk::find_pattern("client.dll", "E8 ? ? ? ? 66 41 0F 6E D4"))
+            g_fnSetAttribute = reinterpret_cast<fnSetAttribute>(sdk::GetCA(reinterpret_cast<uintptr_t>(call)));
     }
 
     // ==================== ENTITY FLAGS ====================
@@ -259,14 +270,14 @@ namespace skins {
     };
 
     struct CEntityIdentity {
-        uintptr_t _pad0[2];
+        uintptr_t _pad0[6];
         uint32_t m_flags;
-        uint32_t flags() const { return m_flags; }
+        uint32_t flags() const { return sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(this) + 0x30); }
     };
 
     static CEntityIdentity* GetEntityIdentity(uintptr_t ent) {
         if (!ent || !IsReadablePtr(ent)) return nullptr;
-        uintptr_t identity_ptr = *(uintptr_t*)(ent + 0x10);
+        uintptr_t identity_ptr = sdk::read_value<uintptr_t>(ent + 0x10);
         return (identity_ptr && IsReadablePtr(identity_ptr))
             ? reinterpret_cast<CEntityIdentity*>(identity_ptr)
             : nullptr;
@@ -296,9 +307,8 @@ namespace skins {
     }
 
     static void CallUpdateComposite(uintptr_t ent, bool force) {
-        if (!ent || !IsReadablePtr(ent)) return;
-        if (g_fnUpdateComposite && reinterpret_cast<uintptr_t>(g_fnUpdateComposite) > 0x10000)
-            g_fnUpdateComposite(reinterpret_cast<void*>(ent), force);
+        if (ent && IsReadablePtr(ent) && g_fnUpdateSkin)
+            g_fnUpdateSkin(reinterpret_cast<void*>(ent), force);
     }
 
     static void CallUpdateSkin(uintptr_t ent, bool force) {
@@ -317,7 +327,7 @@ namespace skins {
     // ==================== SCENE NODE ====================
     static uintptr_t GetSceneNode(uintptr_t ent) {
         if (!ent || !IsReadablePtr(ent)) return 0;
-        uintptr_t n = *(uintptr_t*)(ent + OFF_GAME_SCENE_NODE);
+        uintptr_t n = sdk::read_value<uintptr_t>(ent + OFF_GAME_SCENE_NODE);
         return (n && IsReadablePtr(n)) ? n : 0;
     }
 
@@ -327,52 +337,39 @@ namespace skins {
             g_fnSetMeshGroupMask(reinterpret_cast<void*>(scene_node), mask);
             return;
         }
-        *reinterpret_cast<uint64_t*>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK) = mask;
+        sdk::write_memory<uint64_t>(scene_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK, mask);
     }
 
     static bool IsSetModelSafe(uintptr_t ent) {
         if (!ent || !IsReadablePtr(ent)) return false;
         uintptr_t node = GetSceneNode(ent);
         if (!node || !IsReadablePtr(node)) return false;
-        uintptr_t* vptr = *reinterpret_cast<uintptr_t**>(node);
+        uintptr_t* vptr = reinterpret_cast<uintptr_t*>(sdk::read_value<uintptr_t>(node));
         if (!vptr || !IsReadablePtr(reinterpret_cast<uintptr_t>(vptr))) return false;
-        uintptr_t fn = vptr[0];
+        uintptr_t fn = sdk::read_value<uintptr_t>(reinterpret_cast<uintptr_t>(vptr));
         return (fn && IsReadablePtr(fn));
     }
 
     // ==================== ENTITY HELPERS ====================
     uintptr_t GetLocalPawn() {
-        uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
-        if (!base) return 0;
-        uintptr_t p = *(uintptr_t*)(base + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
-        return (p && IsReadablePtr(p)) ? p : 0;
+        return game_state::GetLocalPawnRaw();
     }
 
     uintptr_t GetEntityList() {
-        uintptr_t base = (uintptr_t)GetModuleHandleA("client.dll");
-        if (!base) return 0;
-        uintptr_t l = *(uintptr_t*)(base + cs2_dumper::offsets::client_dll::dwEntityList);
-        return (l && IsReadablePtr(l)) ? l : 0;
+        return game_state::GetEntityList();
     }
 
     uintptr_t ResolveHandle(uintptr_t el, uint32_t h) {
-        if (!h || h == 0xFFFFFFFF || !el) return 0;
-        try {
-            uintptr_t le = *(uintptr_t*)(el + 0x8 * ((h & 0x7FFF) >> 9) + 16);
-            if (!le || !IsReadablePtr(le)) return 0;
-            uintptr_t e = *(uintptr_t*)(le + 112 * (h & 0x1FF));
-            return (e && IsReadablePtr(e)) ? e : 0;
-        }
-        catch (...) { return 0; }
+        return sdk::entity_from_handle(el, h);
     }
 
     uintptr_t GetActiveWeapon() {
         uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return 0;
         try {
-            uintptr_t ws = *(uintptr_t*)(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices);
+            uintptr_t ws = sdk::read_value<uintptr_t>(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices);
             if (!ws || !IsReadablePtr(ws)) return 0;
-            uint32_t h = *(uint32_t*)(ws + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hActiveWeapon);
+            uint32_t h = sdk::read_value<uint32_t>(ws + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hActiveWeapon);
             return ResolveHandle(list, h);
         }
         catch (...) { return 0; }
@@ -380,20 +377,18 @@ namespace skins {
 
     static std::vector<uintptr_t> GetAllWeapons() {
         std::vector<uintptr_t> result;
-        uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
+        const uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return result;
-        try {
-            uintptr_t ws = *(uintptr_t*)(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices);
-            if (!ws || !IsReadablePtr(ws)) return result;
-            uintptr_t arr = ws + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hMyWeapons;
-            for (int i = 0; i < 64; i++) {
-                uint32_t h = *(uint32_t*)(arr + i * 4);
-                if (!h || h == 0xFFFFFFFF) continue;
-                uintptr_t w = ResolveHandle(list, h);
-                if (w) result.push_back(w);
-            }
+        const auto ws = sdk::read_value<uintptr_t>(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices);
+        if (!ws) return result;
+        const auto vec = ws + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hMyWeapons;
+        sdk::VectorView view{};
+        if (!sdk::read_vector(vec, view, 64)) return result;
+        for (int i = 0; i < view.count; ++i) {
+            uint32_t handle = UINT32_MAX;
+            if (!sdk::read_memory(view.data + sizeof(handle) * i, handle)) break;
+            if (const auto weapon = ResolveHandle(list, handle)) result.push_back(weapon);
         }
-        catch (...) {}
         return result;
     }
 
@@ -402,19 +397,19 @@ namespace skins {
         if (!pawn || !list) return 0;
         try {
             constexpr std::ptrdiff_t OFF_HUD_MODEL_ARMS = 0x2400;
-            uint32_t h = *(uint32_t*)(pawn + OFF_HUD_MODEL_ARMS);
+            uint32_t h = sdk::read_value<uint32_t>(pawn + OFF_HUD_MODEL_ARMS);
             return ResolveHandle(list, h);
         }
         catch (...) { return 0; }
     }
 
     uint16_t GetDefIndex(uintptr_t w) {
-        return *reinterpret_cast<uint16_t*>(w + OFF_ITEM_DEF_INDEX);
+        return sdk::read_value<uint16_t>(w + OFF_ITEM_DEF_INDEX);
     }
 
     static uint8_t GetLocalTeam() {
         uintptr_t p = GetLocalPawn();
-        return p ? *(uint8_t*)(p + OFF_TEAM_NUM) : 0;
+        return p ? sdk::read_value<uint8_t>(p + OFF_TEAM_NUM) : 0;
     }
 
     // ==================== INVENTORY BACKING ====================
@@ -446,7 +441,7 @@ namespace skins {
     }
 
     char* GetWeaponModelName(uintptr_t weapon) {
-        uintptr_t weaponData = *(uintptr_t*)(weapon + cs2_dumper::schemas::client_dll::C_BaseEntity::m_nSubclassID + 0x08);
+        uintptr_t weaponData = sdk::read_value<uintptr_t>(weapon + cs2_dumper::schemas::client_dll::C_BaseEntity::m_nSubclassID + 0x08);
         char* modelName = weaponData ? (char*)(weaponData + 0x640) : nullptr;
         return (modelName && IsReadablePtr((uintptr_t)modelName)) ? modelName : nullptr;
     }
@@ -468,26 +463,26 @@ namespace skins {
         try {
             uintptr_t ctrl = game_state::GetLocalController();
             if (!ctrl || !IsReadablePtr(ctrl)) return items;
-            uintptr_t svc = *(uintptr_t*)(ctrl + OFF_INV_SERVICES);
+            uintptr_t svc = sdk::read_value<uintptr_t>(ctrl + OFF_INV_SERVICES);
             if (!svc || !IsReadablePtr(svc)) return items;
             uintptr_t vec = svc + OFF_LOADOUT_VEC;
-            uintptr_t data = *(uintptr_t*)(vec);
+            uintptr_t data = sdk::read_value<uintptr_t>(vec + 8);
             if (!data || !IsReadablePtr(data)) return items;
-            int count = *(int*)(vec + 0x10);
+            int count = sdk::read_value<int>(vec);
             if (count <= 0 || count > 256) return items;
             for (int i = 0; i < count; i++) {
-                uintptr_t sb = data + (i * 16);
-                uintptr_t iv = *(uintptr_t*)(sb);
+                uintptr_t sb = data + (i * 0xC8); // generated NetworkedLoadoutSlot_t size
+                uintptr_t iv = sdk::read_value<uintptr_t>(sb);
                 if (!iv || !IsReadablePtr(iv)) continue;
                 LoadoutItem li{};
                 li.item_view = iv;
-                li.team = *(uint16_t*)(sb + 0x08);
-                li.slot = *(uint16_t*)(sb + 0x0A);
-                li.def_index = *(uint16_t*)(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex);
-                li.item_id = *(uint64_t*)(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemID);
-                li.item_id_high = *(uint32_t*)(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh);
-                li.item_id_low = *(uint32_t*)(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDLow);
-                li.account_id = *(uint32_t*)(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iAccountID);
+                li.team = sdk::read_value<uint16_t>(sb + 0x08);
+                li.slot = sdk::read_value<uint16_t>(sb + 0x0A);
+                li.def_index = sdk::read_value<uint16_t>(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex);
+                li.item_id = sdk::read_value<uint64_t>(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemID);
+                li.item_id_high = sdk::read_value<uint32_t>(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh);
+                li.item_id_low = sdk::read_value<uint32_t>(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDLow);
+                li.account_id = sdk::read_value<uint32_t>(iv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iAccountID);
                 items.push_back(li);
             }
         }
@@ -534,54 +529,9 @@ namespace skins {
 
     // ==================== APPLY WEAPON SKINS ====================
     void ApplyWeaponSkins() {
-        ResolveEngineFunctions();
-        if (!game_state::IsInGame()) return;
-
-        uintptr_t weapon = GetActiveWeapon();
-        if (!weapon) return;
-
-        uint16_t def_index = GetDefIndex(weapon);
-        if (IsKnife(def_index) || IsDefaultKnife(def_index)) return;
-
-        std::vector<LoadoutItem> loadout;
-        try { loadout = ReadLoadout(); }
-        catch (...) {}
-        uint8_t team = GetLocalTeam();
-
-        const LoadoutItem* li = FindLoadoutByDefIndex(loadout, def_index, team);
-        if (!li || li->item_id == 0) return;
-
-        auto it = std::find_if(g_vecAddedItemsIDs.begin(), g_vecAddedItemsIDs.end(),
-            [&](const AddedItemInfo& i) { return i.id == li->item_id; });
-        if (it == g_vecAddedItemsIDs.end()) return;
-
-        const AddedItemInfo& info = *it;
-
-        *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = li->item_id;
-        *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = li->item_id_high;
-        *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = li->item_id_low;
-        *reinterpret_cast<uint32_t*>(weapon + OFF_ACCOUNT_ID) = li->account_id;
-        *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = false;
-        *reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
-
-        if (info.legacy) {
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = (int)info.paintKit;
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_SEED) = (int)info.paintSeed;
-            *reinterpret_cast<float*>(weapon + OFF_FALLBACK_WEAR) = info.paintWear;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = (uint32_t)-1;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = (uint32_t)-1;
-        }
-
-        uintptr_t node = GetSceneNode(weapon);
-        if (node) SetMeshGroupMask(node, info.legacy ? 2ULL : 1ULL);
-
-        try { CallUpdateComposite(weapon, true); }
-        catch (...) {}
-        try {
-            if (g_fnUpdateCompositeSec && reinterpret_cast<uintptr_t>(g_fnUpdateCompositeSec) > 0x10000)
-                g_fnUpdateCompositeSec(reinterpret_cast<void*>(weapon), true);
-        }
-        catch (...) {}
+        if (!game_state::IsInGame() || GetCurrentFrameStage() != 6) return;
+        for (const auto weapon : GetAllWeapons())
+            ApplySkin(reinterpret_cast<void*>(weapon), GetDefIndex(weapon));
     }
 
     // ==================== FRAME STAGE TRACKING ====================
@@ -609,8 +559,8 @@ namespace skins {
         }
         if (!game_state::IsInGame()) return;
 
-        // Only run at stage 7
-        if (GetCurrentFrameStage() != 7) return;
+        // Use stage 6, matching the reference inventory callback.
+        if (GetCurrentFrameStage() != 6) return;
 
         // --- Death detection ---
         static int s_lastHealth = 0;
@@ -658,7 +608,7 @@ namespace skins {
 
         uint16_t knifeDefIndex = 0;
         const LoadoutItem* melee = FindMeleeItem(loadout, team);
-        if (melee && melee->def_index >= 500)
+        if (selected_knife_id < 500 && melee && melee->def_index >= 500)
             knifeDefIndex = melee->def_index;
         else if (selected_knife_id >= 500)
             knifeDefIndex = static_cast<uint16_t>(selected_knife_id);
@@ -669,65 +619,24 @@ namespace skins {
         if (!kd) return;
 
         // --- Cheap writes every frame ---
-        if (melee && melee->item_id != 0) {
-            *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = melee->item_id;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = melee->item_id_high;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = melee->item_id_low;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ACCOUNT_ID) = melee->account_id;
+        if (melee && melee->item_id != 0 && user_skins.find(knifeDefIndex) == user_skins.end()) {
+            sdk::write_memory<uint64_t>(weapon + OFF_ITEM_ID, melee->item_id);
+            sdk::write_memory<uint32_t>(weapon + OFF_ITEM_ID_HIGH, melee->item_id_high);
+            sdk::write_memory<uint32_t>(weapon + OFF_ITEM_ID_LOW, melee->item_id_low);
+            sdk::write_memory<uint32_t>(weapon + OFF_ACCOUNT_ID, melee->account_id);
         }
         else {
-            // ===== FAKE ITEM ID LOGIC =====
-            static uint64_t lastFakeItemID = 0;
-            uint64_t fakeItemID = 0x7000000000000000ULL + knifeDefIndex;  // unique per knife type
-
-            // Remove old fake ID if knife type changed
-            if (lastFakeItemID != fakeItemID) {
-                if (lastFakeItemID != 0) {
-                    RemoveEconItemFromList(lastFakeItemID);
-                    debug_console::Console::Get().Debug("[KNIFE] Removed old fake item ID 0x%llX", lastFakeItemID);
-                }
-                lastFakeItemID = fakeItemID;
-            }
-
-            // Get skin parameters (paint kit, seed, wear)
-            int paintKit = 0, seed = 0;
-            float wear = 0.01f;
-            auto skin_it = user_skins.find(knifeDefIndex);
-            if (skin_it != user_skins.end()) {
-                paintKit = skin_it->second.paint_kit;
-                seed = skin_it->second.seed;
-                wear = skin_it->second.wear;
-            }
-
-            // Register fake item with the skin
-            /*AddEconItemToList(fakeItemID,
-                static_cast<float>(paintKit),
-                static_cast<float>(seed),
-                wear,
-                true);  // legacy = true*/
-
-            // Write the fake ID to the weapon
-            *reinterpret_cast<uint64_t*>(weapon + OFF_ITEM_ID) = fakeItemID;
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_HIGH) = static_cast<uint32_t>(fakeItemID >> 32);
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ITEM_ID_LOW) = static_cast<uint32_t>(fakeItemID & 0xFFFFFFFF);
-            *reinterpret_cast<uint32_t*>(weapon + OFF_ACCOUNT_ID) = 0; // or local player's account ID
+            sdk::write_memory(weapon + OFF_ITEM_ID_HIGH, UINT32_MAX);
         }
 
         // Common writes (definition index, subclass, fallback skin)
-        *reinterpret_cast<bool*>(weapon + OFF_DISALLOW_SOC) = false;
-        *reinterpret_cast<bool*>(weapon + OFF_RESTORE_MATERIAL) = true;
+        sdk::write_memory<bool>(weapon + OFF_DISALLOW_SOC, false);
+        sdk::write_memory<bool>(weapon + OFF_RESTORE_MATERIAL, true);
 
-        auto skin_cfg = user_skins.find(knifeDefIndex);
-        if (skin_cfg != user_skins.end()) {
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_PAINT) = skin_cfg->second.paint_kit;
-            *reinterpret_cast<float*>(weapon + OFF_FALLBACK_WEAR) = skin_cfg->second.wear;
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_SEED) = skin_cfg->second.seed;
-            *reinterpret_cast<int*>(weapon + OFF_FALLBACK_STATTRAK) =
-                skin_cfg->second.stattrak ? skin_cfg->second.stattrak_count : -1;
-        }
 
-        *reinterpret_cast<uint16_t*>(weapon + OFF_ITEM_DEF_INDEX) = knifeDefIndex;
-        *reinterpret_cast<uint32_t*>(weapon + OFF_SUBCLASS_ID) = kd->subclass_hash;
+
+        sdk::write_memory<uint16_t>(weapon + OFF_ITEM_DEF_INDEX, knifeDefIndex);
+        sdk::write_memory<uint32_t>(weapon + OFF_SUBCLASS_ID, kd->subclass_hash);
 
         // Type change detection (used for model update)
         if (s_lastKnifeDefIndex != knifeDefIndex) {
@@ -769,27 +678,12 @@ namespace skins {
             try {
                 if (IsSetModelSafe(weapon)) {
                     CallSetModel(weapon, kd->model_path);
+                    const auto attachment = ResolveHandle(GetEntityList(), sdk::read_value<uint32_t>(weapon +
+                        cs2_dumper::schemas::client_dll::C_EconEntity::m_hViewmodelAttachment));
+                    if (attachment && IsSetModelSafe(attachment)) CallSetModel(attachment, kd->model_path);
                 }
             }
             catch (...) {}
-
-            // Force HUD icon update using FindHudElement + offset
-            if (g_fnClearHudWeaponIcon) {
-                ResolveFindHudElement();
-                if (g_fnFindHudElement) {
-                    void* hudElement = g_fnFindHudElement("HudWeaponSelection");
-                    if (hudElement && IsReadablePtr((uintptr_t)hudElement)) {
-                        uintptr_t realThis = reinterpret_cast<uintptr_t>(hudElement) - 0x98;
-                        if (IsReadablePtr(realThis)) {
-                            g_fnClearHudWeaponIcon(reinterpret_cast<void*>(realThis), 0, 0);
-                            debug_console::Console::Get().Debug("[KNIFE] HUD icon cleared");
-                        }
-                    }
-                    else {
-                        debug_console::Console::Get().Warning("[KNIFE] HudWeaponSelection not found");
-                    }
-                }
-            }
 
             // Prevent this block from running again until next knife change
             s_subclassRefreshFrames = -1;
@@ -797,72 +691,45 @@ namespace skins {
     }
 
     // ==================== APPLY GLOVES ====================
+    static uintptr_t s_glovePawn = 0;
+    static int s_glovePaint = 0;
     void ApplyGloves() {
-        if (!game_state::IsInGame()) return;
-        uintptr_t pawn = GetLocalPawn();
-        if (!pawn) return;
-
-        uintptr_t gv = pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
-
-        std::vector<LoadoutItem> loadout;
-        try { loadout = ReadLoadout(); }
-        catch (...) {}
-        uint8_t team = GetLocalTeam();
-
-        const LoadoutItem* gl = nullptr;
-        for (const auto& li : loadout)
-            if (li.team == team && li.slot == 41) { gl = &li; break; }
-
-        if (gl && gl->item_id != 0) {
-            *reinterpret_cast<uint16_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex) = gl->def_index;
-            *reinterpret_cast<uint64_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemID) = gl->item_id;
-            *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh) = gl->item_id_high;
-            *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDLow) = gl->item_id_low;
-            *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iAccountID) = gl->account_id;
-            *reinterpret_cast<int*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iEntityQuality) = 3;
-            *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bDisallowSOC) = false;
-            *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bRestoreCustomMaterialAfterPrecache) = true;
+        if (!game_state::IsInGame() || GetCurrentFrameStage() != 6) return;
+        const uintptr_t pawn = GetLocalPawn();
+        if (!pawn || sdk::read_value<int>(pawn + OFF_HEALTH) <= 0 || selected_glove_kit <= 0) {
+            s_glovePawn = 0; return;
         }
-        else if (selected_glove_kit > 0) {
-            *reinterpret_cast<uint16_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex) = 5028;
-            *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh) = (uint32_t)-1;
-            *reinterpret_cast<uint32_t*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDLow) = (uint32_t)-1;
-            *reinterpret_cast<int*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iEntityQuality) = 3;
-            *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bDisallowSOC) = false;
-            *reinterpret_cast<bool*>(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bRestoreCustomMaterialAfterPrecache) = true;
-        }
-        else return;
-
-        *reinterpret_cast<bool*>(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_bNeedToReApplyGloves) = true;
+        const auto it = std::find_if(glove_database.begin(), glove_database.end(),
+            [](const GloveInfo& glove) { return glove.paint_kit == selected_glove_kit; });
+        if (it == glove_database.end() || it->weapon_id <= 0 || !g_fnSetAttribute) return;
+        const auto gv = pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
+        const auto def = static_cast<uint16_t>(it->weapon_id);
+        const auto defAddress = gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex;
+        if (s_glovePawn == pawn && s_glovePaint == selected_glove_kit && sdk::read_value<uint16_t>(defAddress) == def) return;
+        if (!sdk::write_memory(defAddress, def)) return;
+        sdk::write_memory(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh, UINT32_MAX);
+        sdk::write_memory(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iEntityQuality, 3);
+        sdk::write_memory(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bDisallowSOC, false);
+        sdk::write_memory(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bRestoreCustomMaterialAfterPrecache, true);
+        g_fnSetAttribute(reinterpret_cast<void*>(gv), "set item texture prefab", static_cast<float>(selected_glove_kit));
+        g_fnSetAttribute(reinterpret_cast<void*>(gv), "set item texture wear", 0.01f);
+        g_fnSetAttribute(reinterpret_cast<void*>(gv), "set item texture seed", 0.0f);
+        sdk::write_memory(pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_bNeedToReApplyGloves, true);
+        s_glovePawn = pawn; s_glovePaint = selected_glove_kit;
     }
 
-    static auto g_last_apply = std::chrono::steady_clock::now();
+
 
     // ==================== MAIN TICK ====================
     void ApplyAllSkins() {
-        if (!game_state::IsInGame()) return;
-
-        // NOTE: ApplyKnifeSkins is called ONLY from FrameStageNotify stage 7 callback
-        // Do NOT call it here — it breaks stage-aware execution!
-
-        uintptr_t localPawn = GetLocalPawn();
-        int health = 0;
-        if (localPawn)
-            SafeReadInt(localPawn + OFF_HEALTH, health);
-
-        if (health <= 0) {
-            //should_apply_set_model = true;
-            return;
-        }
-
-        auto now = std::chrono::steady_clock::now();
-        bool should_apply =
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_apply).count() >= 600;
-        if (!should_apply) return;
-        g_last_apply = now;
-
-        // Optional: apply gloves or other skins here
-        // ApplyGloves();
+        if (!game_state::IsInGame() || GetCurrentFrameStage() != 6) return;
+        const auto pawn = GetLocalPawn();
+        if (!pawn || sdk::read_value<int>(pawn + OFF_HEALTH) <= 0) { s_glovePawn = 0; return; }
+        ResolveEngineFunctions();
+        ApplyKnifeSkins();
+        for (const auto weapon : GetAllWeapons())
+            ApplySkin(reinterpret_cast<void*>(weapon), GetDefIndex(weapon));
+        ApplyGloves();
     }
 
     void ApplyKnife() {
@@ -879,12 +746,15 @@ namespace skins {
         std::string r;
         HINTERNET h = InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
         if (!h) return r;
+        DWORD timeout = 5000;
+        InternetSetOptionA(h, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+        InternetSetOptionA(h, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
         DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_PRAGMA_NOCACHE;
         if (url.find("https://") == 0) flags |= INTERNET_FLAG_SECURE;
         HINTERNET hu = InternetOpenUrlA(h, url.c_str(), NULL, 0, flags, 0);
         if (hu) {
             char buf[8192]; DWORD rd = 0;
-            while (InternetReadFile(hu, buf, sizeof(buf) - 1, &rd) && rd > 0) r.append(buf, rd);
+            while (r.size() < 16 * 1024 * 1024 && InternetReadFile(hu, buf, sizeof(buf) - 1, &rd) && rd > 0) r.append(buf, rd);
             InternetCloseHandle(hu);
         }
         InternetCloseHandle(h);
@@ -951,7 +821,7 @@ namespace skins {
                     auto gn = pn;
                     auto sep = pn.find(" | ");
                     if (sep != std::string::npos) gn = pn.substr(sep + 3);
-                    glove_database.push_back(GloveInfo(pk, gn));
+                    glove_database.push_back(GloveInfo(pk, gn, ExtractInt(obj, "weapon_defindex")));
                 }
                 pos = end + 1;
             }
@@ -965,6 +835,7 @@ namespace skins {
     }
 
     void InitializeSkinDatabase() {
+        skin_database.clear(); skins_by_weapon.clear(); glove_database.clear();
         skin_database.push_back(SkinInfo(282, "Redline", "AK-47", WEAPON_AK47, RARITY_LEGENDARY, true));
         skin_database.push_back(SkinInfo(180, "Vulcan", "AK-47", WEAPON_AK47, RARITY_ANCIENT, true));
         skin_database.push_back(SkinInfo(344, "Dragon Lore", "AWP", WEAPON_AWP, RARITY_CONTRABAND, true));
@@ -975,9 +846,9 @@ namespace skins {
         skin_database.push_back(SkinInfo(277, "Orion", "USP-S", WEAPON_USP_SILENCER, RARITY_LEGENDARY, true));
         skin_database.push_back(SkinInfo(38, "Fade", "Glock-18", WEAPON_GLOCK, RARITY_ANCIENT, false));
         for (const auto& s : skin_database) skins_by_weapon[s.weapon_name].push_back(s);
-        glove_database.push_back(GloveInfo(10006, "Superconductor"));
-        glove_database.push_back(GloveInfo(10015, "Pandora's Box"));
-        glove_database.push_back(GloveInfo(10018, "Vice"));
+        glove_database.push_back(GloveInfo(10018, "Sport Gloves | Superconductor", 5030));
+        glove_database.push_back(GloveInfo(10037, "Sport Gloves | Pandora's Box", 5030));
+        glove_database.push_back(GloveInfo(10048, "Sport Gloves | Vice", 5030));
     }
 
     bool IsDatabaseLoaded() { return !skin_database.empty() || !glove_database.empty(); }
@@ -1101,22 +972,22 @@ namespace skins {
                 WeaponDebugInfo info{};
                 info.address = w;
                 info.is_active = (w == active);
-                info.def_index = *reinterpret_cast<uint16_t*>(w + OFF_ITEM_DEF_INDEX);
-                info.entity_quality = *reinterpret_cast<int*>(w + OFF_ENTITY_QUALITY);
-                info.item_id_high = *reinterpret_cast<int*>(w + OFF_ITEM_ID_HIGH);
-                info.item_id = *reinterpret_cast<uint64_t*>(w + OFF_ITEM_ID);
-                info.account_id = *reinterpret_cast<uint32_t*>(w + OFF_ACCOUNT_ID);
-                info.disallow_soc = *reinterpret_cast<bool*>(w + OFF_DISALLOW_SOC);
-                info.restore_material = *reinterpret_cast<bool*>(w + OFF_RESTORE_MATERIAL);
-                info.fallback_paint_kit = *reinterpret_cast<int*>(w + OFF_FALLBACK_PAINT);
-                info.fallback_seed = *reinterpret_cast<int*>(w + OFF_FALLBACK_SEED);
-                info.fallback_wear = *reinterpret_cast<float*>(w + OFF_FALLBACK_WEAR);
-                info.fallback_stattrak = *reinterpret_cast<int*>(w + OFF_FALLBACK_STATTRAK);
-                info.owner_xuid_low = *reinterpret_cast<uint32_t*>(w + OFF_OWNER_XUID_LOW);
-                info.subclass_id = *reinterpret_cast<uint32_t*>(w + OFF_SUBCLASS_ID);
+                info.def_index = sdk::read_value<uint16_t>(w + OFF_ITEM_DEF_INDEX);
+                info.entity_quality = sdk::read_value<int>(w + OFF_ENTITY_QUALITY);
+                info.item_id_high = sdk::read_value<int>(w + OFF_ITEM_ID_HIGH);
+                info.item_id = sdk::read_value<uint64_t>(w + OFF_ITEM_ID);
+                info.account_id = sdk::read_value<uint32_t>(w + OFF_ACCOUNT_ID);
+                info.disallow_soc = sdk::read_value<bool>(w + OFF_DISALLOW_SOC);
+                info.restore_material = sdk::read_value<bool>(w + OFF_RESTORE_MATERIAL);
+                info.fallback_paint_kit = sdk::read_value<int>(w + OFF_FALLBACK_PAINT);
+                info.fallback_seed = sdk::read_value<int>(w + OFF_FALLBACK_SEED);
+                info.fallback_wear = sdk::read_value<float>(w + OFF_FALLBACK_WEAR);
+                info.fallback_stattrak = sdk::read_value<int>(w + OFF_FALLBACK_STATTRAK);
+                info.owner_xuid_low = sdk::read_value<uint32_t>(w + OFF_OWNER_XUID_LOW);
+                info.subclass_id = sdk::read_value<uint32_t>(w + OFF_SUBCLASS_ID);
                 info.loadout_matched = (info.item_id != 0 && info.item_id_high != -1);
-                strncpy_s(info.custom_name, reinterpret_cast<char*>(w + OFF_CUSTOM_NAME),
-                    sizeof(info.custom_name) - 1);
+                sdk::read_memory(w + OFF_CUSTOM_NAME, info.custom_name);
+                info.custom_name[sizeof(info.custom_name) - 1] = '\0';
                 result.push_back(info);
             }
         }
@@ -1127,16 +998,90 @@ namespace skins {
     bool IsSetModelAvailable() { return g_fnSetModel != nullptr; }
     int  GetLoadoutItemCount() { try { return (int)ReadLoadout().size(); } catch (...) { return 0; } }
 
+    struct SavedSkin {
+        uint32_t handle = UINT32_MAX, high = 0;
+        int paint = 0, seed = 0, stat = 0;
+        float wear = 0;
+        bool disallow = false, restore = false;
+        char name[161]{};
+    };
+    static std::map<uintptr_t, SavedSkin> saved_skins;
+
     void ApplySkin(void* weapon, int weapon_id) {
         if (!weapon) return;
-        auto it = user_skins.find(weapon_id);
-        if (it == user_skins.end()) return;
-        uintptr_t w = reinterpret_cast<uintptr_t>(weapon);
-        *reinterpret_cast<int*>(w + OFF_FALLBACK_PAINT) = it->second.paint_kit;
-        *reinterpret_cast<int*>(w + OFF_FALLBACK_SEED) = it->second.seed;
-        *reinterpret_cast<float*>(w + OFF_FALLBACK_WEAR) = it->second.wear;
-        *reinterpret_cast<bool*>(w + OFF_DISALLOW_SOC) = false;
-        *reinterpret_cast<bool*>(w + OFF_RESTORE_MATERIAL) = true;
+        const uintptr_t w = reinterpret_cast<uintptr_t>(weapon);
+        const auto identity = sdk::read_value<uintptr_t>(w + 0x10);
+        uint32_t handle = UINT32_MAX;
+        if (!identity || !sdk::read_memory(identity + 0x10, handle) || handle == UINT32_MAX) return;
+        auto saved = saved_skins.find(w);
+        if (saved != saved_skins.end() && saved->second.handle != handle) {
+            saved_skins.erase(saved); saved = saved_skins.end();
+        }
+        const auto it = user_skins.find(weapon_id);
+        if (it == user_skins.end()) {
+            if (saved == saved_skins.end()) return;
+            const auto& original = saved->second;
+            bool restored = sdk::write_memory(w + OFF_FALLBACK_PAINT, original.paint) &&
+                sdk::write_memory(w + OFF_FALLBACK_SEED, original.seed) &&
+                sdk::write_memory(w + OFF_FALLBACK_WEAR, original.wear) &&
+                sdk::write_memory(w + OFF_FALLBACK_STATTRAK, original.stat) &&
+                sdk::write_memory(w + OFF_CUSTOM_NAME, original.name) &&
+                sdk::write_memory(w + OFF_ITEM_ID_HIGH, original.high) &&
+                sdk::write_memory(w + OFF_DISALLOW_SOC, original.disallow) &&
+                sdk::write_memory(w + OFF_RESTORE_MATERIAL, original.restore);
+            if (!restored) return;
+            if (g_fnSetAttribute) {
+                auto* view = reinterpret_cast<void*>(w + ECON_ITEM_VIEW_BASE);
+                g_fnSetAttribute(view, "set item texture prefab", static_cast<float>(original.paint));
+                g_fnSetAttribute(view, "set item texture wear", original.wear);
+                g_fnSetAttribute(view, "set item texture seed", static_cast<float>(original.seed));
+            }
+            CallUpdateComposite(w, true);
+            saved_skins.erase(saved);
+            return;
+        }
+        if (saved == saved_skins.end()) {
+            SavedSkin original{}; original.handle = handle;
+            if (!sdk::read_memory(w + OFF_FALLBACK_PAINT, original.paint) ||
+                !sdk::read_memory(w + OFF_FALLBACK_SEED, original.seed) ||
+                !sdk::read_memory(w + OFF_FALLBACK_WEAR, original.wear) ||
+                !sdk::read_memory(w + OFF_FALLBACK_STATTRAK, original.stat) ||
+                !sdk::read_memory(w + OFF_CUSTOM_NAME, original.name) ||
+                !sdk::read_memory(w + OFF_ITEM_ID_HIGH, original.high) ||
+                !sdk::read_memory(w + OFF_DISALLOW_SOC, original.disallow) ||
+                !sdk::read_memory(w + OFF_RESTORE_MATERIAL, original.restore)) return;
+            saved_skins.emplace(w, original);
+        }
+        const auto& cfg = it->second;
+        const int paint = (std::max)(0, cfg.paint_kit);
+        const int seed = (std::clamp)(cfg.seed, 0, 1000);
+        const float wear = std::isfinite(cfg.wear) ? (std::clamp)(cfg.wear, 0.0f, 1.0f) : 0.0f;
+        const int stat = cfg.stattrak ? (std::max)(0, cfg.stattrak_count) : -1;
+        char name[161]{}; // C_EconItemView::m_szCustomName
+        std::memcpy(name, cfg.name_tag.data(), (std::min)(cfg.name_tag.size(), sizeof(name) - 1));
+        char previous[sizeof(name)]{};
+        const bool name_read = sdk::read_memory(w + OFF_CUSTOM_NAME, previous);
+        const bool changed = sdk::read_value<int>(w + OFF_FALLBACK_PAINT) != paint ||
+            sdk::read_value<int>(w + OFF_FALLBACK_SEED) != seed ||
+            sdk::read_value<float>(w + OFF_FALLBACK_WEAR) != wear ||
+            sdk::read_value<int>(w + OFF_FALLBACK_STATTRAK) != stat ||
+            sdk::read_value<uint32_t>(w + OFF_ITEM_ID_HIGH) != UINT32_MAX ||
+            !name_read || std::memcmp(name, previous, sizeof(name)) != 0;
+        if (!changed) return;
+        if (!sdk::write_memory(w + OFF_FALLBACK_PAINT, paint) ||
+            !sdk::write_memory(w + OFF_FALLBACK_SEED, seed) ||
+            !sdk::write_memory(w + OFF_FALLBACK_WEAR, wear) ||
+            !sdk::write_memory(w + OFF_FALLBACK_STATTRAK, stat) ||
+            !sdk::write_memory(w + OFF_CUSTOM_NAME, name)) return;
+        sdk::write_memory(w + OFF_ITEM_ID_HIGH, UINT32_MAX);
+        sdk::write_memory(w + OFF_DISALLOW_SOC, false);
+        sdk::write_memory(w + OFF_RESTORE_MATERIAL, true);
+        if (g_fnSetAttribute) {
+            void* view = reinterpret_cast<void*>(w + ECON_ITEM_VIEW_BASE);
+            g_fnSetAttribute(view, "set item texture prefab", static_cast<float>(paint));
+            g_fnSetAttribute(view, "set item texture wear", wear);
+            g_fnSetAttribute(view, "set item texture seed", static_cast<float>(seed));
+        }
         CallUpdateComposite(w, true);
     }
 }

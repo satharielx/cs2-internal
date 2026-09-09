@@ -107,10 +107,11 @@ namespace skins {
 
     struct GloveInfo {
         int paint_kit;
+        int weapon_id;
         std::string name;
 
-        GloveInfo() : paint_kit(0) {}
-        GloveInfo(int pk, const std::string& n) : paint_kit(pk), name(n) {}
+        GloveInfo() : paint_kit(0), weapon_id(0) {}
+        GloveInfo(int pk, const std::string& n, int def = 0) : paint_kit(pk), weapon_id(def), name(n) {}
     };
 
     struct PlayerSkinConfig {
@@ -203,6 +204,7 @@ namespace skins {
 
     // Frame stage tracking (called from FrameStageNotify hook callback)
     void SetCurrentFrameStage(int stage);
+    int GetCurrentFrameStage();
   
 
 }

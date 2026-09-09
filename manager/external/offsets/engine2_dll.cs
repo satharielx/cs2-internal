@@ -1,9 +1,9 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-04-13 22:20:29.962555200 UTC
+// 2026-08-29 09:27:12.680043800 UTC
 
 namespace CS2Dumper.Schemas {
     // Module: engine2.dll
-    // Class count: 55
+    // Class count: 58
     // Enum count: 2
     public static class Engine2Dll {
         // Alignment: 4
@@ -23,14 +23,10 @@ namespace CS2Dumper.Schemas {
         }
         // Parent: None
         // Field count: 3
-        //
-        // Metadata:
-        // NetworkVarNames: m_pEntity (CEntityIdentity*)
-        // NetworkVarNames: m_CScriptComponent (CScriptComponent::Storage_t)
         public static class CEntityInstance {
             public const nint m_iszPrivateVScripts = 0x8; // CUtlSymbolLarge
             public const nint m_pEntity = 0x10; // CEntityIdentity*
-            public const nint m_CScriptComponent = 0x30; // CScriptComponent*
+            public const nint m_CScriptComponent = 0x28; // CScriptComponent*
         }
         // Parent: None
         // Field count: 0
@@ -38,6 +34,9 @@ namespace CS2Dumper.Schemas {
         }
         // Parent: CEntityComponent
         // Field count: 1
+        //
+        // Metadata:
+        // MGetKV3ClassDefaults
         public static class CScriptComponent {
             public const nint m_scriptClassName = 0x30; // CUtlSymbolLarge
         }
@@ -45,9 +44,9 @@ namespace CS2Dumper.Schemas {
         // Field count: 12
         //
         // Metadata:
-        // NetworkVarNames: m_nameStringableIndex (int32)
+        // MGetKV3ClassDefaults
         public static class CEntityIdentity {
-            public const nint m_nameStringableIndex = 0x14; // int32
+            public const nint m_nameStringTableIndex = 0x14; // int32
             public const nint m_name = 0x18; // CUtlSymbolLarge
             public const nint m_designerName = 0x20; // CUtlSymbolLarge
             public const nint m_flags = 0x30; // uint32
@@ -118,6 +117,21 @@ namespace CS2Dumper.Schemas {
         // Parent: None
         // Field count: 0
         public static class EventServerBeginSimulate_t {
+        }
+        // Parent: None
+        // Field count: 8
+        //
+        // Metadata:
+        // MGetKV3ClassDefaults
+        public static class EntityIOQueuePrioritizedEvent_t {
+            public const nint m_flFireTime = 0x4; // GameTime_t
+            public const nint m_targetType = 0x8; // EntityIOTargetType_t
+            public const nint m_pTarget = 0x10; // CUtlSymbolLarge
+            public const nint m_pTargetInput = 0x18; // CUtlSymbolLarge
+            public const nint m_hActivator = 0x20; // CEntityHandle
+            public const nint m_hCaller = 0x24; // CEntityHandle
+            public const nint m_hEntTarget = 0x28; // CEntityHandle
+            public const nint m_variantValue = 0x30; // CVariantBase<CVariantDefaultAllocator>
         }
         // Parent: None
         // Field count: 0
@@ -213,8 +227,8 @@ namespace CS2Dumper.Schemas {
         // Parent: None
         // Field count: 2
         public static class CEntityAttributeTable {
-            public const nint m_Attributes = 0x0; // CUtlOrderedMap<CUtlStringToken,Attribute_t>
-            public const nint m_Names = 0x28; // CUtlOrderedMap<CUtlStringToken,CUtlString>
+            public const nint m_Attributes = 0x0; // CUtlOrderedMap<CUtlStringTokenNoRegistration,Attribute_t>
+            public const nint m_Names = 0x28; // CUtlOrderedMap<CUtlStringTokenNoRegistration,CUtlString>
         }
         // Parent: None
         // Field count: 0
@@ -238,7 +252,16 @@ namespace CS2Dumper.Schemas {
         }
         // Parent: None
         // Field count: 0
+        public static class EventBugBug_t {
+        }
+        // Parent: None
+        // Field count: 0
         public static class CVariantDefaultAllocator {
+        }
+        // Parent: None
+        // Field count: 1
+        public static class EventBugBugComplete_t {
+            public const nint m_pPayload = 0x0; // EventBugBug_t*
         }
         // Parent: None
         // Field count: 0
@@ -279,15 +302,15 @@ namespace CS2Dumper.Schemas {
             public const nint m_flTickRemainder = 0x58; // float64
         }
         // Parent: None
-        // Field count: 0
-        public static class EntOutput_t {
-        }
-        // Parent: None
         // Field count: 3
         public static class EventSimulate_t {
             public const nint m_LoopState = 0x0; // EngineLoopState_t
             public const nint m_bFirstTick = 0x28; // bool
             public const nint m_bLastTick = 0x29; // bool
+        }
+        // Parent: None
+        // Field count: 0
+        public static class CEntityKeyValues {
         }
         // Parent: None
         // Field count: 0

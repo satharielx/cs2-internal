@@ -143,6 +143,7 @@
     <ClInclude Include="core\Hook_FrameStageNotify.hpp" />
     <ClInclude Include="core\interfaces.h" />
     <ClInclude Include="core\menu_advanced.h" />
+    <ClInclude Include="core\pattern_resolver.h" />
     <ClInclude Include="core\skins.h" />
     <ClInclude Include="core\skins_downloader.h" />
     <ClInclude Include="core\skin_menu.h" />
@@ -3637,6 +3638,7 @@
     <ClInclude Include="sdk\source2-sdk\types\utlvector.hpp" />
     <ClInclude Include="sdk\source2sdk_offsets.h" />
     <ClInclude Include="sdk\usercmd.h" />
+    <ClInclude Include="sdk\feature_support.h" />
     <ClInclude Include="sdk\vector.h" />
   </ItemGroup>
   <ItemGroup>
@@ -3648,6 +3650,7 @@
     <ClCompile Include="core\Hook_FrameStageNotify.cpp" />
     <ClCompile Include="core\interfaces.cpp" />
     <ClCompile Include="core\menu_advanced.cpp" />
+    <ClCompile Include="core\pattern_resolver.cpp" />
     <ClCompile Include="core\skins.cpp" />
     <ClCompile Include="core\skins_downloader.cpp" />
     <ClCompile Include="core\skins_meun.cpp" />

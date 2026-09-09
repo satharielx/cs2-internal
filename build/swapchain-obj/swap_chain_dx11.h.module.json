@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "C:\\Windows\\manager\\build\\swapchain-obj\\swap_chain_dx11.h.obj",
+            "outputs": [
+                "C:\\Windows\\manager\\build\\swapchain-obj\\vc145.pdb",
+                "C:\\Windows\\manager\\build\\swapchain-obj\\",
+                "C:\\Windows\\manager\\build\\swapchain-obj\\swap_chain_dx11.h.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "sdk\\interfaces\\swap_chain_dx11.h",
+                    "source-path": "c:\\windows\\manager\\manager\\sdk\\interfaces\\swap_chain_dx11.h",
+                    "lookup-method": "absolute"
+                }
+            ],
+            "requires": []
+        }
+    ]
+}

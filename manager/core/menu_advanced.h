@@ -48,6 +48,8 @@ namespace menu_advanced {
 
     // Icon font management
     bool LoadIconFont();
+    // Release device resources and clear atlas pointers before renderer shutdown.
+    void ResetRendererResources();
     void RenderIcon(ImFont* icon_font, const char* icon, const ImVec2& size = ImVec2(0, 0), ImU32 color = IM_COL32_WHITE);
 
     // Advanced menu rendering

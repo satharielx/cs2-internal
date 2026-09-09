@@ -1,5 +1,6 @@
 #pragma once
 #include "../sdk/mem.h"
+#include "feature_support.h"
 #include "../sdk/source2sdk_offsets.h"
 #include <cstdint>
 #include <cmath>
@@ -34,6 +35,10 @@ namespace sdk {
 
     using QAngle = Vector3;
 
+    inline bool finite(const Vector3& v) {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    }
+
     // CS2 Vector2
     struct Vector2 {
         float x, y;
@@ -62,26 +67,26 @@ namespace sdk {
     class C_BaseEntity {
     public:
         Vector3 GetOrigin() {
-            uintptr_t scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
+            uintptr_t scene_node = read_value<uintptr_t>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
             if (!scene_node || !is_valid_ptr(scene_node)) return Vector3();
-            return *reinterpret_cast<Vector3*>(scene_node + off::CGameSceneNode::m_vecAbsOrigin);
+            return read_value<Vector3>(scene_node + off::CGameSceneNode::m_vecAbsOrigin);
         }
 
         int GetHealth() {
-            return *reinterpret_cast<int*>((uintptr_t)this + off::C_BaseEntity::m_iHealth);
+            return read_value<int>((uintptr_t)this + off::C_BaseEntity::m_iHealth);
         }
 
         int GetTeam() {
-            return *reinterpret_cast<int*>((uintptr_t)this + off::C_BaseEntity::m_iTeamNum);
+            return read_value<uint8_t>((uintptr_t)this + off::C_BaseEntity::m_iTeamNum);
         }
 
         bool IsAlive() {
             int health = GetHealth();
-            return health > 0 && health <= 100;
+            return health > 0;
         }
 
         int GetFlags() {
-            return *reinterpret_cast<int*>((uintptr_t)this + off::C_BaseEntity::m_fFlags);
+            return read_value<int>((uintptr_t)this + off::C_BaseEntity::m_fFlags);
         }
 
         bool IsOnGround() {
@@ -93,54 +98,56 @@ namespace sdk {
     class C_CSPlayerPawn : public C_BaseEntity {
     public:
         Vector3 GetBonePosition(int bone_index) {
-            uintptr_t game_scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
+            if (bone_index < 0 || bone_index >= 256) return {};
+            uintptr_t game_scene_node = read_value<uintptr_t>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
             if (!game_scene_node || !is_valid_ptr(game_scene_node)) return Vector3();
 
             // CSkeletonInstance::m_modelState + 0x80 (bone array pointer inside CModelState)
-            uintptr_t bone_array = *reinterpret_cast<uintptr_t*>(game_scene_node + off::CSkeletonInstance::m_modelState + 0x80);
+            uintptr_t bone_array = read_value<uintptr_t>(game_scene_node + off::CSkeletonInstance::m_modelState + 0x80);
             if (!bone_array || !is_valid_ptr(bone_array)) return Vector3();
 
-            return *reinterpret_cast<Vector3*>(bone_array + bone_index * 32);
+            const auto result = read_value<Vector3>(bone_array + bone_index * 32);
+            return finite(result) ? result : Vector3{};
         }
 
         Vector3 GetEyePosition() {
             Vector3 origin = GetOrigin();
-            Vector3 view_offset = *reinterpret_cast<Vector3*>((uintptr_t)this + off::C_BaseModelEntity::m_vecViewOffset);
+            Vector3 view_offset = read_value<Vector3>((uintptr_t)this + off::C_BaseModelEntity::m_vecViewOffset);
             return origin + view_offset;
         }
 
         bool IsDormant() {
-            uintptr_t scene_node = *reinterpret_cast<uintptr_t*>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
+            uintptr_t scene_node = read_value<uintptr_t>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
             if (!scene_node || !is_valid_ptr(scene_node)) return true;
-            return *reinterpret_cast<bool*>(scene_node + off::CGameSceneNode::m_bDormant);
+            return read_value<bool>(scene_node + off::CGameSceneNode::m_bDormant);
         }
 
         int GetArmor() {
-            return *reinterpret_cast<int*>((uintptr_t)this + off::C_CSPlayerPawn::m_ArmorValue);
+            return read_value<int>((uintptr_t)this + off::C_CSPlayerPawn::m_ArmorValue);
         }
 
         bool IsSpotted() {
-            return *reinterpret_cast<bool*>((uintptr_t)this + off::C_CSPlayerPawn::m_entitySpottedState + off::EntitySpottedState_t::m_bSpotted);
+            return read_value<bool>((uintptr_t)this + off::C_CSPlayerPawn::m_entitySpottedState + off::EntitySpottedState_t::m_bSpotted);
         }
     };
 
     // Bone IDs for skeleton
     enum BoneIndex {
-        BONE_HEAD = 8,
-        BONE_NECK = 7,
-        BONE_CHEST = 6,
+        BONE_HEAD = 6,
+        BONE_NECK = 5,
+        BONE_CHEST = 4,
         BONE_PELVIS = 0,
-        BONE_LEFT_SHOULDER = 13,
-        BONE_LEFT_ELBOW = 14,
-        BONE_LEFT_HAND = 15,
-        BONE_RIGHT_SHOULDER = 9,
-        BONE_RIGHT_ELBOW = 10,
-        BONE_RIGHT_HAND = 11,
-        BONE_LEFT_HIP = 25,
-        BONE_LEFT_KNEE = 26,
-        BONE_LEFT_FOOT = 27,
-        BONE_RIGHT_HIP = 22,
-        BONE_RIGHT_KNEE = 23,
-        BONE_RIGHT_FOOT = 24
+        BONE_LEFT_SHOULDER = 8,
+        BONE_LEFT_ELBOW = 9,
+        BONE_LEFT_HAND = 10,
+        BONE_RIGHT_SHOULDER = 13,
+        BONE_RIGHT_ELBOW = 14,
+        BONE_RIGHT_HAND = 15,
+        BONE_LEFT_HIP = 22,
+        BONE_LEFT_KNEE = 23,
+        BONE_LEFT_FOOT = 24,
+        BONE_RIGHT_HIP = 25,
+        BONE_RIGHT_KNEE = 26,
+        BONE_RIGHT_FOOT = 27
     };
 }

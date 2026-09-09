@@ -10530,7 +10530,13 @@
     <ClInclude Include="sdk\usercmd.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="sdk\feature_support.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="sdk\vector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="core\pattern_resolver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -10614,6 +10620,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="core\Hook_FrameStageNotify.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\pattern_resolver.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -19,17 +19,20 @@ namespace features {
 
     // ESP Functions
     void DrawBox(const sdk::Vector2& top, const sdk::Vector2& bottom, float width, const float color[4]);
-    void DrawLine(const sdk::Vector2& from, const sdk::Vector2& to, const float color[4]);
+    void DrawLine(const sdk::Vector2& from, const sdk::Vector2& to, const float color[4], float thickness = 1.0f);
     void DrawText(const sdk::Vector2& pos, const char* text, const float color[4]);
     void DrawFilledRect(const sdk::Vector2& pos, const sdk::Vector2& size, const float color[4]);
     void DrawHealthBar(const sdk::Vector2& top, const sdk::Vector2& bottom, int health, int max_health);
     void DrawSkeleton(sdk::C_CSPlayerPawn* player, const sdk::ViewMatrix& view_matrix, int screen_width, int screen_height, const float color[4]);
     void RenderESP();
 	void RunSilentAim(CUserCmd* cmd);
+    void RunSilentAimSubTick(DWORD* a1, C_CSPlayerPawn* localPawn);
 
     // Aimbot — runs on its own thread
     void StartAimbotThread();
     void StopAimbotThread();
+    void SetInputBlocked(bool blocked);
+    void ReleaseInputs();
 
     // Misc Functions
     void BunnyHop();

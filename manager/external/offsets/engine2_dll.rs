@@ -1,12 +1,12 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-04-13 22:20:29.962555200 UTC
+// 2026-08-29 09:27:12.680043800 UTC
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, unused)]
 
 pub mod cs2_dumper {
     pub mod schemas {
         // Module: engine2.dll
-        // Class count: 55
+        // Class count: 58
         // Enum count: 2
         pub mod engine2_dll {
             // Alignment: 4
@@ -28,14 +28,10 @@ pub mod cs2_dumper {
             }
             // Parent: None
             // Field count: 3
-            //
-            // Metadata:
-            // NetworkVarNames: m_pEntity (CEntityIdentity*)
-            // NetworkVarNames: m_CScriptComponent (CScriptComponent::Storage_t)
             pub mod CEntityInstance {
                 pub const m_iszPrivateVScripts: usize = 0x8; // CUtlSymbolLarge
                 pub const m_pEntity: usize = 0x10; // CEntityIdentity*
-                pub const m_CScriptComponent: usize = 0x30; // CScriptComponent*
+                pub const m_CScriptComponent: usize = 0x28; // CScriptComponent*
             }
             // Parent: None
             // Field count: 0
@@ -43,6 +39,9 @@ pub mod cs2_dumper {
             }
             // Parent: CEntityComponent
             // Field count: 1
+            //
+            // Metadata:
+            // MGetKV3ClassDefaults
             pub mod CScriptComponent {
                 pub const m_scriptClassName: usize = 0x30; // CUtlSymbolLarge
             }
@@ -50,9 +49,9 @@ pub mod cs2_dumper {
             // Field count: 12
             //
             // Metadata:
-            // NetworkVarNames: m_nameStringableIndex (int32)
+            // MGetKV3ClassDefaults
             pub mod CEntityIdentity {
-                pub const m_nameStringableIndex: usize = 0x14; // int32
+                pub const m_nameStringTableIndex: usize = 0x14; // int32
                 pub const m_name: usize = 0x18; // CUtlSymbolLarge
                 pub const m_designerName: usize = 0x20; // CUtlSymbolLarge
                 pub const m_flags: usize = 0x30; // uint32
@@ -123,6 +122,21 @@ pub mod cs2_dumper {
             // Parent: None
             // Field count: 0
             pub mod EventServerBeginSimulate_t {
+            }
+            // Parent: None
+            // Field count: 8
+            //
+            // Metadata:
+            // MGetKV3ClassDefaults
+            pub mod EntityIOQueuePrioritizedEvent_t {
+                pub const m_flFireTime: usize = 0x4; // GameTime_t
+                pub const m_targetType: usize = 0x8; // EntityIOTargetType_t
+                pub const m_pTarget: usize = 0x10; // CUtlSymbolLarge
+                pub const m_pTargetInput: usize = 0x18; // CUtlSymbolLarge
+                pub const m_hActivator: usize = 0x20; // CEntityHandle
+                pub const m_hCaller: usize = 0x24; // CEntityHandle
+                pub const m_hEntTarget: usize = 0x28; // CEntityHandle
+                pub const m_variantValue: usize = 0x30; // CVariantBase<CVariantDefaultAllocator>
             }
             // Parent: None
             // Field count: 0
@@ -218,8 +232,8 @@ pub mod cs2_dumper {
             // Parent: None
             // Field count: 2
             pub mod CEntityAttributeTable {
-                pub const m_Attributes: usize = 0x0; // CUtlOrderedMap<CUtlStringToken,Attribute_t>
-                pub const m_Names: usize = 0x28; // CUtlOrderedMap<CUtlStringToken,CUtlString>
+                pub const m_Attributes: usize = 0x0; // CUtlOrderedMap<CUtlStringTokenNoRegistration,Attribute_t>
+                pub const m_Names: usize = 0x28; // CUtlOrderedMap<CUtlStringTokenNoRegistration,CUtlString>
             }
             // Parent: None
             // Field count: 0
@@ -243,7 +257,16 @@ pub mod cs2_dumper {
             }
             // Parent: None
             // Field count: 0
+            pub mod EventBugBug_t {
+            }
+            // Parent: None
+            // Field count: 0
             pub mod CVariantDefaultAllocator {
+            }
+            // Parent: None
+            // Field count: 1
+            pub mod EventBugBugComplete_t {
+                pub const m_pPayload: usize = 0x0; // EventBugBug_t*
             }
             // Parent: None
             // Field count: 0
@@ -284,15 +307,15 @@ pub mod cs2_dumper {
                 pub const m_flTickRemainder: usize = 0x58; // float64
             }
             // Parent: None
-            // Field count: 0
-            pub mod EntOutput_t {
-            }
-            // Parent: None
             // Field count: 3
             pub mod EventSimulate_t {
                 pub const m_LoopState: usize = 0x0; // EngineLoopState_t
                 pub const m_bFirstTick: usize = 0x28; // bool
                 pub const m_bLastTick: usize = 0x29; // bool
+            }
+            // Parent: None
+            // Field count: 0
+            pub mod CEntityKeyValues {
             }
             // Parent: None
             // Field count: 0

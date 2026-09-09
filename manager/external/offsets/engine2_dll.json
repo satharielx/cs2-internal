@@ -41,7 +41,7 @@
           "m_fDataObjectTypes": 60,
           "m_flags": 48,
           "m_name": 24,
-          "m_nameStringableIndex": 20,
+          "m_nameStringTableIndex": 20,
           "m_pAttributes": 72,
           "m_pNext": 88,
           "m_pNextByClass": 104,
@@ -51,31 +51,24 @@
         },
         "metadata": [
           {
-            "name": "m_nameStringableIndex",
-            "type": "NetworkVarNames",
-            "type_name": "int32"
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
           }
         ],
         "parent": null
       },
       "CEntityInstance": {
         "fields": {
-          "m_CScriptComponent": 48,
+          "m_CScriptComponent": 40,
           "m_iszPrivateVScripts": 8,
           "m_pEntity": 16
         },
-        "metadata": [
-          {
-            "name": "m_pEntity",
-            "type": "NetworkVarNames",
-            "type_name": "CEntityIdentity*"
-          },
-          {
-            "name": "m_CScriptComponent",
-            "type": "NetworkVarNames",
-            "type_name": "CScriptComponent::Storage_t"
-          }
-        ],
+        "metadata": [],
+        "parent": null
+      },
+      "CEntityKeyValues": {
+        "fields": {},
+        "metadata": [],
         "parent": null
       },
       "CNetworkVarChainer": {
@@ -89,7 +82,12 @@
         "fields": {
           "m_scriptClassName": 48
         },
-        "metadata": [],
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
         "parent": "CEntityComponent"
       },
       "CVariantDefaultAllocator": {
@@ -125,9 +123,23 @@
         "metadata": [],
         "parent": null
       },
-      "EntOutput_t": {
-        "fields": {},
-        "metadata": [],
+      "EntityIOQueuePrioritizedEvent_t": {
+        "fields": {
+          "m_flFireTime": 4,
+          "m_hActivator": 32,
+          "m_hCaller": 36,
+          "m_hEntTarget": 40,
+          "m_pTarget": 16,
+          "m_pTargetInput": 24,
+          "m_targetType": 8,
+          "m_variantValue": 48
+        },
+        "metadata": [
+          {
+            "name": "MGetKV3ClassDefaults",
+            "type": "Unknown"
+          }
+        ],
         "parent": null
       },
       "EventAdvanceTick_t": {
@@ -144,6 +156,18 @@
         "fields": {
           "m_nDummy0": 0
         },
+        "metadata": [],
+        "parent": null
+      },
+      "EventBugBugComplete_t": {
+        "fields": {
+          "m_pPayload": 0
+        },
+        "metadata": [],
+        "parent": null
+      },
+      "EventBugBug_t": {
+        "fields": {},
         "metadata": [],
         "parent": null
       },

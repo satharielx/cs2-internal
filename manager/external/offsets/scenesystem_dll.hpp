@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-04-13 22:20:29.962555200 UTC
+// 2026-08-29 09:27:12.680043800 UTC
 
 #pragma once
 
@@ -10,8 +10,26 @@ namespace cs2_dumper {
     namespace schemas {
         // Module: scenesystem.dll
         // Class count: 9
-        // Enum count: 4
+        // Enum count: 6
         namespace scenesystem_dll {
+            // Alignment: 4
+            // Member count: 3
+            enum class ESceneObjectMeshletVisualization : uint32_t {
+                SCENEOBJECT_MESHLET_VIS_NONE = 0x0,
+                SCENEOBJECT_MESHLET_VIS_MESHLET = 0x1,
+                SCENEOBJECT_MESHLET_VIS_CULLED = 0x2
+            };
+            // Alignment: 4
+            // Member count: 7
+            enum class ESceneViewDebugOverlaysListenerDataType_t : uint32_t {
+                k_ESceneViewDebugOverlaysListenerDataType_Unknown = 0x0,
+                k_ESceneViewDebugOverlaysListenerDataType_Sphere = 0x1,
+                k_ESceneViewDebugOverlaysListenerDataType_Capsule = 0x2,
+                k_ESceneViewDebugOverlaysListenerDataType_BoxAngles = 0x3,
+                k_ESceneViewDebugOverlaysListenerDataType_Line = 0x4,
+                k_ESceneViewDebugOverlaysListenerDataType_SolidBoxAngles = 0x5,
+                k_ESceneViewDebugOverlaysListenerDataType_Text3D = 0x6
+            };
             // Alignment: 4
             // Member count: 4
             enum class ESilhouetteType_t : uint32_t {
@@ -21,12 +39,13 @@ namespace cs2_dumper {
                 SILHOUETTE_LPV = 0x4
             };
             // Alignment: 1
-            // Member count: 4
+            // Member count: 5
             enum class DisableShadows_t : uint8_t {
                 kDisableShadows_None = 0x0,
                 kDisableShadows_All = 0x1,
                 kDisableShadows_Baked = 0x2,
-                kDisableShadows_Realtime = 0x3
+                kDisableShadows_Realtime = 0x3,
+                kDisableShadows_ReallyNone = 0x4
             };
             // Alignment: 1
             // Member count: 6

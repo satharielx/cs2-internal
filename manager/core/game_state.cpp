@@ -1,125 +1,81 @@
 #include "game_state.h"
-#include "debug_console.h"
+#include "interfaces.h"
 #include "../external/offsets/offsets.hpp"
-#include "../sdk/mem.h"
-#include <Windows.h>
+#include "../sdk/feature_support.h"
+#include "error_logger.h"
 #include <thread>
-#include <atomic>
 #include <mutex>
+#include <chrono>
 
 namespace game_state {
+    static std::atomic<bool> running{false};
+    static std::thread worker;
+    static std::mutex lifecycle_mutex;
+    static std::mutex state_mutex;
+    static Snapshot state{};
 
-    // Atomic state — written by monitor thread, read by render thread
-    static std::atomic<bool> s_in_game{ false };
-    static std::atomic<uintptr_t> s_entity_list{ 0 };
-    static std::atomic<uintptr_t> s_local_controller{ 0 };
-    static std::atomic<sdk::C_CSPlayerPawn*> s_local_pawn{ nullptr };
-
-    // Thread control
-    static std::atomic<bool> s_running{ false };
-    static std::thread s_thread;
-
-    // Base addresses (resolved once)
-    static uintptr_t s_client_base = 0;
-    static uintptr_t s_entity_list_addr = 0;
-    static uintptr_t s_local_controller_addr = 0;
-    static uintptr_t s_local_pawn_addr = 0;
-
-    static bool ResolveBaseAddresses() {
-        HMODULE client = GetModuleHandle(L"client.dll");
-        if (!client) return false;
-
-        s_client_base = (uintptr_t)GetModuleHandle(L"client.dll");
-        s_entity_list_addr = s_client_base + cs2_dumper::offsets::client_dll::dwEntityList;
-        s_local_controller_addr = s_client_base + cs2_dumper::offsets::client_dll::dwLocalPlayerController;
-        s_local_pawn_addr = s_client_base + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn;
-
-        debug_console::Console::Get().Info("[GameState] client.dll base: 0x%llX", s_client_base);
-        debug_console::Console::Get().Pointer("dwEntityList", s_entity_list_addr, 0, true);
-        debug_console::Console::Get().Pointer("dwLocalPlayerController", s_local_controller_addr, 0, true);
-        debug_console::Console::Get().Pointer("dwLocalPlayerPawn", s_local_pawn_addr, 0, true);
-        return true;
+    Snapshot GetSnapshot() {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        return state;
     }
-
+    static void Publish(const Snapshot& next) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        state = next;
+    }
+    Snapshot ResolveSnapshot(uintptr_t client_base, uintptr_t entity_system) {
+        Snapshot next{};
+        if (!client_base) {
+            next.status = "client.dll unavailable";
+            return next;
+        }
+        next.pawn = sdk::read_value<uintptr_t>(client_base + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+        next.controller = sdk::read_value<uintptr_t>(client_base + cs2_dumper::offsets::client_dll::dwLocalPlayerController);
+        next.entity_list = sdk::is_valid_ptr(entity_system) ? entity_system : 0;
+        if (!sdk::is_valid_ptr(next.controller)) next.controller = 0;
+        if (!sdk::is_valid_ptr(next.pawn)) {
+            next.pawn = 0;
+            next.status = "dwLocalPlayerPawn is null or unreadable";
+            return next;
+        }
+        // dwLocalPlayerPawn already contains the pawn address, not an entity handle.
+        next.in_game = true;
+        next.status = next.entity_list ? "Local pawn ready (dwLocalPlayerPawn)" :
+            "Local pawn ready; entity system unavailable";
+        return next;
+    }
     static void MonitorLoop() {
-        debug_console::Console::Get().Info("[GameState] Monitor thread started");
-
-        // Wait for client.dll and resolve addresses once
-        while (s_running.load()) {
-            if (ResolveBaseAddresses()) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        const char* last_status = nullptr;
+        while (running) {
+            const uintptr_t client = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
+            const Snapshot next = ResolveSnapshot(client, client ? reinterpret_cast<uintptr_t>(interfaces::GameEntitySystem()) : 0);
+            if (last_status != next.status) {
+                char message[512];
+                sprintf_s(message, "%s | entity system=%p controller=%p pawn=%p", next.status,
+                    reinterpret_cast<void*>(next.entity_list), reinterpret_cast<void*>(next.controller), reinterpret_cast<void*>(next.pawn));
+                error_logger::ErrorLogger::Get().Log("Game State", message, 0);
+                last_status = next.status;
+            }
+            Publish(next); // Publish cleared values too, including on disconnect.
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
-
-        if (!s_running.load()) return;
-        debug_console::Console::Get().Success("[GameState] Base addresses resolved");
-
-        while (s_running.load()) {
-            bool in_game = false;
-
-            // Read entity list
-            uintptr_t entity_list = 0;
-            if (sdk::is_valid_ptr(s_entity_list_addr)) {
-                entity_list = *(uintptr_t*)(s_entity_list_addr);
-                if (entity_list != 0 && sdk::is_valid_ptr(entity_list)) {
-                    s_entity_list.store(entity_list);
-                } else {
-                    entity_list = 0;
-                    s_entity_list.store(0);
-                }
-            }
-
-            // Read local controller
-            uintptr_t controller = 0;
-            if (sdk::is_valid_ptr(s_local_controller_addr)) {
-                controller = *(uintptr_t*)(s_local_controller_addr);
-                if (controller != 0 && sdk::is_valid_ptr(controller)) {
-                    s_local_controller.store(controller);
-                } else {
-                    controller = 0;
-                    s_local_controller.store(0);
-                }
-            }
-
-            // Read local pawn directly via dwLocalPlayerPawn
-            sdk::C_CSPlayerPawn* pawn = nullptr;
-            if (sdk::is_valid_ptr(s_local_pawn_addr)) {
-                uintptr_t pawn_addr = *(uintptr_t*)(s_local_pawn_addr);
-                if (pawn_addr != 0 && sdk::is_valid_ptr(pawn_addr)) {
-                    pawn = reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn_addr);
-                }
-            }
-            s_local_pawn.store(pawn);
-
-            // We are in-game if entity list, controller, and pawn are all valid
-            in_game = (entity_list != 0) && (controller != 0) && (pawn != nullptr);
-            s_in_game.store(in_game);
-
-            // Poll every 100ms — fast enough to detect map changes, slow enough to not waste CPU
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        debug_console::Console::Get().Info("[GameState] Monitor thread stopped");
+        Publish({});
     }
-
     void Start() {
-        if (s_running.load()) return;
-        s_running.store(true);
-        s_thread = std::thread(MonitorLoop);
+        std::lock_guard<std::mutex> lock(lifecycle_mutex);
+        if (running) return;
+        running = true;
+        try { worker = std::thread(MonitorLoop); }
+        catch (...) { running = false; throw; }
     }
-
     void Stop() {
-        s_running.store(false);
-        if (s_thread.joinable()) {
-            s_thread.join();
-        }
-        s_in_game.store(false);
-        s_entity_list.store(0);
-        s_local_controller.store(0);
-        s_local_pawn.store(nullptr);
+        std::lock_guard<std::mutex> lock(lifecycle_mutex);
+        running = false;
+        if (worker.joinable()) worker.join();
+        Publish({});
     }
-
-    bool IsInGame()             { return s_in_game.load(); }
-    uintptr_t GetEntityList()   { return s_entity_list.load(); }
-    uintptr_t GetLocalController() { return s_local_controller.load(); }
-    sdk::C_CSPlayerPawn* GetLocalPawn() { return s_local_pawn.load(); }
+    bool IsInGame() { return GetSnapshot().in_game; }
+    uintptr_t GetEntityList() { return GetSnapshot().entity_list; }
+    uintptr_t GetLocalController() { return GetSnapshot().controller; }
+    sdk::C_CSPlayerPawn* GetLocalPawn() { return reinterpret_cast<sdk::C_CSPlayerPawn*>(GetSnapshot().pawn); }
+    uintptr_t GetLocalPawnRaw() { return GetSnapshot().pawn; }
 }
