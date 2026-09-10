@@ -198,6 +198,14 @@ namespace skins {
     };
 
     std::vector<WeaponDebugInfo> GetCurrentWeaponsDebugInfo();
+    struct WeaponReadDiagnostics {
+        uintptr_t pawn = 0, entity_list = 0, services = 0, data = 0, active = 0;
+        uint32_t active_handle = UINT32_MAX;
+        int count = 0;
+        bool material_refresh_available = false;
+        const char* status = "Weapon data unavailable";
+    };
+    WeaponReadDiagnostics GetWeaponReadDiagnostics();
     bool IsSetModelAvailable();
 
     int GetLoadoutItemCount();

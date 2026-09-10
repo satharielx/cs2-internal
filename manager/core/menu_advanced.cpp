@@ -345,6 +345,10 @@ namespace menu_advanced {
         ImGui::Checkbox("Team Check", &config::aimbot::team_check);
         ImGui::Checkbox("Spotted Check", &config::aimbot::visible_check);
         ImGui::Checkbox("Silent Aim", &config::aimbot::silent_aim);
+        ImGui::TextWrapped("Normal: %s", features::normal_aim_status.load());
+        ImGui::TextWrapped("Silent: %s", features::silent_aim_status.load());
+        ImGui::Text("Writes: normal %u, silent %u | Silent callbacks: %u",
+            features::normal_aim_writes.load(), features::silent_aim_writes.load(), features::silent_callbacks.load());
         ImGui::Dummy(ImVec2(0, 10));
         ImGui::Text("FOV (degrees):");
         ImGui::SliderFloat("##FOV", &config::aimbot::fov, 1.0f, 30.0f, "%.1f");
@@ -730,6 +734,12 @@ namespace menu_advanced {
             }
             if (ImGui::BeginTabItem("Debug")) {
                 if (game_state::IsInGame()) {
+                    const auto reads = skins::GetWeaponReadDiagnostics();
+                    ImGui::Text("Material refresh: %s", reads.material_refresh_available ? "Resolved" : "Incomplete/unavailable");
+                    ImGui::TextWrapped("%s", reads.status);
+                    ImGui::Text("Pawn: %p | Weapon services: %p", reinterpret_cast<void*>(reads.pawn), reinterpret_cast<void*>(reads.services));
+                    ImGui::Text("Handles: %d | Data: %p", reads.count, reinterpret_cast<void*>(reads.data));
+                    ImGui::Text("Active handle: 0x%08X | Weapon: %p", reads.active_handle, reinterpret_cast<void*>(reads.active));
                     auto weapons = skins::GetCurrentWeaponsDebugInfo();
                     ImGui::Text("Weapons: %zu", weapons.size());
                     if (ImGui::BeginTable("DebugTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {

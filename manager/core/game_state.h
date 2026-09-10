@@ -11,7 +11,9 @@ namespace game_state {
         uintptr_t pawn = 0;
         const char* status = "Waiting for game-state reader";
     };
-    Snapshot ResolveSnapshot(uintptr_t client_base, uintptr_t entity_system);
+    using LocalPawnGetter = uintptr_t(__fastcall*)(int slot);
+    Snapshot ResolveSnapshot(uintptr_t client_base, uintptr_t entity_system,
+        LocalPawnGetter getter = nullptr, uintptr_t controller_slot = 0);
     Snapshot GetSnapshot();
 
     void Start();

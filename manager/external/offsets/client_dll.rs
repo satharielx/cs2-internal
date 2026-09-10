@@ -1,12 +1,12 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-08-29 09:27:12.680043800 UTC
+// 2026-09-10 00:06:05.651656 UTC
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, unused)]
 
 pub mod cs2_dumper {
     pub mod schemas {
         // Module: client.dll
-        // Class count: 567
+        // Class count: 568
         // Enum count: 14
         pub mod client_dll {
             // Alignment: 4
@@ -2313,14 +2313,15 @@ pub mod cs2_dumper {
             pub mod C_Item_Healthshot {
             }
             // Parent: C_BaseEntity
-            // Field count: 6
+            // Field count: 7
             pub mod CCSCustomHudLayout {
-                pub const m_strLayout: usize = 0x608; // CUtlSymbolLarge
-                pub const m_vecPlayerLayoutStates: usize = 0x610; // C_UtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
-                pub const m_globalLayoutState: usize = 0x678; // CCSCustomHudLayoutState
-                pub const m_vecPanelIds: usize = 0x780; // C_NetworkUtlVectorBase<CUtlString>
-                pub const m_vecClassNames: usize = 0x798; // C_NetworkUtlVectorBase<CUtlString>
-                pub const m_vecDialogVariableNames: usize = 0x7B0; // C_NetworkUtlVectorBase<CUtlString>
+                pub const m_strLayout: usize = 0x618; // CUtlSymbolLarge
+                pub const m_bObservable: usize = 0x620; // bool
+                pub const m_vecPlayerLayoutStates: usize = 0x628; // C_UtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
+                pub const m_globalLayoutState: usize = 0x690; // CCSCustomHudLayoutState
+                pub const m_vecPanelIds: usize = 0x798; // C_NetworkUtlVectorBase<CUtlString>
+                pub const m_vecClassNames: usize = 0x7B0; // C_NetworkUtlVectorBase<CUtlString>
+                pub const m_vecDialogVariableNames: usize = 0x7C8; // C_NetworkUtlVectorBase<CUtlString>
             }
             // Parent: None
             // Field count: 3
@@ -3634,6 +3635,18 @@ pub mod cs2_dumper {
             // Parent: None
             // Field count: 0
             pub mod C_SoundOpvarSetOBBEntity {
+            }
+            // Parent: None
+            // Field count: 8
+            pub mod CCSCustomPlayerCamera {
+                pub const m_hPawn: usize = 0x600; // CHandle<C_CSPlayerPawnBase>
+                pub const m_nCameraMode: usize = 0x604; // CustomCameraMode_t
+                pub const m_hFollowEntity: usize = 0x608; // CHandle<C_BaseEntity>
+                pub const m_bFollowEyes: usize = 0x60C; // bool
+                pub const m_vecFollowOffset: usize = 0x610; // Vector
+                pub const m_vecCameraOffset: usize = 0x61C; // Vector
+                pub const m_bClipCameraOffset: usize = 0x628; // bool
+                pub const m_flCameraOffsetReturnStrength: usize = 0x62C; // float32
             }
             // Parent: None
             // Field count: 1
@@ -5136,11 +5149,8 @@ pub mod cs2_dumper {
             pub mod C_TriggerVolume {
             }
             // Parent: None
-            // Field count: 3
+            // Field count: 0
             pub mod CCSPlayerCamera {
-                pub const m_hPawn: usize = 0x600; // CHandle<C_CSPlayerPawnBase>
-                pub const m_bEnabled: usize = 0x604; // bool
-                pub const m_bIsControllingAngles: usize = 0x605; // bool
             }
             // Parent: None
             // Field count: 1

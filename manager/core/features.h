@@ -7,6 +7,11 @@
 using namespace sdk;
 
 namespace features {
+    inline std::atomic<const char*> normal_aim_status{"Not evaluated"};
+    inline std::atomic<const char*> silent_aim_status{"No callback received"};
+    inline std::atomic<unsigned> silent_callbacks{0}, normal_aim_writes{0}, silent_aim_writes{0};
+
+    void RunNormalAimTick();
     // Math helpers
     bool WorldToScreen(const sdk::Vector3& world, sdk::Vector2& screen, const sdk::ViewMatrix& matrix, int screen_width, int screen_height);
     sdk::Vector2 CalcAngle(const sdk::Vector3& src, const sdk::Vector3& dst);

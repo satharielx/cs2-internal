@@ -1,10 +1,10 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-08-29 09:27:12.680043800 UTC
+// 2026-09-10 00:06:05.651656 UTC
 
 namespace CS2Dumper.Schemas {
     // Module: server.dll
-    // Class count: 996
-    // Enum count: 238
+    // Class count: 997
+    // Enum count: 239
     public static class ServerDll {
         // Alignment: 4
         // Member count: 4
@@ -148,6 +148,14 @@ namespace CS2Dumper.Schemas {
             TIMELINE_COMPRESSION_AVERAGE = 0x2,
             TIMELINE_COMPRESSION_AVERAGE_BLEND = 0x3,
             TIMELINE_COMPRESSION_TOTAL = 0x4
+        }
+        // Alignment: 1
+        // Member count: 4
+        public enum CustomCameraMode_t : byte {
+            CUSTOM_CAMERA_MODE_DISABLED = 0x0,
+            CUSTOM_CAMERA_MODE_CONTROLLED = 0x1,
+            CUSTOM_CAMERA_MODE_CONTROLLED_POSITION = 0x2,
+            CUSTOM_CAMERA_MODE_FOLLOW_POSITION = 0x3
         }
         // Alignment: 4
         // Member count: 3
@@ -576,7 +584,7 @@ namespace CS2Dumper.Schemas {
             Sidekick = 0x6
         }
         // Alignment: 4
-        // Member count: 31
+        // Member count: 32
         public enum SVC_Messages : uint {
             svc_ServerInfo = 0x28,
             svc_FlattenedSerializer = 0x29,
@@ -608,7 +616,8 @@ namespace CS2Dumper.Schemas {
             svc_Broadcast_Command = 0x4A,
             svc_HltvFixupOperatorStatus = 0x4B,
             svc_UserCmds = 0x4C,
-            svc_NextMsgPredicted = 0x4D
+            svc_NextMsgPredicted = 0x4D,
+            svc_EncryptedData = 0x4E
         }
         // Alignment: 4
         // Member count: 2
@@ -2143,9 +2152,9 @@ namespace CS2Dumper.Schemas {
             CS_UM_Geiger = 0x12E,
             CS_UM_Train = 0x12F,
             CS_UM_HudText = 0x130,
-            CS_UM_SayText = 0x131,
-            CS_UM_SayText2 = 0x132,
-            CS_UM_TextMsg = 0x133,
+            CS_UM_SayText_CSGOLegacy = 0x131,
+            CS_UM_SayText2_CSGOLegacy = 0x132,
+            CS_UM_TextMsg_CSGOLegacy = 0x133,
             CS_UM_HudMsg = 0x134,
             CS_UM_ResetHud = 0x135,
             CS_UM_GameTitle = 0x136,
@@ -2165,7 +2174,7 @@ namespace CS2Dumper.Schemas {
             CS_UM_ProcessSpottedEntityUpdate = 0x145,
             CS_UM_ReloadEffect = 0x146,
             CS_UM_AdjustMoney = 0x147,
-            CS_UM_UpdateTeamMoney = 0x148,
+            CS_UM_UpdateTeamMoney_CSGOLegacy = 0x148,
             CS_UM_StopSpectatorMode = 0x149,
             CS_UM_KillCam = 0x14A,
             CS_UM_DesiredTimescale = 0x14B,
@@ -6375,14 +6384,15 @@ namespace CS2Dumper.Schemas {
             public const nint m_iMaxObjectsAttached = 0x9C8; // int32
         }
         // Parent: CBaseEntity
-        // Field count: 6
+        // Field count: 7
         public static class CCSCustomHudLayout {
             public const nint m_strLayout = 0x4A8; // CUtlSymbolLarge
-            public const nint m_vecPlayerLayoutStates = 0x4B0; // CUtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
-            public const nint m_globalLayoutState = 0x518; // CCSCustomHudLayoutState
-            public const nint m_vecPanelIds = 0x6B0; // CNetworkUtlVectorBase<CUtlString>
-            public const nint m_vecClassNames = 0x6C8; // CNetworkUtlVectorBase<CUtlString>
-            public const nint m_vecDialogVariableNames = 0x6E0; // CNetworkUtlVectorBase<CUtlString>
+            public const nint m_bObservable = 0x4B0; // bool
+            public const nint m_vecPlayerLayoutStates = 0x4B8; // CUtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
+            public const nint m_globalLayoutState = 0x520; // CCSCustomHudLayoutState
+            public const nint m_vecPanelIds = 0x6B8; // CNetworkUtlVectorBase<CUtlString>
+            public const nint m_vecClassNames = 0x6D0; // CNetworkUtlVectorBase<CUtlString>
+            public const nint m_vecDialogVariableNames = 0x6E8; // CNetworkUtlVectorBase<CUtlString>
         }
         // Parent: None
         // Field count: 3
@@ -8413,6 +8423,18 @@ namespace CS2Dumper.Schemas {
             public const nint m_OnHitMax = 0x510; // CEntityIOOutput
             public const nint m_OnChangedFromMin = 0x528; // CEntityIOOutput
             public const nint m_OnChangedFromMax = 0x540; // CEntityIOOutput
+        }
+        // Parent: None
+        // Field count: 8
+        public static class CCSCustomPlayerCamera {
+            public const nint m_hPawn = 0x4A8; // CHandle<CCSPlayerPawnBase>
+            public const nint m_nCameraMode = 0x4AC; // CustomCameraMode_t
+            public const nint m_hFollowEntity = 0x4B0; // CHandle<CBaseEntity>
+            public const nint m_bFollowEyes = 0x4B4; // bool
+            public const nint m_vecFollowOffset = 0x4B8; // Vector
+            public const nint m_vecCameraOffset = 0x4C4; // Vector
+            public const nint m_bClipCameraOffset = 0x4D0; // bool
+            public const nint m_flCameraOffsetReturnStrength = 0x4D4; // float32
         }
         // Parent: None
         // Field count: 1
@@ -11025,11 +11047,8 @@ namespace CS2Dumper.Schemas {
             public const nint m_flNormCenterSize = 0xC40; // float32
         }
         // Parent: None
-        // Field count: 3
+        // Field count: 0
         public static class CCSPlayerCamera {
-            public const nint m_hPawn = 0x4A8; // CHandle<CCSPlayerPawnBase>
-            public const nint m_bEnabled = 0x4AC; // bool
-            public const nint m_bIsControllingAngles = 0x4AD; // bool
         }
         // Parent: None
         // Field count: 1

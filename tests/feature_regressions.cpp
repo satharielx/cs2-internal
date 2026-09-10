@@ -54,7 +54,8 @@ struct Buffer {
     }
 };
 static unsigned refreshes = 0, attributes = 0;
-static void __fastcall Refresh(void*, bool) { ++refreshes; }
+static uintptr_t last_refresh_owner = 0;
+static void __fastcall Refresh(void* owner, bool) { ++refreshes; last_refresh_owner = reinterpret_cast<uintptr_t>(owner); }
 static void __fastcall Attribute(void*, const char*, float) { ++attributes; }
 static bool AlmostEqual(float a, float b) { return std::abs(a-b) < 0.001f; }
 
@@ -134,13 +135,28 @@ int main() {
     first.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,7); second.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,9);
     game_state::test_state={true,system.addr(),0,pawn.addr()};
     skins::g_engine_funcs_resolved=true; skins::s_engineFunctionsResolved=true;
-    skins::g_fnUpdateSkin=Refresh; skins::g_fnSetAttribute=Attribute;
+    skins::g_fnUpdateComposite=Refresh; skins::g_compositeOwnerOffset=0x608; skins::g_fnSetAttribute=Attribute;
     skins::PlayerSkinConfig cfg; cfg.paint_kit=282; cfg.seed=12; cfg.wear=0.1f;
     cfg.stattrak=true; cfg.stattrak_count=321; cfg.name_tag="regression";
     skins::user_skins[7]=cfg; skins::user_skins[9]=cfg;
     skins::SetCurrentFrameStage(7); skins::ApplyAllSkins(); assert(refreshes==0);
     skins::SetCurrentFrameStage(6); skins::ApplyAllSkins();
     assert(refreshes==2 && attributes==6); // Includes the inactive weapon.
+    assert(skins::GetActiveWeapon()==first.addr());
+    auto weapon_reads=skins::GetWeaponReadDiagnostics();
+    assert(weapon_reads.services==services.addr() && weapon_reads.count==2 && weapon_reads.active==first.addr());
+    pawn.put<uintptr_t>(C_BasePlayerPawn::m_pWeaponServices,0);
+    assert(!skins::GetActiveWeapon() && skins::GetAllWeapons().empty());
+    assert(std::strstr(skins::GetWeaponReadDiagnostics().status,"Weapon-services pointer"));
+    pawn.put(C_BasePlayerPawn::m_pWeaponServices,services.addr());
+    services.put(CPlayer_WeaponServices::m_hMyWeapons+16,1);
+    assert(skins::GetActiveWeapon()==first.addr()); // Active handle is independent of vector validity.
+    assert(std::strstr(skins::GetWeaponReadDiagnostics().status,"invalid bounds"));
+    services.put(CPlayer_WeaponServices::m_hMyWeapons+16,2);
+    Buffer aim_punch(0x200);
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_pAimPunchServices,aim_punch.addr());
+    aim_punch.put(CCSPlayer_AimPunchServices::m_predictableBaseAngle,sdk::Vector3(1,2,0));
+    assert(features::ReadAimPunch(pawn.addr()).y==2);
     assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_STATTRAK)==321);
     assert(sdk::read_value<uint32_t>(second.addr()+skins::OFF_ITEM_ID_HIGH)==UINT32_MAX);
     assert(std::strcmp(reinterpret_cast<char*>(first.addr()+skins::OFF_CUSTOM_NAME),"regression")==0);
@@ -148,6 +164,7 @@ int main() {
     skins::user_skins[7].wear=inf; skins::user_skins[7].stattrak=false;
     skins::user_skins[7].name_tag=std::string(200,'x');
     skins::ApplyAllSkins(); assert(refreshes==3);
+    assert(last_refresh_owner==first.addr()+0x608);
     assert(sdk::read_value<float>(first.addr()+skins::OFF_FALLBACK_WEAR)==0);
     assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_STATTRAK)==-1);
     assert(sdk::read_value<char>(first.addr()+skins::OFF_CUSTOM_NAME+160)==0);
@@ -213,6 +230,32 @@ int main() {
     features::BunnyHop(); features::ReleaseInputs();
     assert(sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(module)+jumpOffset)==256);
     test_module=nullptr; VirtualFree(module,0,MEM_RELEASE);
+
+    Buffer clientMemory(cs2_dumper::offsets::client_dll::dwViewAngles+0x100);
+    Buffer localScene(0x300), bones(256*32);
+    test_module=reinterpret_cast<HMODULE>(clientMemory.addr());
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,localScene.addr());
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseModelEntity::m_vecViewOffset+0x20,64.0f);
+    scene.put(CSkeletonInstance::m_modelState+0x80,bones.addr());
+    bones.put(6*32,sdk::Vector3(100,100,64));
+    config::aimbot::enabled=true; config::aimbot::silent_aim=false;
+    config::aimbot::visible_check=false; config::aimbot::team_check=true;
+    config::aimbot::fov=90; config::aimbot::max_distance=10000; config::aimbot::smoothing=0;
+    config::aimbot::auto_shoot=false; config::rcs::enabled=false;
+    test_keys[VK_LBUTTON]=static_cast<SHORT>(0x8000);
+    features::RunNormalAimTick();
+    auto angles=sdk::read_value<sdk::Vector2>(clientMemory.addr()+cs2_dumper::offsets::client_dll::dwViewAngles);
+    assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
+    assert(features::normal_aim_writes==1);
+    test_keys[VK_LBUTTON]=0;
+    features::RunNormalAimTick(); assert(features::normal_aim_writes==1);
+    config::aimbot::silent_aim=true;
+    DWORD history[7]{};
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    angles=sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(history+4));
+    assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
+    assert(features::silent_aim_writes==1);
+    test_module=nullptr;
 
     Buffer inventory(0x200), slots(2*0xC8);
     controller.put(skins::OFF_INV_SERVICES,inventory.addr());

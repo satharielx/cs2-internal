@@ -10,6 +10,7 @@ inline unsigned test_creates = 0;
 inline unsigned test_enables = 0;
 inline unsigned test_uninitializes = 0;
 inline unsigned test_removes = 0;
+inline bool test_silent_callback = false;
 
 // hooks.cpp shares its translation unit with unrelated game and ImGui setup
 // hooks. MSVC requires their symbols even though /OPT:REF discards them. Abort
@@ -27,12 +28,19 @@ namespace features {
 void SetInputBlocked(bool) {}
 void ReleaseInputs() {}
 void RenderESP() { std::abort(); }
-void RunSilentAimSubTick(DWORD*, sdk::C_CSPlayerPawn*) { std::abort(); }
+void RunSilentAimSubTick(DWORD* input, sdk::C_CSPlayerPawn* pawn) {
+    if (!test_silent_callback || pawn != reinterpret_cast<sdk::C_CSPlayerPawn*>(0x1234)) std::abort();
+    sdk::write_memory(reinterpret_cast<uintptr_t>(input + 4), sdk::Vector2{4, 5});
+    ++silent_aim_writes;
+}
 void StartAimbotThread() { std::abort(); }
 void BunnyHop() { std::abort(); }
 void NoFlash() { std::abort(); }
 void TriggerBot() { std::abort(); }
 void RadarHack() { std::abort(); }
+}
+namespace game_state {
+sdk::C_CSPlayerPawn* GetLocalPawn() { return reinterpret_cast<sdk::C_CSPlayerPawn*>(0x1234); }
 }
 namespace skins {
 void ApplyAllSkins() { std::abort(); }

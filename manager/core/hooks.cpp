@@ -1,5 +1,6 @@
 #include "hooks.h"
 #include "features.h"
+#include "game_state.h"
 #include "config.h"
 #include "menu_advanced.h"
 #include "skins.h"
@@ -79,20 +80,33 @@ namespace {
 using CreateMoveFn = bool(__fastcall*)(void*, uint32_t, char);
 inline CreateMoveFn oCreateMove = nullptr;
 
-using fnSubTickAngle = __int64(__fastcall*)(DWORD* a1, void* a2, char a3, double a4, int a5, sdk::C_CSPlayerPawn* localPawn);
+using fnSubTickAngle = __int64(__fastcall*)(DWORD* a1, void* a2, char a3, float a4, float a5, sdk::C_CSPlayerPawn* localPawn);
 inline fnSubTickAngle oSubTickAngle = nullptr;
 
 bool __fastcall hkCreateMove(void* input, uint32_t split_screen_index, char active) {
     CallbackScope callback;
     return oCreateMove(input, split_screen_index, active);
 }
-__int64 __fastcall hkSubTickAngle(DWORD* a1, void* a2, char a3, double a4, int a5, sdk::C_CSPlayerPawn* localPawn) {
+__int64 __fastcall hkSubTickAngle(DWORD* a1, void* a2, char a3, float a4, float a5, sdk::C_CSPlayerPawn* localPawn) {
     CallbackScope callback;
+    ++features::silent_callbacks;
+    struct RestoreAngles {
+        DWORD* input;
+        sdk::Vector2 angles{};
+        bool readable;
+        bool applied = false;
+        explicit RestoreAngles(DWORD* p) : input(p), readable(p && sdk::read_memory(reinterpret_cast<uintptr_t>(p + 4), angles)) {}
+        ~RestoreAngles() { if (applied) sdk::write_memory(reinterpret_cast<uintptr_t>(input + 4), angles); }
+    } restore(a1);
     {
         std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
         if (!s_stopping && !globals::menu_open && !globals::console_open &&
-            config::aimbot::enabled && config::aimbot::silent_aim)
-            features::RunSilentAimSubTick(a1, localPawn);
+            config::aimbot::enabled && config::aimbot::silent_aim && restore.readable) {
+            const auto writes = features::silent_aim_writes.load();
+            features::RunSilentAimSubTick(a1, game_state::GetLocalPawn());
+            restore.applied = features::silent_aim_writes.load() != writes;
+        }
+        else features::silent_aim_status = "Disabled, menu/console open, or input unavailable";
     }
     return oSubTickAngle(a1, a2, a3, a4, a5, localPawn);
 }

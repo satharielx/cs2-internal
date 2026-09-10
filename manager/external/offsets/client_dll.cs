@@ -1,9 +1,9 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-08-29 09:27:12.680043800 UTC
+// 2026-09-10 00:06:05.651656 UTC
 
 namespace CS2Dumper.Schemas {
     // Module: client.dll
-    // Class count: 567
+    // Class count: 568
     // Enum count: 14
     public static class ClientDll {
         // Alignment: 4
@@ -2296,14 +2296,15 @@ namespace CS2Dumper.Schemas {
         public static class C_Item_Healthshot {
         }
         // Parent: C_BaseEntity
-        // Field count: 6
+        // Field count: 7
         public static class CCSCustomHudLayout {
-            public const nint m_strLayout = 0x608; // CUtlSymbolLarge
-            public const nint m_vecPlayerLayoutStates = 0x610; // C_UtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
-            public const nint m_globalLayoutState = 0x678; // CCSCustomHudLayoutState
-            public const nint m_vecPanelIds = 0x780; // C_NetworkUtlVectorBase<CUtlString>
-            public const nint m_vecClassNames = 0x798; // C_NetworkUtlVectorBase<CUtlString>
-            public const nint m_vecDialogVariableNames = 0x7B0; // C_NetworkUtlVectorBase<CUtlString>
+            public const nint m_strLayout = 0x618; // CUtlSymbolLarge
+            public const nint m_bObservable = 0x620; // bool
+            public const nint m_vecPlayerLayoutStates = 0x628; // C_UtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
+            public const nint m_globalLayoutState = 0x690; // CCSCustomHudLayoutState
+            public const nint m_vecPanelIds = 0x798; // C_NetworkUtlVectorBase<CUtlString>
+            public const nint m_vecClassNames = 0x7B0; // C_NetworkUtlVectorBase<CUtlString>
+            public const nint m_vecDialogVariableNames = 0x7C8; // C_NetworkUtlVectorBase<CUtlString>
         }
         // Parent: None
         // Field count: 3
@@ -3617,6 +3618,18 @@ namespace CS2Dumper.Schemas {
         // Parent: None
         // Field count: 0
         public static class C_SoundOpvarSetOBBEntity {
+        }
+        // Parent: None
+        // Field count: 8
+        public static class CCSCustomPlayerCamera {
+            public const nint m_hPawn = 0x600; // CHandle<C_CSPlayerPawnBase>
+            public const nint m_nCameraMode = 0x604; // CustomCameraMode_t
+            public const nint m_hFollowEntity = 0x608; // CHandle<C_BaseEntity>
+            public const nint m_bFollowEyes = 0x60C; // bool
+            public const nint m_vecFollowOffset = 0x610; // Vector
+            public const nint m_vecCameraOffset = 0x61C; // Vector
+            public const nint m_bClipCameraOffset = 0x628; // bool
+            public const nint m_flCameraOffsetReturnStrength = 0x62C; // float32
         }
         // Parent: None
         // Field count: 1
@@ -5119,11 +5132,8 @@ namespace CS2Dumper.Schemas {
         public static class C_TriggerVolume {
         }
         // Parent: None
-        // Field count: 3
+        // Field count: 0
         public static class CCSPlayerCamera {
-            public const nint m_hPawn = 0x600; // CHandle<C_CSPlayerPawnBase>
-            public const nint m_bEnabled = 0x604; // bool
-            public const nint m_bIsControllingAngles = 0x605; // bool
         }
         // Parent: None
         // Field count: 1

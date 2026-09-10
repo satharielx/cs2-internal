@@ -21,6 +21,13 @@ struct Buffer {
         std::memcpy(bytes.data()+offset,&value,sizeof(value));
     }
 };
+static uintptr_t returned_pawn = 0;
+static unsigned getter_calls = 0;
+static uintptr_t __fastcall TestPawnGetter(int slot) {
+    assert(slot == -1);
+    ++getter_calls;
+    return returned_pawn;
+}
 int main() {
     assert(!game_state::ResolveSnapshot(0,0).in_game);
     using namespace cs2_dumper::offsets::client_dll;
@@ -34,10 +41,27 @@ int main() {
     // No identity, controller flag, handle, or entity table is needed.
     auto direct=game_state::ResolveSnapshot(client.addr(),system.addr());
     assert(direct.in_game && direct.pawn==pawn.addr());
+    Buffer replacement_controller(0x1000);
+    uintptr_t controller_slot=replacement_controller.addr();
+    auto resolved=game_state::ResolveSnapshot(client.addr(),system.addr(),nullptr,
+        reinterpret_cast<uintptr_t>(&controller_slot));
+    assert(resolved.controller==replacement_controller.addr());
+    controller_slot=0;
+    auto cleared=game_state::ResolveSnapshot(client.addr(),system.addr(),nullptr,
+        reinterpret_cast<uintptr_t>(&controller_slot));
+    assert(cleared.in_game && !cleared.controller); // Do not revive the stale offset value.
     client.put<uintptr_t>(dwLocalPlayerController,0);
     auto independent=game_state::ResolveSnapshot(client.addr(),0);
     assert(independent.in_game && independent.pawn==pawn.addr() && !independent.controller);
+    auto primary=game_state::ResolveSnapshot(client.addr(),0,&TestPawnGetter);
+    assert(primary.pawn==pawn.addr() && getter_calls==0);
     client.put<uintptr_t>(dwLocalPlayerPawn,1);
+    returned_pawn=pawn.addr();
+    auto fallback=game_state::ResolveSnapshot(client.addr(),0,&TestPawnGetter);
+    assert(fallback.in_game && fallback.pawn==pawn.addr() && getter_calls==1);
+    assert(std::strstr(fallback.status,"GetLocalPlayerPawn"));
+    returned_pawn=0;
+    assert(!game_state::ResolveSnapshot(client.addr(),0,&TestPawnGetter).in_game);
     auto stale=game_state::ResolveSnapshot(client.addr(),system.addr());
     assert(!stale.in_game && !stale.pawn);
     assert(std::strstr(stale.status,"dwLocalPlayerPawn"));
@@ -47,5 +71,5 @@ int main() {
     assert(!game_state::IsInGame() && !game_state::GetLocalPawnRaw());
     game_state::Stop();
     assert(!game_state::GetEntityList() && !game_state::GetLocalController());
-    std::cout << "PASS: direct pawn-global read, independence from controller/handles/entity table, invalid pawn rejection, and state clearing\n";
+    std::cout << "PASS: direct pawn read, getter fallback, controller-slot precedence/clearing, invalid pawn rejection, and state clearing\n";
 }

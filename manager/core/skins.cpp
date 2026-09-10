@@ -36,13 +36,13 @@ enum Module {
 #define SEARCH_TYPE_SET_MODEL NORMAL_SCAN
 #define LOCATION_SET_MODEL CLIENT
 
-#define SET_MESH_GROUP_MASK_SIGNATURE "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC ? 48 8D 99 ? ? ? ? 48 8B 71"
+#define SET_MESH_GROUP_MASK_SIGNATURE "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC ? 48 8D 99"
 #define SEARCH_TYPE_SET_MESH_GROUP_MASK NORMAL_SCAN
 #define LOCATION_SET_MESH_GROUP_MASK CLIENT
 
 // C_CSWeaponBase_UpdateSubclass(C_CSWeaponBase* weapon);
-#define UPDATE_SUBCLASS_SIGNATURE "4C 8B DC 53 48 81 EC ? ? ? ? 48 8B 41"
-#define SEARCH_TYPE_UPDATE_SUBCLASS CALL_SCAN
+#define UPDATE_SUBCLASS_SIGNATURE "4C 8B DC 53 48 81 EC ? ? ? ? 48 8B 41 10 48 8B D9 8B 50 30 C1 EA 04"
+#define SEARCH_TYPE_UPDATE_SUBCLASS NORMAL_SCAN
 #define LOCATION_UPDATE_SUBCLASS CLIENT
 
 // C_CSWeaponBase_UpdateCompositeMaterial(C_CSWeaponBase* weapon);
@@ -56,7 +56,7 @@ enum Module {
 #define LOCATION_UPDATE_SKIN CLIENT
 
 // CCSGO_HudWeaponSelection_ClearHudWeaponIcon(CHudWeaponSelection* thisptr);
-#define CLEAR_HUD_WEAPON_ICON_SIGNATURE "E8 ? ? ? ? 8B F8 C6 84 24"
+#define CLEAR_HUD_WEAPON_ICON_SIGNATURE "E8 ? ? ? ? 8B F8 C6 84 24 ? ? ? ? ?"
 #define SEARCH_TYPE_CLEAR_HUD_WEAPON_ICON CALL_SCAN
 #define LOCATION_CLEAR_HUD_WEAPON_ICON CLIENT
 
@@ -169,7 +169,6 @@ namespace skins {
     using fnSetModel = void(__fastcall*)(void*, const char*);
     using fnUpdateSubClass = void(__fastcall*)(void*);
     using fnUpdateComposite = void(__fastcall*)(void*, bool);
-    using fnUpdateSkin = void(__fastcall*)(void*, bool);
     using fnClearHudWeaponIcon = void(__fastcall*)(void*, int, int64_t);
     using fnEquipItemInLoadout = bool(__fastcall*)(void*, int, int, uint64_t);
     using fnSetMeshGroupMask = void(__fastcall*)(void*, uint64_t);
@@ -178,7 +177,7 @@ namespace skins {
     static fnSetModel           g_fnSetModel = nullptr;
     static fnUpdateSubClass     g_fnUpdateSubClass = nullptr;
     static fnUpdateComposite    g_fnUpdateComposite = nullptr;
-    static fnUpdateSkin         g_fnUpdateSkin = nullptr;
+    static uintptr_t g_compositeOwnerOffset = 0;
     static fnUpdateCompositeSec g_fnUpdateCompositeSec = nullptr;
     static fnClearHudWeaponIcon g_fnClearHudWeaponIcon = nullptr;
     static fnEquipItemInLoadout g_fnEquipItemInLoadout = nullptr;
@@ -228,17 +227,22 @@ namespace skins {
 
         auto fnUpdateCompositeResolved = sdk::find_pattern("client.dll", UPDATE_COMPOSITE_MATERIAL_SIGNATURE);
         if (fnUpdateCompositeResolved) {
+            // The call site adds the embedded material owner before calling.
+            const auto call = reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved);
+            unsigned char prefix[9]{};
+            if (sdk::read_memory(call - 9, prefix) && prefix[0] == 0x48 &&
+                prefix[1] == 0x81 && prefix[2] == 0xC1 && prefix[7] == 0xB2 && prefix[8] == 1) {
+                const auto offset = sdk::read_value<uint32_t>(call - 6);
+                if (offset && offset < 0x10000) g_compositeOwnerOffset = offset;
+            }
             g_fnUpdateComposite = reinterpret_cast<fnUpdateComposite>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved)));
             con.Success("[SKINS] UpdateComposite at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved));
         }
         else con.Warning("[SKINS] UpdateComposite NOT found");
 
-        auto fnUpdateSkinResolved = sdk::find_pattern("client.dll", UPDATE_SKIN_SIGNATURE);
-        if (fnUpdateSkinResolved) {
-            g_fnUpdateSkin = reinterpret_cast<fnUpdateSkin>(fnUpdateSkinResolved);
-            con.Success("[SKINS] UpdateSkin at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSkinResolved));
-        }
-        else con.Warning("[SKINS] UpdateSkin NOT found");
+        g_fnUpdateCompositeSec = reinterpret_cast<fnUpdateCompositeSec>(
+            sdk::find_pattern("client.dll", REGEN_WEAPON_SKINS_SIGNATURE));
+        if (!g_compositeOwnerOffset) con.Warning("[SKINS] Material owner layout unavailable; refresh disabled");
 
         auto fnClearHudWeaponIconResolved = sdk::find_pattern("client.dll", CLEAR_HUD_WEAPON_ICON_SIGNATURE);
         if (fnClearHudWeaponIconResolved) {
@@ -307,14 +311,9 @@ namespace skins {
     }
 
     static void CallUpdateComposite(uintptr_t ent, bool force) {
-        if (ent && IsReadablePtr(ent) && g_fnUpdateSkin)
-            g_fnUpdateSkin(reinterpret_cast<void*>(ent), force);
-    }
-
-    static void CallUpdateSkin(uintptr_t ent, bool force) {
-        if (!ent || !IsReadablePtr(ent)) return;
-        if (g_fnUpdateSkin && reinterpret_cast<uintptr_t>(g_fnUpdateSkin) > 0x10000)
-            g_fnUpdateSkin(reinterpret_cast<void*>(ent), force);
+        if (!ent || !IsReadablePtr(ent) || !g_fnUpdateComposite || !g_compositeOwnerOffset) return;
+        g_fnUpdateComposite(reinterpret_cast<void*>(ent + g_compositeOwnerOffset), force);
+        if (g_fnUpdateCompositeSec) g_fnUpdateCompositeSec(reinterpret_cast<void*>(ent), force);
     }
 
     static bool CallEquipItemInLoadout(uintptr_t inventory_manager, int team, int slot, uint64_t itemID) {
@@ -392,11 +391,36 @@ namespace skins {
         return result;
     }
 
+    WeaponReadDiagnostics GetWeaponReadDiagnostics() {
+        WeaponReadDiagnostics info{};
+        info.material_refresh_available = g_fnUpdateComposite && g_compositeOwnerOffset && g_fnUpdateCompositeSec;
+        const auto state = game_state::GetSnapshot();
+        info.pawn = state.pawn;
+        info.entity_list = state.entity_list;
+        if (!info.pawn) { info.status = "Local pawn unavailable"; return info; }
+        const auto services_slot = info.pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_pWeaponServices;
+        if (!sdk::read_memory(services_slot, info.services) || !sdk::is_valid_ptr(info.services)) {
+            info.status = "Weapon-services pointer is null/unreadable"; return info;
+        }
+        sdk::read_memory(info.services + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hActiveWeapon, info.active_handle);
+        info.active = ResolveHandle(info.entity_list, info.active_handle);
+        const auto vec = info.services + cs2_dumper::schemas::client_dll::CPlayer_WeaponServices::m_hMyWeapons;
+        sdk::read_memory(vec, info.count);
+        sdk::read_memory(vec + 8, info.data);
+        sdk::VectorView view{};
+        if (!info.entity_list) info.status = "Entity list unavailable";
+        else if (!sdk::read_vector(vec, view, 64)) info.status = "Weapon vector is unreadable or has invalid bounds";
+        else if (!view.count) info.status = "Weapon vector contains zero handles";
+        else if (GetAllWeapons().empty()) info.status = "Weapon handles do not resolve (entity layout/serial mismatch)";
+        else info.status = "Weapon handles resolved";
+        return info;
+    }
+
     static uintptr_t GetArmsEntity() {
         uintptr_t pawn = GetLocalPawn(), list = GetEntityList();
         if (!pawn || !list) return 0;
         try {
-            constexpr std::ptrdiff_t OFF_HUD_MODEL_ARMS = 0x2400;
+            constexpr std::ptrdiff_t OFF_HUD_MODEL_ARMS = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_hHudModelArms;
             uint32_t h = sdk::read_value<uint32_t>(pawn + OFF_HUD_MODEL_ARMS);
             return ResolveHandle(list, h);
         }
@@ -678,8 +702,7 @@ namespace skins {
             try {
                 if (IsSetModelSafe(weapon)) {
                     CallSetModel(weapon, kd->model_path);
-                    const auto attachment = ResolveHandle(GetEntityList(), sdk::read_value<uint32_t>(weapon +
-                        cs2_dumper::schemas::client_dll::C_EconEntity::m_hViewmodelAttachment));
+                    const auto attachment = ResolveHandle(GetEntityList(), sdk::read_value<uint32_t>(weapon));
                     if (attachment && IsSetModelSafe(attachment)) CallSetModel(attachment, kd->model_path);
                 }
             }

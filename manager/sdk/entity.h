@@ -112,7 +112,11 @@ namespace sdk {
 
         Vector3 GetEyePosition() {
             Vector3 origin = GetOrigin();
-            Vector3 view_offset = read_value<Vector3>((uintptr_t)this + off::C_BaseModelEntity::m_vecViewOffset);
+            // CNetworkViewOffsetVector has an initial 0x10-byte header and
+            // three 8-byte CNetworkedQuantizedFloat components.
+            const auto offset = (uintptr_t)this + off::C_BaseModelEntity::m_vecViewOffset;
+            Vector3 view_offset{read_value<float>(offset + 0x10),
+                read_value<float>(offset + 0x18), read_value<float>(offset + 0x20)};
             return origin + view_offset;
         }
 

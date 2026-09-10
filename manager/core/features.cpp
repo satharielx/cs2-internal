@@ -121,8 +121,7 @@ namespace features {
         return pawn ? reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn)->GetBonePosition(bone_index) : sdk::Vector3{};
     }
     static sdk::Vector3 GetEyePositionRaw(uintptr_t pawn) {
-        return sdk::read_value<sdk::Vector3>(pawn + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin) +
-            sdk::read_value<sdk::Vector3>(pawn + cs2_dumper::schemas::client_dll::C_BaseModelEntity::m_vecViewOffset);
+        return pawn ? reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn)->GetEyePosition() : sdk::Vector3{};
     }
     static bool IsSpottedBy(uintptr_t pawn, int local_index) {
         uint32_t mask[2]{};
@@ -132,7 +131,12 @@ namespace features {
 
     // RCS offsets
     constexpr std::ptrdiff_t rcs_m_iShotsFired = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_iShotsFired;
-    constexpr std::ptrdiff_t rcs_m_aimPunchAngle = cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_aimPunchAngle;
+    static sdk::Vector3 ReadAimPunch(uintptr_t pawn) {
+        const auto services = sdk::read_value<uintptr_t>(pawn + sdk::off::C_CSPlayerPawn::m_pAimPunchServices);
+        if (!services) return {};
+        const auto angle = sdk::read_value<sdk::Vector3>(services + sdk::off::CCSPlayer_AimPunchServices::m_predictableBaseAngle);
+        return sdk::finite(angle) ? angle : sdk::Vector3{};
+    }
 
     // ======================== SILENT AIM (CreateMove) -- unchanged but relies on SubTick pattern ========================
     void RunSilentAim(CUserCmd* cmd) {
@@ -202,7 +206,7 @@ namespace features {
                 bestPos = headPos;
             }
         }
-        if (!bestTarget) return;
+        if (!bestTarget) { silent_aim_status = "No target passed team/spotted/bone/distance/FOV checks"; return; }
 
         sdk::Vector2 aim2D = CalcAngle(localEye, bestPos);
         sdk::QAngle targetAngles(aim2D.x, aim2D.y, 0.0f);
@@ -213,7 +217,7 @@ namespace features {
             targetAngles = current + delta * (1.0f - config::aimbot::smoothing);
         }
         if (config::rcs::enabled) {
-            sdk::Vector3 punch = sdk::read_value<sdk::Vector3>(localPawn + rcs_m_aimPunchAngle);
+            sdk::Vector3 punch = ReadAimPunch(localPawn);
             targetAngles.x -= punch.x * 2.0f * config::rcs::strength;
             targetAngles.y -= punch.y * 2.0f * config::rcs::strength;
         }
@@ -229,6 +233,7 @@ namespace features {
 
     void RunSilentAimSubTick(DWORD* a1, sdk::C_CSPlayerPawn* localPawn)
     {
+        silent_aim_status = "Input/local pawn unavailable, disabled, dead, or pause key held";
         if (!a1 || !sdk::is_readable_range(reinterpret_cast<uintptr_t>(a1), 6 * sizeof(DWORD)) || !localPawn || !config::aimbot::enabled || !config::aimbot::silent_aim) return;
         if (!game_state::IsInGame()) return;
         if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) return;
@@ -243,6 +248,9 @@ namespace features {
 
         uintptr_t localPawnPtr = reinterpret_cast<uintptr_t>(localPawn);
 
+        const auto activeWeapon = skins::GetActiveWeapon();
+        if (!activeWeapon) { silent_aim_status = "Active weapon unresolved"; return; }
+        if (skins::IsKnife(skins::GetDefIndex(activeWeapon))) { silent_aim_status = "Knife equipped"; return; }
         int localHealth = sdk::read_value<int>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
         if (localHealth <= 0) return;
 
@@ -341,16 +349,16 @@ namespace features {
             else {
                 float distMeters = localEye.Distance(bestHeadPos) * 0.0254f;
                 int targetTeam = sdk::read_value<uint8_t>((uintptr_t)bestTarget + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-                int targetHP = *(int*)((uintptr_t)bestTarget + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+                int targetHP = sdk::read_value<int>((uintptr_t)bestTarget + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
 
-                debug_console::Console::Get().Success("[SilentAim] LOCKED ? Team=%d | HP=%d | Dist=%.1fm | FOV=%.2f | BoneValid=Yes",
+                debug_console::Console::Get().Success("[SilentAim] Target selected ? Team=%d | HP=%d | Dist=%.1fm | FOV=%.2f | BoneValid=Yes",
                     targetTeam, targetHP, distMeters, bestFov);
             }
             lastLog = now;
         }
         // =================================================================
 
-        if (!bestTarget) return;
+        if (!bestTarget) { silent_aim_status = "No target passed team/spotted/bone/distance/FOV checks"; return; }
 
         // Angle calculation
         sdk::Vector2 target2D = CalcAngle(localEye, bestHeadPos);
@@ -373,7 +381,7 @@ namespace features {
         }
 
         if (config::rcs::enabled) {
-            sdk::Vector3 punch = sdk::read_value<sdk::Vector3>(localPawnPtr + rcs_m_aimPunchAngle);
+            sdk::Vector3 punch = ReadAimPunch(localPawnPtr);
             targetAngles.x -= punch.x * 2.0f * config::rcs::strength;
             targetAngles.y -= punch.y * 2.0f * config::rcs::strength;
         }
@@ -383,40 +391,44 @@ namespace features {
         if (targetAngles.y > 180.0f) targetAngles.y -= 360.0f;
         if (targetAngles.y < -180.0f) targetAngles.y += 360.0f;
 
-        sdk::write_memory(reinterpret_cast<uintptr_t>(&a1[4]), targetAngles.x);
-        sdk::write_memory(reinterpret_cast<uintptr_t>(&a1[5]), targetAngles.y);
+        const sdk::Vector2 output{targetAngles.x, targetAngles.y};
+        if (sdk::write_memory(reinterpret_cast<uintptr_t>(&a1[4]), output)) {
+            silent_aim_status = "Subtick angles written";
+            ++silent_aim_writes;
+        } else silent_aim_status = "Subtick angle write failed";
     }
 
 
-    static void AimbotLoop() {
-        debug_console::Console::Get().Info("[Aimbot] Normal aim thread started");
-        int localIndex = -1;
-        sdk::Vector2 old_punch = { 0.0f, 0.0f };
+    void RunNormalAimTick() {
 
-        while (s_aimbot_running.load()) {
-            struct Pace { ~Pace() { Sleep(4); } } pace;
+        int localIndex = -1;
+        static sdk::Vector2 old_punch = { 0.0f, 0.0f };
+
+        do {
+
             std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
             if (s_input_blocked || (!config::aimbot::enabled && !config::rcs::enabled) || !game_state::IsInGame()) {
+                normal_aim_status = s_input_blocked ? "Menu/console blocks input" : "Aim/RCS disabled or local pawn unavailable";
                 old_punch = { 0.0f, 0.0f };
 
                 continue;
             }
-            if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) { old_punch = {}; continue; }
-            if (config::aimbot::enabled && config::aimbot::silent_aim) continue;
+            if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) { normal_aim_status = "Pause key held"; old_punch = {}; continue; }
+            if (config::aimbot::enabled && config::aimbot::silent_aim) { normal_aim_status = "Silent mode selected"; continue; }
 
             try {
                 uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-                if (!client) { continue; }
+                if (!client) { normal_aim_status = "client.dll unavailable"; continue; }
 
                 uintptr_t localPawn = game_state::GetLocalPawnRaw();
-                if (!localPawn || !sdk::is_valid_ptr(localPawn)) { continue; }
+                if (!localPawn || !sdk::is_valid_ptr(localPawn)) { normal_aim_status = "Local pawn unavailable"; continue; }
                 if (sdk::read_value<int>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) <= 0) { continue; }
 
                 int local_team = sdk::read_value<uint8_t>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
                 sdk::Vector3 local_eye = GetEyePositionRaw(localPawn);
 
 				uintptr_t entity_list = game_state::GetEntityList();
-                if (!entity_list || !sdk::is_valid_ptr(entity_list)) { continue; }
+                if (!entity_list || !sdk::is_valid_ptr(entity_list)) { normal_aim_status = "Entity list unavailable"; continue; }
 
                 localIndex = -1;
                 for (int i = 1; i <= 64; i++) {
@@ -438,7 +450,7 @@ namespace features {
                 // Use pattern-resolved view angles
                 sdk::Vector2* va = nullptr;
                 va = reinterpret_cast<sdk::Vector2*>(client + cs2_dumper::offsets::client_dll::dwViewAngles);
-                sdk::Vector2 current_angles{}; if (!sdk::read_memory(reinterpret_cast<uintptr_t>(va), current_angles)) continue;
+                sdk::Vector2 current_angles{}; if (!sdk::read_memory(reinterpret_cast<uintptr_t>(va), current_angles)) { normal_aim_status = "View-angle read failed"; continue; }
 
                 for (int i = 1; i <= 64; i++) {
                     uintptr_t list1 = entity_list;
@@ -471,12 +483,18 @@ namespace features {
                     }
                 }
 
+                normal_aim_status = closest_pawn ? "Target selected; hold left mouse or enable Auto Shoot" :
+                    (config::aimbot::visible_check && localIndex < 1 ? "Spotted check: local controller index unresolved" :
+                        "No target passed team/spotted/bone/distance/FOV checks");
+                const auto active_weapon = skins::GetActiveWeapon();
+                if (closest_pawn && !active_weapon) normal_aim_status = "Active weapon unresolved";
+                else if (closest_pawn && skins::IsKnife(skins::GetDefIndex(active_weapon))) normal_aim_status = "Knife equipped";
                 bool aim_adjusted = false;
-                if (config::aimbot::enabled && closest_pawn && ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || config::aimbot::auto_shoot) && !skins::IsKnife(skins::GetDefIndex(skins::GetActiveWeapon()))) {
+                if (config::aimbot::enabled && closest_pawn && active_weapon && ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || config::aimbot::auto_shoot) && !skins::IsKnife(skins::GetDefIndex(active_weapon))) {
                     sdk::Vector3 head_pos = GetBonePositionRaw(closest_pawn, 6);
                     sdk::Vector2 target_angles = CalcAngle(local_eye, head_pos);
                     if (config::rcs::enabled) {
-                        const auto punch = sdk::read_value<sdk::Vector3>(localPawn + rcs_m_aimPunchAngle);
+                        const auto punch = ReadAimPunch(localPawn);
                         target_angles.x -= punch.x * 2.0f * config::rcs::strength;
                         target_angles.y -= punch.y * 2.0f * config::rcs::strength;
                     }
@@ -493,13 +511,15 @@ namespace features {
                     new_angles.y = sdk::normalize_yaw(new_angles.y);
 
                     aim_adjusted = sdk::write_memory(reinterpret_cast<uintptr_t>(va), new_angles);
+                    normal_aim_status = aim_adjusted ? "View angles written" : "View-angle write failed";
+                    if (aim_adjusted) ++normal_aim_writes;
                 }
 
                 // RCS
                 if (config::rcs::enabled) {
                     int shots_fired = sdk::read_value<int>(localPawn + rcs_m_iShotsFired);
                     if (shots_fired > 0) {
-                        sdk::Vector3 punch = sdk::read_value<sdk::Vector3>(localPawn + rcs_m_aimPunchAngle);
+                        sdk::Vector3 punch = ReadAimPunch(localPawn);
                         sdk::Vector2 cur_punch = { punch.x, punch.y };
                         sdk::Vector2 delta;
                         delta.x = (cur_punch.x - old_punch.x) * 2.0f * config::rcs::strength;
@@ -520,10 +540,16 @@ namespace features {
             }
             catch (...) {}
 
-        }
-        debug_console::Console::Get().Info("[Aimbot] Normal aim thread stopped");
+        } while (false);
+
     }
 
+    static void AimbotLoop() {
+        while (s_aimbot_running.load()) {
+            RunNormalAimTick();
+            Sleep(4);
+        }
+    }
     void StartAimbotThread() {
         std::lock_guard<std::mutex> lock(s_aimbot_lifecycle);
         if (s_aimbot_running.load()) return;
@@ -663,7 +689,7 @@ namespace features {
                 if (health <= 0 || reinterpret_cast<sdk::C_CSPlayerPawn*>(pCSPlayerPawn)->IsDormant()) continue;
                 playerPawns.push_back(pCSPlayerPawn);
                 char name[128]{};
-                if (sdk::read_memory(playerController + 0x6F8, name)) {
+                if (sdk::read_memory(playerController + sdk::off::CBasePlayerController::m_iszPlayerName, name)) {
                     name[127] = '\0'; player_names[pCSPlayerPawn] = name;
                 }
                 auto* player = reinterpret_cast<sdk::C_CSPlayerPawn*>(pCSPlayerPawn);

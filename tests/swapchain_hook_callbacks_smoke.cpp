@@ -231,7 +231,7 @@ int main() {
             return true;
         };
         Check(hkCreateMove(reinterpret_cast<void*>(0x1234), 7, 3), "CreateMove forwards return value");
-        oSubTickAngle = [](DWORD*, void*, char, double, int, sdk::C_CSPlayerPawn*) -> __int64 {
+        oSubTickAngle = [](DWORD*, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 {
             bool unlocked = false;
             std::thread probe([&] {
                 unlocked = config::mutex.try_lock();
@@ -245,6 +245,26 @@ int main() {
         Check(hkSubTickAngle(nullptr, nullptr, 0, 0, 0, nullptr) == 123,
             "Subtick forwards while stopping");
         s_stopping = false;
+        test_silent_callback = true;
+        globals::console_open = false;
+        config::aimbot::enabled = config::aimbot::silent_aim = true;
+        DWORD history[7]{};
+        oSubTickAngle = [](DWORD* input, void*, char, float a, float b, sdk::C_CSPlayerPawn* target) -> __int64 {
+            Check(!target && a == 1.25f && b == 2.5f, "Optional target and float arguments forwarded");
+            const auto angles = sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(input + 4));
+            Check(angles.x == 4 && angles.y == 5, "Original receives override with null target argument");
+            return 456;
+        };
+        Check(hkSubTickAngle(history, nullptr, 0, 1.25f, 2.5f, nullptr) == 456, "Silent callback return forwarded");
+        Check(history[4] == 0 && history[5] == 0, "Source angles restored after serialization");
+        test_silent_callback = false;
+        config::aimbot::enabled = config::aimbot::silent_aim = false;
+        oSubTickAngle = [](DWORD* input, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 {
+            input[4] = 42;
+            return 0;
+        };
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(history[4] == 42, "Disabled aim preserves original input mutations");
         std::puts("PASS: CreateMove ABI and unlocked subtick forwarding");
         HiddenWindow selected_window;
         HiddenWindow foreign_window;

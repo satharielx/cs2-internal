@@ -28,7 +28,7 @@ bool pattern_resolver::Initialize() {
     // ───────── client.dll globals ─────────
     // Resolve the global used by CGameEntitySystem::GetBaseEntity. Keep the
     // signature short: the destination register after the call varies by build.
-    scan_global("client.dll", "EntityList", "48 8B 0D ? ? ? ? 8B D3 E8 ? ? ? ?", 3, 7, entity_list);
+    scan_global("client.dll", "EntityList", "48 89 0D ? ? ? ? E9 ? ? ? ? CC", 3, 7, entity_list);
     //scan_global("client.dll", "ViewMatrix", "48 8D 0D ? ? ? ? 48 C1 E0 06", 3, 7, view_matrix);
     scan_global("client.dll", "LocalController", "48 8B 05 ? ? ? ? 41 89 BE", 3, 7, local_controller);
     //scan_global("client.dll", "ViewAngles", "F3 0F 11 86 ? ? ? ? F3 0F 10 44 24", 3, 7, view_angles);

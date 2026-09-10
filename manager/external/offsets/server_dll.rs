@@ -1,13 +1,13 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-08-29 09:27:12.680043800 UTC
+// 2026-09-10 00:06:05.651656 UTC
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, unused)]
 
 pub mod cs2_dumper {
     pub mod schemas {
         // Module: server.dll
-        // Class count: 996
-        // Enum count: 238
+        // Class count: 997
+        // Enum count: 239
         pub mod server_dll {
             // Alignment: 4
             // Member count: 4
@@ -170,6 +170,15 @@ pub mod cs2_dumper {
                 TIMELINE_COMPRESSION_AVERAGE = 0x2,
                 TIMELINE_COMPRESSION_AVERAGE_BLEND = 0x3,
                 TIMELINE_COMPRESSION_TOTAL = 0x4
+            }
+            // Alignment: 1
+            // Member count: 4
+            #[repr(u8)]
+            pub enum CustomCameraMode_t {
+                CUSTOM_CAMERA_MODE_DISABLED = 0x0,
+                CUSTOM_CAMERA_MODE_CONTROLLED = 0x1,
+                CUSTOM_CAMERA_MODE_CONTROLLED_POSITION = 0x2,
+                CUSTOM_CAMERA_MODE_FOLLOW_POSITION = 0x3
             }
             // Alignment: 4
             // Member count: 3
@@ -626,7 +635,7 @@ pub mod cs2_dumper {
                 Sidekick = 0x6
             }
             // Alignment: 4
-            // Member count: 31
+            // Member count: 32
             #[repr(u32)]
             pub enum SVC_Messages {
                 svc_ServerInfo = 0x28,
@@ -659,7 +668,8 @@ pub mod cs2_dumper {
                 svc_Broadcast_Command = 0x4A,
                 svc_HltvFixupOperatorStatus = 0x4B,
                 svc_UserCmds = 0x4C,
-                svc_NextMsgPredicted = 0x4D
+                svc_NextMsgPredicted = 0x4D,
+                svc_EncryptedData = 0x4E
             }
             // Alignment: 4
             // Member count: 2
@@ -2272,9 +2282,9 @@ pub mod cs2_dumper {
                 CS_UM_Geiger = 0x12E,
                 CS_UM_Train = 0x12F,
                 CS_UM_HudText = 0x130,
-                CS_UM_SayText = 0x131,
-                CS_UM_SayText2 = 0x132,
-                CS_UM_TextMsg = 0x133,
+                CS_UM_SayText_CSGOLegacy = 0x131,
+                CS_UM_SayText2_CSGOLegacy = 0x132,
+                CS_UM_TextMsg_CSGOLegacy = 0x133,
                 CS_UM_HudMsg = 0x134,
                 CS_UM_ResetHud = 0x135,
                 CS_UM_GameTitle = 0x136,
@@ -2294,7 +2304,7 @@ pub mod cs2_dumper {
                 CS_UM_ProcessSpottedEntityUpdate = 0x145,
                 CS_UM_ReloadEffect = 0x146,
                 CS_UM_AdjustMoney = 0x147,
-                CS_UM_UpdateTeamMoney = 0x148,
+                CS_UM_UpdateTeamMoney_CSGOLegacy = 0x148,
                 CS_UM_StopSpectatorMode = 0x149,
                 CS_UM_KillCam = 0x14A,
                 CS_UM_DesiredTimescale = 0x14B,
@@ -6582,14 +6592,15 @@ pub mod cs2_dumper {
                 pub const m_iMaxObjectsAttached: usize = 0x9C8; // int32
             }
             // Parent: CBaseEntity
-            // Field count: 6
+            // Field count: 7
             pub mod CCSCustomHudLayout {
                 pub const m_strLayout: usize = 0x4A8; // CUtlSymbolLarge
-                pub const m_vecPlayerLayoutStates: usize = 0x4B0; // CUtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
-                pub const m_globalLayoutState: usize = 0x518; // CCSCustomHudLayoutState
-                pub const m_vecPanelIds: usize = 0x6B0; // CNetworkUtlVectorBase<CUtlString>
-                pub const m_vecClassNames: usize = 0x6C8; // CNetworkUtlVectorBase<CUtlString>
-                pub const m_vecDialogVariableNames: usize = 0x6E0; // CNetworkUtlVectorBase<CUtlString>
+                pub const m_bObservable: usize = 0x4B0; // bool
+                pub const m_vecPlayerLayoutStates: usize = 0x4B8; // CUtlVectorEmbeddedNetworkVar<CCSCustomHudLayoutState>
+                pub const m_globalLayoutState: usize = 0x520; // CCSCustomHudLayoutState
+                pub const m_vecPanelIds: usize = 0x6B8; // CNetworkUtlVectorBase<CUtlString>
+                pub const m_vecClassNames: usize = 0x6D0; // CNetworkUtlVectorBase<CUtlString>
+                pub const m_vecDialogVariableNames: usize = 0x6E8; // CNetworkUtlVectorBase<CUtlString>
             }
             // Parent: None
             // Field count: 3
@@ -8620,6 +8631,18 @@ pub mod cs2_dumper {
                 pub const m_OnHitMax: usize = 0x510; // CEntityIOOutput
                 pub const m_OnChangedFromMin: usize = 0x528; // CEntityIOOutput
                 pub const m_OnChangedFromMax: usize = 0x540; // CEntityIOOutput
+            }
+            // Parent: None
+            // Field count: 8
+            pub mod CCSCustomPlayerCamera {
+                pub const m_hPawn: usize = 0x4A8; // CHandle<CCSPlayerPawnBase>
+                pub const m_nCameraMode: usize = 0x4AC; // CustomCameraMode_t
+                pub const m_hFollowEntity: usize = 0x4B0; // CHandle<CBaseEntity>
+                pub const m_bFollowEyes: usize = 0x4B4; // bool
+                pub const m_vecFollowOffset: usize = 0x4B8; // Vector
+                pub const m_vecCameraOffset: usize = 0x4C4; // Vector
+                pub const m_bClipCameraOffset: usize = 0x4D0; // bool
+                pub const m_flCameraOffsetReturnStrength: usize = 0x4D4; // float32
             }
             // Parent: None
             // Field count: 1
@@ -11232,11 +11255,8 @@ pub mod cs2_dumper {
                 pub const m_flNormCenterSize: usize = 0xC40; // float32
             }
             // Parent: None
-            // Field count: 3
+            // Field count: 0
             pub mod CCSPlayerCamera {
-                pub const m_hPawn: usize = 0x4A8; // CHandle<CCSPlayerPawnBase>
-                pub const m_bEnabled: usize = 0x4AC; // bool
-                pub const m_bIsControllingAngles: usize = 0x4AD; // bool
             }
             // Parent: None
             // Field count: 1

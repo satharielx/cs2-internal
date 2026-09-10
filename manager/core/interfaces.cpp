@@ -14,13 +14,12 @@ namespace interfaces {
         static ULONGLONG next_scan = 0;
         if (!entity_system_slot && GetTickCount64() >= next_scan) {
             next_scan = GetTickCount64() + 1000;
-            auto* instruction = sdk::find_pattern("client.dll", "48 8B 0D ? ? ? ? 8B D3 E8 ? ? ? ?");
+            auto* instruction = sdk::find_pattern("client.dll", "48 89 0D ? ? ? ? E9 ? ? ? ? CC");
             if (instruction)
                 entity_system_slot = reinterpret_cast<uintptr_t>(sdk::resolve_absolute_rip_address(instruction, 3, 7));
         }
         // The global slot survives map changes; the object stored in it may not.
-        auto* system = sdk::read_value<CGameEntitySystem*>(entity_system_slot);
-        if (sdk::is_valid_ptr(reinterpret_cast<uintptr_t>(system))) return system;
+        if (entity_system_slot) return sdk::read_value<CGameEntitySystem*>(entity_system_slot);
         const auto client = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
         return client ? sdk::read_value<CGameEntitySystem*>(client +
             cs2_dumper::offsets::client_dll::dwGameEntitySystem) : nullptr;
