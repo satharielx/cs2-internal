@@ -87,30 +87,38 @@ bool __fastcall hkCreateMove(void* input, uint32_t split_screen_index, char acti
     CallbackScope callback;
     return oCreateMove(input, split_screen_index, active);
 }
-__int64 __fastcall hkSubTickAngle(DWORD* a1, void* a2, char a3, float a4, float a5, sdk::C_CSPlayerPawn* localPawn) {
+__int64 __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float frameFraction, float playerFraction, sdk::C_CSPlayerPawn* target) {
     CallbackScope callback;
     ++features::silent_callbacks;
-    struct RestoreAngles {
-        DWORD* input;
-        sdk::Vector2 angles{};
-        bool readable;
-        bool applied = false;
-        explicit RestoreAngles(DWORD* p) : input(p), readable(p && sdk::read_memory(reinterpret_cast<uintptr_t>(p + 4), angles)) {}
-        ~RestoreAngles() { if (applied) sdk::write_memory(reinterpret_cast<uintptr_t>(input + 4), angles); }
-    } restore(a1);
+    sdk::Vector3 requested{};
+    bool applied = false;
     {
         std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
         if (!s_stopping && !globals::menu_open && !globals::console_open &&
-            config::aimbot::enabled && config::aimbot::silent_aim && restore.readable) {
-            const auto writes = features::silent_aim_writes.load();
-            features::RunSilentAimSubTick(a1, game_state::GetLocalPawn());
-            restore.applied = features::silent_aim_writes.load() != writes;
-        }
-        else features::silent_aim_status = "Disabled, menu/console open, or input unavailable";
+            config::aimbot::enabled && config::aimbot::silent_aim) {
+            const auto before = features::silent_aim_writes.load();
+            // The serializer consumes source floats at +0x10/+0x14/+0x18.
+            // Keep the source edit for later consumers; leave its tick fields alone.
+            features::RunSilentAimSubTick(source, game_state::GetLocalPawn());
+            applied = features::silent_aim_writes.load() != before && source &&
+                sdk::read_memory(reinterpret_cast<uintptr_t>(source + 4), requested);
+        } else features::silent_aim_status = "Disabled or menu/console open";
     }
-    return oSubTickAngle(a1, a2, a3, a4, a5, localPawn);
+    const auto result = oSubTickAngle(source, history, mode, frameFraction, playerFraction, target);
+    if (applied) {
+        const auto entry = reinterpret_cast<uintptr_t>(history);
+        const auto message = entry ? sdk::read_value<uintptr_t>(entry + 0x18) : 0;
+        sdk::Vector3 actual{};
+        if (message && sdk::read_memory(message + 0x18, actual) &&
+            actual.x == requested.x && actual.y == requested.y && actual.z == requested.z &&
+            (sdk::read_value<uint32_t>(entry + 0x10) & 1u) &&
+            (sdk::read_value<uint32_t>(message + 0x10) & 7u) == 7u) {
+            ++features::silent_history_writes;
+            features::silent_aim_status = "Source angles copied into history; flags verified";
+        } else features::silent_aim_status = "Source written, but history copy not verified";
+    }
+    return result;
 }
-
 static void __fastcall hkFrameStageNotify(CSource2Client* client, int stage) {
     CallbackScope callback;
     if (s_stopping)

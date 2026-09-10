@@ -248,15 +248,32 @@ int main() {
         test_silent_callback = true;
         globals::console_open = false;
         config::aimbot::enabled = config::aimbot::silent_aim = true;
-        DWORD history[7]{};
-        oSubTickAngle = [](DWORD* input, void*, char, float a, float b, sdk::C_CSPlayerPawn* target) -> __int64 {
+        DWORD history[7]{123,456,789,1011,0,0,0};
+        alignas(8) unsigned char entry[0x80]{}, angleMessage[0x30]{};
+        sdk::write_memory(reinterpret_cast<uintptr_t>(entry)+0x18,reinterpret_cast<uintptr_t>(angleMessage));
+        sdk::write_memory<uint32_t>(reinterpret_cast<uintptr_t>(entry)+0x10,0x200);
+        sdk::write_memory<uint32_t>(reinterpret_cast<uintptr_t>(angleMessage)+0x10,0x80);
+        oSubTickAngle = [](DWORD* input, void* output, char, float a, float b, sdk::C_CSPlayerPawn* target) -> __int64 {
             Check(!target && a == 1.25f && b == 2.5f, "Optional target and float arguments forwarded");
             const auto angles = sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(input + 4));
-            Check(angles.x == 4 && angles.y == 5, "Original receives override with null target argument");
+            Check(angles.x == 4 && angles.y == 5 && input[6]==0, "Original receives all three source angles");
+            Check(input[0]==123 && input[1]==456 && input[2]==789 && input[3]==1011, "Tick counts and fractions unchanged");
+            const auto message=sdk::read_value<uintptr_t>(reinterpret_cast<uintptr_t>(output)+0x18);
+            sdk::write_memory(message+0x18,sdk::Vector3{angles.x,angles.y,0});
+            sdk::write_memory<uint32_t>(message+0x10,0x87);
+            sdk::write_memory<uint32_t>(reinterpret_cast<uintptr_t>(output)+0x10,0x201);
             return 456;
         };
-        Check(hkSubTickAngle(history, nullptr, 0, 1.25f, 2.5f, nullptr) == 456, "Silent callback return forwarded");
-        Check(history[4] == 0 && history[5] == 0, "Source angles restored after serialization");
+        Check(hkSubTickAngle(history, entry, 0, 1.25f, 2.5f, nullptr) == 456, "Silent callback return forwarded");
+        Check(sdk::read_value<float>(reinterpret_cast<uintptr_t>(history+4))==4, "Source edits remain for later consumers");
+        const auto committed=sdk::read_value<sdk::Vector3>(reinterpret_cast<uintptr_t>(angleMessage)+0x18);
+        Check(committed.x==4 && committed.y==5 && committed.z==0, "Output history receives angles after original");
+        Check(features::silent_history_writes==1, "Only verified history writes count as commits");
+        Check(sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(entry)+0x10)==0x201 &&
+            sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(angleMessage)+0x10)==0x87, "Presence flags preserve other fields");
+        Check(!sdk::WriteHistoryAngles(0,{4,5}), "Missing output fails instead of reporting success");
+        sdk::write_memory<uintptr_t>(reinterpret_cast<uintptr_t>(entry)+0x18,0);
+        Check(!sdk::WriteHistoryAngles(reinterpret_cast<uintptr_t>(entry),{4,5}), "Missing angle message rejected");
         test_silent_callback = false;
         config::aimbot::enabled = config::aimbot::silent_aim = false;
         oSubTickAngle = [](DWORD* input, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 {

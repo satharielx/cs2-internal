@@ -3,6 +3,7 @@
 #include "../sdk/usercmd.h"
 #include <d3d11.h>
 #include <vector>
+#include <mutex>
 
 using namespace sdk;
 
@@ -11,6 +12,26 @@ namespace features {
     inline std::atomic<const char*> silent_aim_status{"No callback received"};
     inline std::atomic<unsigned> silent_callbacks{0}, normal_aim_writes{0}, silent_aim_writes{0};
 
+    inline std::atomic<unsigned> aim_controllers{0}, aim_resolved_pawns{0};
+    inline std::atomic<unsigned> silent_history_writes{0};
+    inline std::atomic<unsigned> silent_target_scans{0}, silent_cache_hits{0};
+    struct SilentAimDebug {
+        uintptr_t source = 0;
+        DWORD raw_angles[3]{};
+        unsigned alive = 0, enemies = 0, spotted = 0, bones = 0, in_range = 0, in_fov = 0;
+        uintptr_t target_pawn = 0;
+        int target_health = 0, target_team = 0;
+        char target_name[128]{};
+        sdk::Vector3 input{}, eye{}, target{}, output{};
+        bool input_valid = false, eye_valid = false, target_valid = false, written = false;
+        const char* status = "No sample yet";
+    };
+    inline std::mutex silent_debug_mutex;
+    inline SilentAimDebug silent_debug_snapshot{};
+    inline SilentAimDebug GetSilentAimDebug() {
+        std::lock_guard<std::mutex> lock(silent_debug_mutex);
+        return silent_debug_snapshot;
+    }
     void RunNormalAimTick();
     // Math helpers
     bool WorldToScreen(const sdk::Vector3& world, sdk::Vector2& screen, const sdk::ViewMatrix& matrix, int screen_width, int screen_height);

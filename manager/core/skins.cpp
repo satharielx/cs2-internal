@@ -675,6 +675,13 @@ namespace skins {
 
         // Run model update sequence only once per knife type change
         if (s_setModelDelayFrames == 0 && s_subclassRefreshFrames >= 0) {
+            // The arms have their own visible groups. Preserve them before
+            // changing the weapon; assigning 2 alone clears every other bit.
+            const auto arms = GetArmsEntity();
+            const auto arms_node = arms ? GetSceneNode(arms) : 0;
+            uint64_t arms_mask = 0;
+            const bool have_arms_mask = arms_node && arms_node != GetSceneNode(weapon) &&
+                sdk::read_memory(arms_node + OFF_MODEL_STATE + OFF_MESH_GROUP_MASK, arms_mask);
             // Step 1: UpdateSubclass
             try { CallUpdateSubclassSafe(weapon); }
             catch (...) {}
@@ -683,11 +690,6 @@ namespace skins {
             try {
                 uintptr_t node = GetSceneNode(weapon);
                 if (node) SetMeshGroupMask(node, 2);
-                uintptr_t arms = GetArmsEntity();
-                if (arms) {
-                    uintptr_t arms_node = GetSceneNode(arms);
-                    if (arms_node) SetMeshGroupMask(arms_node, 2);
-                }
             }
             catch (...) {}
 
@@ -702,11 +704,13 @@ namespace skins {
             try {
                 if (IsSetModelSafe(weapon)) {
                     CallSetModel(weapon, kd->model_path);
-                    const auto attachment = ResolveHandle(GetEntityList(), sdk::read_value<uint32_t>(weapon));
-                    if (attachment && IsSetModelSafe(attachment)) CallSetModel(attachment, kd->model_path);
                 }
             }
             catch (...) {}
+
+            // Keep the arms update, but enable the requested group without
+            // removing groups used by the hands/gloves. Apply after SetModel.
+            if (have_arms_mask) SetMeshGroupMask(arms_node, arms_mask | uint64_t{2});
 
             // Prevent this block from running again until next knife change
             s_subclassRefreshFrames = -1;

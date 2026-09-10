@@ -3673,24 +3673,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\..\Downloads\schanger\output\client_dll.json" />
-    <None Include="core\CODE_DOCUMENTATION_COMPLETE.md" />
-    <None Include="core\COMPLETION_SUMMARY.md" />
-    <None Include="core\CSOURCE2CLIENT_INTEGRATION_COMPLETE.md" />
-    <None Include="core\FINAL_STATUS.md" />
-    <None Include="core\FRAMESTAGNOTIFY_DEBUGGING_GUIDE.md" />
-    <None Include="core\FRAMESTAGNOTIFY_HOOK_COMPLETE.md" />
-    <None Include="core\FRAME_STAGE_HOOK_READY.md" />
-    <None Include="core\FRAME_STAGE_HOOK_SETUP.md" />
-    <None Include="core\HOOK_INTEGRATION_COMPLETE.md" />
-    <None Include="core\IMPLEMENTATION_COMPLETE.md" />
-    <None Include="core\KNIFE_CHANGER_APPROACH.md" />
-    <None Include="core\KNIFE_CHANGER_FLOW.md" />
-    <None Include="core\README.md" />
-    <None Include="core\REFACTOR_SUMMARY.md" />
-    <None Include="core\SKINS_INTEGRATION_COMPLETE.md" />
-    <None Include="core\START_HERE.md" />
-    <None Include="core\VISUAL_SUMMARY.md" />
-    <None Include="core\WHAT_CHANGED.md" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="core\logo.png" />

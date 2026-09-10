@@ -5,6 +5,27 @@
 #include "entity.h" // your existing QAngle, Vector definitions
 
 namespace sdk {
+    // Verified serializer layout in the installed client: entry +0x18 is
+    // the angle message; message +0x18 holds pitch/yaw/roll; +0x10 has bits.
+    inline bool ReadHistoryAngles(uintptr_t history, Vector2& angles) {
+        const auto message = history ? read_value<uintptr_t>(history + 0x18) : 0;
+        return message && read_memory(message + 0x18, angles) && std::isfinite(angles.x) && std::isfinite(angles.y);
+    }
+    inline bool WriteHistoryAngles(uintptr_t history, const Vector2& angles) {
+        if (!history || !std::isfinite(angles.x) || !std::isfinite(angles.y)) return false;
+        const auto message = read_value<uintptr_t>(history + 0x18);
+        uint32_t entry_bits = 0, angle_bits = 0;
+        if (!message || !read_memory(history + 0x10, entry_bits) ||
+            !read_memory(message + 0x10, angle_bits)) return false;
+        const Vector3 value{clamp_pitch(angles.x), normalize_yaw(angles.y), 0};
+        if (!write_memory(message + 0x18, value) ||
+            !write_memory(message + 0x10, angle_bits | 7u) ||
+            !write_memory(history + 0x10, entry_bits | 1u)) return false;
+        Vector3 check{};
+        return read_memory(message + 0x18, check) && check.x == value.x && check.y == value.y && check.z == 0 &&
+            (read_value<uint32_t>(message + 0x10) & 7u) == 7u &&
+            (read_value<uint32_t>(history + 0x10) & 1u) != 0;
+    }
     enum ECommandButtons : int {
         IN_ATTACK = (1 << 0),
         IN_JUMP = (1 << 1),

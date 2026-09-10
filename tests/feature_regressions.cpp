@@ -23,6 +23,8 @@ static void TestMouse(DWORD flags, DWORD, DWORD, DWORD, ULONG_PTR) {
 #undef mouse_event
 #undef GetModuleHandleA
 #include "../manager/core/skins.cpp"
+#include "../manager/core/menu_advanced.cpp"
+#include "imgui_preview.h"
 
 // Exercise production feature code against owned buffers; no game or input injection.
 namespace game_state {
@@ -57,6 +59,11 @@ static unsigned refreshes = 0, attributes = 0;
 static uintptr_t last_refresh_owner = 0;
 static void __fastcall Refresh(void* owner, bool) { ++refreshes; last_refresh_owner = reinterpret_cast<uintptr_t>(owner); }
 static void __fastcall Attribute(void*, const char*, float) { ++attributes; }
+static unsigned model_calls = 0, mesh_calls = 0;
+static uintptr_t model_entity = 0, mesh_node = 0;
+static void __fastcall Model(void* entity, const char*) { ++model_calls; model_entity = reinterpret_cast<uintptr_t>(entity); }
+static uint64_t last_mesh_mask = 0;
+static void __fastcall Mesh(void* node, uint64_t mask) { ++mesh_calls; mesh_node = reinterpret_cast<uintptr_t>(node); last_mesh_mask = mask; }
 static bool AlmostEqual(float a, float b) { return std::abs(a-b) < 0.001f; }
 
 int main() {
@@ -247,14 +254,57 @@ int main() {
     auto angles=sdk::read_value<sdk::Vector2>(clientMemory.addr()+cs2_dumper::offsets::client_dll::dwViewAngles);
     assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
     assert(features::normal_aim_writes==1);
+    assert(features::aim_controllers==1 && features::aim_resolved_pawns==1);
+    auto readPlayers=features::ReadAimPlayers(system.addr(),first.addr());
+    assert(readPlayers.local_index==64 && readPlayers.pawns[64]==first.addr());
     test_keys[VK_LBUTTON]=0;
     features::RunNormalAimTick(); assert(features::normal_aim_writes==1);
     config::aimbot::silent_aim=true;
     DWORD history[7]{};
+    const char enemyName[]="Regression enemy";
+    std::memcpy(reinterpret_cast<void*>(controller.addr()+sdk::off::CBasePlayerController::m_iszPlayerName),enemyName,sizeof(enemyName));
+    const sdk::Vector3 sourceAngles{10,20,3};
+    std::memcpy(history+4,&sourceAngles,sizeof(sourceAngles));
+    history[0]=123; history[2]=456;
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     angles=sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(history+4));
     assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
     assert(features::silent_aim_writes==1);
+    auto debug=features::GetSilentAimDebug();
+    assert(debug.input_valid && debug.input.x==10 && debug.input.y==20 && debug.input.z==3);
+    assert(debug.raw_angles[0]==0x41200000 && debug.target_valid && debug.written);
+    assert(debug.eye.z==64 && debug.target.x==100 && debug.output.y==45);
+    assert(debug.target_pawn==first.addr() && debug.target_health==150 && debug.target_team==3);
+    assert(std::strcmp(debug.target_name,"Regression enemy")==0);
+    assert(history[0]==123 && history[2]==456);
+    const auto scansBefore=features::silent_target_scans.load();
+    for(int repeat=0;repeat<1000;++repeat)
+        features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1001 && features::silent_target_scans==scansBefore);
+    assert(features::silent_cache_hits>=1000);
+    // A target leaving FOV must not permanently disable later writes.
+    config::aimbot::fov=1;
+    sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{0,0,0});
+    test_time+=9;
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1001);
+    assert(std::strcmp(features::silent_aim_status.load(),"Enemies outside aim FOV")==0);
+    config::aimbot::fov=90;
+    test_time+=9;
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1002);
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,0);
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1002); // Cached target cannot survive death validation.
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,150);
+    test_time+=250;
+    sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{inf,0,0});
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1002 && !features::GetSilentAimDebug().input_valid);
+    test_time+=250;
+    features::RunSilentAimSubTick(nullptr,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(!features::GetSilentAimDebug().target_valid && features::silent_aim_writes==1002);
+    assert(features::GetSilentAimDebug().target_name[0]=='\0');
     test_module=nullptr;
 
     Buffer inventory(0x200), slots(2*0xC8);
@@ -267,5 +317,38 @@ int main() {
     game_state::test_state.controller=controller.addr();
     auto loadout=skins::ReadLoadout();
     assert(loadout.size()==2 && loadout[0].def_index==7 && loadout[1].def_index==9);
+    Buffer handsScene(0x500), sceneVtable(0x20);
+    handsScene.put<uint64_t>(skins::OFF_MODEL_STATE+skins::OFF_MESH_GROUP_MASK,0x105);
+    sceneVtable.put(0,reinterpret_cast<uintptr_t>(&Model));
+    scene.put(0,sceneVtable.addr()); handsScene.put(0,sceneVtable.addr());
+    second.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,handsScene.addr());
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_hHudModelArms,handle2);
+    first.put(0,handle2); // Must never be interpreted as a model attachment handle.
+    first.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,42);
+    skins::g_fnSetModel=Model; skins::g_fnSetMeshGroupMask=Mesh;
+    skins::selected_knife_id=500;
+    skins::SetCurrentFrameStage(6);
+    skins::ApplyKnifeSkins(); skins::ApplyKnifeSkins();
+    assert(model_calls==1 && model_entity==first.addr());
+    assert(mesh_calls==2 && mesh_node==handsScene.addr());
+    assert(last_mesh_mask==0x107); // Existing hands/glove groups survive.
+    services.put(CPlayer_WeaponServices::m_hActiveWeapon,handle2);
+    skins::ApplyKnifeSkins(); skins::ApplyKnifeSkins();
+    assert(model_calls==1 && mesh_calls==2 && skins::GetDefIndex(second.addr())==9);
+    auto* ui=ImGui::CreateContext();
+    menu_advanced::LoadIconFont();
+    auto& io=ImGui::GetIO();
+    io.IniFilename=nullptr; io.DisplaySize=ImVec2(1280,900); io.DeltaTime=1.0f/60;
+    unsigned char* pixels=nullptr; int atlasWidth=0, atlasHeight=0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&atlasWidth,&atlasHeight);
+    for(int page=0;page<12;++page) {
+        menu_advanced::selected_tab=page;
+        for(int frame=0;frame<3;++frame) {
+            ImGui::NewFrame(); menu_advanced::RenderMainMenu(); ImGui::Render();
+            assert(ImGui::GetDrawData()->TotalVtxCount>0);
+            if(frame==2 && (page==11 || page==0)) SaveMenuPreview(page==11 ? "dashboard.bmp" : "aim-page.bmp",pixels,atlasWidth,atlasHeight);
+        }
+    }
+    ImGui::DestroyContext(ui);
     std::cout << "Feature regressions passed: math/projection, masks/handles/vectors, protected memory, user commands, staged weapons/gloves/removal, trigger timing/menu release, radar/no-flash, bunny-hop/release, and loadout stride.\n";
 }

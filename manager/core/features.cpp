@@ -231,18 +231,110 @@ namespace features {
         }
     }
 
+    struct AimPlayers {
+        uintptr_t pawns[65]{};
+        int local_index = -1;
+    };
+    static AimPlayers ReadAimPlayers(uintptr_t system, uintptr_t local) {
+        AimPlayers result{};
+        unsigned controllers = 0, resolved = 0;
+        for (int i = 1; i <= 64; ++i) {
+            const auto controller = sdk::entity_at(system, i);
+            if (!controller) continue;
+            ++controllers;
+            uint32_t handle = UINT32_MAX;
+            if (!sdk::read_memory(controller + sdk::off::CCSPlayerController::m_hPlayerPawn, handle)) continue;
+            const auto pawn = sdk::entity_from_handle(system, handle);
+			int pawnTeam = pawn ? sdk::read_value<uint8_t>(pawn + sdk::off::C_BaseEntity::m_iTeamNum) : 0;
+			int localTeam = local ? sdk::read_value<uint8_t>(local + sdk::off::C_BaseEntity::m_iTeamNum) : 0;
+			int pawnHealth = pawn ? sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) : 0;
+            if (pawn != local && pawnTeam != localTeam && pawnTeam != 0 && pawnHealth > 0) {
+                result.pawns[i] = pawn;
+                ++resolved;
+            }
+            //if (pawn) ++resolved;
+            if (pawn == local) result.local_index = i;
+        }
+        aim_controllers = controllers;
+        aim_resolved_pawns = resolved;
+        return result;
+    }
+    struct SilentTargetCache {
+        struct Target { uintptr_t pawn = 0; uint32_t handle = UINT32_MAX; int health = 0, team = 0; bool spotted = false; sdk::Vector3 head{}; };
+        Target targets[65]{};
+        uintptr_t system = 0, local = 0, weapon = 0;
+        int local_index = -1;
+        ULONGLONG expires = 0;
+    };
+    static const SilentTargetCache& ReadSilentTargets(uintptr_t system, uintptr_t local, uintptr_t weapon) {
+        static thread_local SilentTargetCache cache{};
+        const auto now = GetTickCount64();
+        //if (cache.system == system && cache.local == local && cache.weapon == weapon && now < cache.expires) {
+            //++silent_cache_hits;
+            //return cache;
+        //}
+        cache = {};
+        cache.system = system; cache.local = local; 
+        cache.weapon = weapon; 
+        cache.expires = now;
+        const auto players = ReadAimPlayers(system, local);
+        cache.local_index = players.local_index;
+        for (int i = 1; i <= 64; ++i) {
+            auto& item = cache.targets[i];
+            item.pawn = players.pawns[i];
+            if (!item.pawn || item.pawn == local) continue;
+            item.health = sdk::read_value<int>(item.pawn + sdk::off::C_BaseEntity::m_iHealth);
+            if (item.health <= 0) continue;
+            const auto identity = sdk::read_value<uintptr_t>(item.pawn + 0x10);
+            if (identity) item.handle = sdk::read_value<uint32_t>(identity + 0x10);
+            item.team = sdk::read_value<uint8_t>(item.pawn + sdk::off::C_BaseEntity::m_iTeamNum);
+            item.spotted = IsSpottedBy(item.pawn, cache.local_index);
+            item.head = GetBonePositionRaw(item.pawn, 6);
+        }
+        ++silent_target_scans;
+        return cache;
+    }
     void RunSilentAimSubTick(DWORD* a1, sdk::C_CSPlayerPawn* localPawn)
     {
-        silent_aim_status = "Input/local pawn unavailable, disabled, dead, or pause key held";
-        if (!a1 || !sdk::is_readable_range(reinterpret_cast<uintptr_t>(a1), 6 * sizeof(DWORD)) || !localPawn || !config::aimbot::enabled || !config::aimbot::silent_aim) return;
-        if (!game_state::IsInGame()) return;
-        if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) return;
+        struct DebugSample {
+            SilentAimDebug data{};
+            bool publish = false;
+            DebugSample() {
+                static std::atomic<ULONGLONG> next_sample{0};
+                const auto now = GetTickCount64();
+                auto next = next_sample.load();
+                publish = now >= next && next_sample.compare_exchange_strong(next, now + 250);
+            }
+            ~DebugSample() {
+                if (!publish) return;
+                data.status = silent_aim_status.load();
+                std::lock_guard<std::mutex> lock(silent_debug_mutex);
+                silent_debug_snapshot = data;
+            }
+        } sample;
+        sample.data.source = reinterpret_cast<uintptr_t>(a1);
+        DWORD words[7]{};
+        if (!a1 || !sdk::read_memory(reinterpret_cast<uintptr_t>(a1), words)) {
+            silent_aim_status = "Subtick input unreadable"; return;
+        }
+        // These DWORD slots contain IEEE-754 float bits, not numeric DWORD values.
+        sdk::Vector3 sourceAngles{};
+        static_assert(sizeof(sourceAngles) == 3 * sizeof(DWORD));
+        std::memcpy(&sourceAngles, words + 4, sizeof(sourceAngles));
+        std::memcpy(sample.data.raw_angles, words + 4, sizeof(sample.data.raw_angles));
+        sample.data.input = sourceAngles;
+        if (!sdk::finite(sourceAngles)) { silent_aim_status = "Input angles contain NaN/Inf"; return; }
+        sample.data.input_valid = true;
+        if (!localPawn) { silent_aim_status = "Local pawn unavailable"; return; }
+        if (!config::aimbot::enabled || !config::aimbot::silent_aim) { silent_aim_status = "Silent aim disabled"; return; }
+        if (!game_state::IsInGame()) { silent_aim_status = "Local game state unavailable"; return; }
+        if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) { silent_aim_status = "Pause key held"; return; }
 
 
 
         uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
         if (!client) {
-            debug_console::Console::Get().Warning("[SilentAim] client.dll not found");
+            silent_aim_status = "client.dll unavailable";
             return;
         }
 
@@ -252,119 +344,103 @@ namespace features {
         if (!activeWeapon) { silent_aim_status = "Active weapon unresolved"; return; }
         if (skins::IsKnife(skins::GetDefIndex(activeWeapon))) { silent_aim_status = "Knife equipped"; return; }
         int localHealth = sdk::read_value<int>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
-        if (localHealth <= 0) return;
+        if (localHealth <= 0) { silent_aim_status = "Local pawn is dead"; return; }
 
         sdk::Vector3 localEye = GetEyePositionRaw(localPawnPtr);
+        sample.data.eye = localEye;
+        sample.data.eye_valid = sdk::finite(localEye);
+        if (!sample.data.eye_valid) { silent_aim_status = "Eye position contains NaN/Inf"; return; }
         int localTeam = sdk::read_value<uint8_t>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
 
          uintptr_t entity_list = game_state::GetEntityList();
         if (!entity_list || !sdk::is_valid_ptr(entity_list)) {
-            debug_console::Console::Get().Warning("[SilentAim] Entity list invalid!");
+            silent_aim_status = "Entity list unavailable";
             return;
         }
 
-        // Local index
-        int localIndex = -1;
-        for (int i = 1; i <= 64; i++) {
-            uintptr_t list1 = entity_list;
-            if (!list1 || !sdk::is_valid_ptr(list1)) continue;
-            uintptr_t controller = sdk::entity_at(entity_list, i);
-            if (!controller) continue;
-            uint32_t pawnHandle = sdk::read_value<uint32_t>(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-            if (!pawnHandle) continue;
-            uintptr_t list2 = entity_list;
-            if (!list2) continue;
-            uintptr_t pawn = sdk::entity_from_handle(entity_list, pawnHandle);
-            if (pawn == localPawnPtr) {
-                localIndex = i;
-                break;
-            }
-        }
-
-        int candidatesFound = 0;
-        int validBoneCandidates = 0;
+        const auto& players = ReadSilentTargets(entity_list, localPawnPtr, activeWeapon);
+        const int localIndex = players.local_index;
         sdk::C_CSPlayerPawn* bestTarget = nullptr;
         sdk::Vector3 bestHeadPos;
         float bestFov = config::aimbot::fov;
+        int bestControllerIndex = -1;
 
         for (int i = 1; i <= 64; i++) {
-            uintptr_t listEntry = entity_list;
-            if (!listEntry || !sdk::is_valid_ptr(listEntry)) continue;
-
-            uintptr_t controller = sdk::entity_at(entity_list, i);
-            if (!controller) continue;
-
-            uint32_t pawnHandle = sdk::read_value<uint32_t>(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-            if (!pawnHandle) continue;
-
-            uintptr_t list2 = entity_list;
-            if (!list2) continue;
-
-            uintptr_t pawn = sdk::entity_from_handle(entity_list, pawnHandle);
+            const auto& candidate = players.targets[i];
+            uintptr_t pawn = candidate.pawn;
             if (!pawn || pawn == localPawnPtr) continue;
 
-            int health = sdk::read_value<int>(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
+            int health = candidate.health;
             if (health <= 0) continue;
+            ++sample.data.alive;
 
-            int team = sdk::read_value<uint8_t>(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
+            int team = candidate.team;
             if (config::aimbot::team_check && team == localTeam) continue;
+            ++sample.data.enemies;
 
-            if (config::aimbot::visible_check && !IsSpottedBy(pawn, localIndex)) continue;
+            if (config::aimbot::visible_check && !candidate.spotted) continue;
+            ++sample.data.spotted;
 
-            sdk::Vector3 headPos = GetBonePositionRaw(pawn, 6);
+            sdk::Vector3 headPos = candidate.head;
 
-            candidatesFound++;
+
 
             if (headPos.x == 0.0f && headPos.y == 0.0f && headPos.z == 0.0f) {
                 continue;
             }
 
-            validBoneCandidates++;
 
+
+            ++sample.data.bones;
             float dist = localEye.Distance(headPos);
             if (dist > config::aimbot::max_distance) continue;
+            ++sample.data.in_range;
 
             sdk::Vector2 aim2D = CalcAngle(localEye, headPos);
             sdk::QAngle aimAngles(aim2D.x, aim2D.y, 0.0f);
 
-            float fov = GetFovA({ sdk::read_value<float>(reinterpret_cast<uintptr_t>(a1 + 4)), sdk::read_value<float>(reinterpret_cast<uintptr_t>(a1 + 5)), 0.0f }, aimAngles);
+            float fov = GetFovA({sourceAngles.x, sourceAngles.y, sourceAngles.z}, aimAngles);
 
-            if (fov < bestFov) {
+            if (fov <= config::aimbot::fov) ++sample.data.in_fov;
+            if (fov <= bestFov) {
                 bestFov = fov;
                 bestTarget = reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn);
                 bestHeadPos = headPos;
+                bestControllerIndex = i;
+                sample.data.target_pawn = pawn;
+                sample.data.target_health = health;
+                sample.data.target_team = team;
             }
         }
 
-        // ======================== MAX DIAGNOSTIC LOG ========================
-        static auto lastLog = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLog).count() > 200)
-        {
-            if (!bestTarget) {
-                debug_console::Console::Get().Warning("[SilentAim] NO TARGET | Candidates: %d | Valid Bones: %d | LocalTeam: %d | LocalIndex: %d",
-                    candidatesFound, validBoneCandidates, localTeam, localIndex);
-            }
-            else {
-                float distMeters = localEye.Distance(bestHeadPos) * 0.0254f;
-                int targetTeam = sdk::read_value<uint8_t>((uintptr_t)bestTarget + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-                int targetHP = sdk::read_value<int>((uintptr_t)bestTarget + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
-
-                debug_console::Console::Get().Success("[SilentAim] Target selected ? Team=%d | HP=%d | Dist=%.1fm | FOV=%.2f | BoneValid=Yes",
-                    targetTeam, targetHP, distMeters, bestFov);
-            }
-            lastLog = now;
+        if (!bestTarget) {
+            silent_aim_status = !sample.data.alive ? "No living remote pawns resolved" :
+                !sample.data.enemies ? "All living players rejected by team check" :
+                !sample.data.spotted ? (localIndex < 1 ? "Spotted check: local controller index missing" : "No enemies spotted by local player") :
+                !sample.data.bones ? "Enemy head positions unavailable" :
+                !sample.data.in_range ? "Enemies outside maximum distance" : "Enemies outside aim FOV";
+            return;
         }
-        // =================================================================
+        // Cached positions live for at most 8 ms. Revalidate the selected
+        // identity and health before writing, so a despawn/death is not reused.
+        const auto& selected = players.targets[bestControllerIndex];
+        if (sdk::entity_from_handle(entity_list, selected.handle) != selected.pawn ||
+            sdk::read_value<int>(selected.pawn + sdk::off::C_BaseEntity::m_iHealth) <= 0) {
+            silent_aim_status = "Selected target despawned or died"; return;
+        }
 
-        if (!bestTarget) { silent_aim_status = "No target passed team/spotted/bone/distance/FOV checks"; return; }
-
+        if (sample.publish) {
+            const auto controller = sdk::entity_at(entity_list, bestControllerIndex);
+            if (controller) sdk::read_memory(controller + sdk::off::CBasePlayerController::m_iszPlayerName, sample.data.target_name);
+            sample.data.target_name[sizeof(sample.data.target_name) - 1] = '\0';
+        }
+        sample.data.target = bestHeadPos;
+        sample.data.target_valid = true;
         // Angle calculation
         sdk::Vector2 target2D = CalcAngle(localEye, bestHeadPos);
         sdk::QAngle targetAngles(target2D.x, target2D.y, 0.0f);
 
-        sdk::QAngle currentAngles = { sdk::read_value<float>(reinterpret_cast<uintptr_t>(a1 + 4)), sdk::read_value<float>(reinterpret_cast<uintptr_t>(a1 + 5)), 0.0f };
+        sdk::QAngle currentAngles = {sourceAngles.x, sourceAngles.y, sourceAngles.z};
 
         sdk::QAngle delta;
         delta.x = targetAngles.x - currentAngles.x;
@@ -391,8 +467,10 @@ namespace features {
         if (targetAngles.y > 180.0f) targetAngles.y -= 360.0f;
         if (targetAngles.y < -180.0f) targetAngles.y += 360.0f;
 
-        const sdk::Vector2 output{targetAngles.x, targetAngles.y};
-        if (sdk::write_memory(reinterpret_cast<uintptr_t>(&a1[4]), output)) {
+        const sdk::Vector3 output{targetAngles.x, targetAngles.y, 0.0f};
+        sample.data.output = output;
+        if (sdk::finite(output) && sdk::write_memory(reinterpret_cast<uintptr_t>(&a1[4]), output)) {
+            sample.data.written = true;
             silent_aim_status = "Subtick angles written";
             ++silent_aim_writes;
         } else silent_aim_status = "Subtick angle write failed";
@@ -430,19 +508,8 @@ namespace features {
 				uintptr_t entity_list = game_state::GetEntityList();
                 if (!entity_list || !sdk::is_valid_ptr(entity_list)) { normal_aim_status = "Entity list unavailable"; continue; }
 
-                localIndex = -1;
-                for (int i = 1; i <= 64; i++) {
-                    uintptr_t list1 = entity_list;
-                    if (!list1 || !sdk::is_valid_ptr(list1)) continue;
-                    uintptr_t controller = sdk::entity_at(entity_list, i);
-                    if (!controller) continue;
-                    uint32_t pawnHandle = sdk::read_value<uint32_t>(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-                    if (!pawnHandle) continue;
-                    uintptr_t list2 = entity_list;
-                    if (!list2) continue;
-                    uintptr_t pawn = sdk::entity_from_handle(entity_list, pawnHandle);
-                    if (pawn == localPawn) { localIndex = i; break; }
-                }
+                const auto players = ReadAimPlayers(entity_list, localPawn);
+                localIndex = players.local_index;
 
                 uintptr_t closest_pawn = 0;
                 float closest_dist = config::aimbot::max_distance;
@@ -453,15 +520,7 @@ namespace features {
                 sdk::Vector2 current_angles{}; if (!sdk::read_memory(reinterpret_cast<uintptr_t>(va), current_angles)) { normal_aim_status = "View-angle read failed"; continue; }
 
                 for (int i = 1; i <= 64; i++) {
-                    uintptr_t list1 = entity_list;
-                    if (!list1 || !sdk::is_valid_ptr(list1)) continue;
-                    uintptr_t controller = sdk::entity_at(entity_list, i);
-                    if (!controller) continue;
-                    uint32_t pawnHandle = sdk::read_value<uint32_t>(controller + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-                    if (!pawnHandle) continue;
-                    uintptr_t list2 = entity_list;
-                    if (!list2) continue;
-                    uintptr_t pawn = sdk::entity_from_handle(entity_list, pawnHandle);
+                    uintptr_t pawn = players.pawns[i];
                     if (!pawn || pawn == localPawn) continue;
 
                     int health = sdk::read_value<int>(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);

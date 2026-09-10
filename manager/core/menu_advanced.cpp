@@ -13,6 +13,7 @@
 #include <wrl/client.h>
 #include <Shlwapi.h>
 #include <chrono>
+#include <cmath>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 
@@ -41,11 +42,23 @@ namespace menu_advanced {
     static ImFont* g_icon_font = nullptr;
     static ImFont* g_icon_font_large = nullptr;
     static bool g_fonts_loaded = false;
+    static ImFont* g_dashboard_body = nullptr;
+    static ImFont* g_dashboard_title = nullptr;
 
     bool LoadIconFont() {
         if (g_icon_font) return true;
 
         ImGuiIO& io = ImGui::GetIO();
+        if (!g_dashboard_body) {
+            char windows[MAX_PATH]{};
+            if (GetWindowsDirectoryA(windows, MAX_PATH)) {
+                const std::string face = std::string(windows) + "\\Fonts\\segoeui.ttf";
+                if (GetFileAttributesA(face.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                    g_dashboard_title = io.Fonts->AddFontFromFileTTF(face.c_str(), 24);
+                    g_dashboard_body = io.Fonts->AddFontFromFileTTF(face.c_str(), 16);
+                }
+            }
+        }
         std::string dll_dir = GetDllDirectory();
         debug_console::Console::Get().Info("[ICONS] Searching for fa-solid-900.ttf...");
 
@@ -106,6 +119,7 @@ namespace menu_advanced {
         // after the ImGui context is destroyed and a new atlas is created.
         g_icon_font = nullptr;
         g_icon_font_large = nullptr;
+        g_dashboard_body = g_dashboard_title = nullptr;
         g_fonts_loaded = false;
 
         if (g_logo_srv) {
@@ -221,7 +235,7 @@ namespace menu_advanced {
 
         ImVec4 col = ImLerp(base_color, hover_color, t);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, col);
-        ImGui::BeginChild(str_id, ImVec2(0, 0), true, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::BeginChild(str_id, ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
     }
 
     static void EndAnimatedCard() {
@@ -270,7 +284,7 @@ namespace menu_advanced {
 
         ImGui::Dummy(ImVec2(0, 10));
         ImGui::Columns(2, nullptr, false);
-        ImGui::SetColumnWidth(0, 420);
+        ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.5f);
 
         // Left column - Features
         BeginAnimatedCard("##FeaturesCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
@@ -334,7 +348,7 @@ namespace menu_advanced {
         SectionHeader("Aimbot Configuration", ICON_FA_CROSSHAIRS);
 
         ImGui::Columns(2, nullptr, false);
-        ImGui::SetColumnWidth(0, 300);
+        ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.56f);
 
         BeginAnimatedCard("##AimbotMain", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.8f, 1.0f), "AIMBOT");
@@ -345,10 +359,6 @@ namespace menu_advanced {
         ImGui::Checkbox("Team Check", &config::aimbot::team_check);
         ImGui::Checkbox("Spotted Check", &config::aimbot::visible_check);
         ImGui::Checkbox("Silent Aim", &config::aimbot::silent_aim);
-        ImGui::TextWrapped("Normal: %s", features::normal_aim_status.load());
-        ImGui::TextWrapped("Silent: %s", features::silent_aim_status.load());
-        ImGui::Text("Writes: normal %u, silent %u | Silent callbacks: %u",
-            features::normal_aim_writes.load(), features::silent_aim_writes.load(), features::silent_callbacks.load());
         ImGui::Dummy(ImVec2(0, 10));
         ImGui::Text("FOV (degrees):");
         ImGui::SliderFloat("##FOV", &config::aimbot::fov, 1.0f, 30.0f, "%.1f");
@@ -371,6 +381,36 @@ namespace menu_advanced {
         ImGui::Dummy(ImVec2(0, 20));
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.3f, 1.0f), "Pause Key: Mouse5 (hold)");
         ImGui::Unindent(10);
+        EndAnimatedCard();
+
+        ImGui::Dummy(ImVec2(0, 8));
+        BeginAnimatedCard("##AimDiagnostics", ImVec4(.07f,.10f,.14f,1), ImVec4(.09f,.14f,.19f,1));
+        ImGui::TextUnformatted("Last aim evaluation");
+        ImGui::TextWrapped("Normal: %s", features::normal_aim_status.load());
+        ImGui::TextWrapped("Silent: %s", features::silent_aim_status.load());
+        ImGui::TextWrapped("Writes: normal %u, history %u | Engine calls (total): %u",
+            features::normal_aim_writes.load(), features::silent_history_writes.load(), features::silent_callbacks.load());
+        ImGui::TextWrapped("Target scans: %u | Cached evaluations: %u",
+            features::silent_target_scans.load(), features::silent_cache_hits.load());
+        if (ImGui::CollapsingHeader("Subtick angle debug")) {
+            const auto debug = features::GetSilentAimDebug();
+            ImGui::TextDisabled("Last sample, 4 Hz; angles are pitch/yaw/roll.");
+            ImGui::Text("a1: %p", reinterpret_cast<void*>(debug.source));
+            ImGui::TextWrapped("%s", debug.status);
+            ImGui::TextWrapped("Passing filters: alive %u / team %u / spotted %u / bones %u / range %u / FOV %u",
+                debug.alive, debug.enemies, debug.spotted, debug.bones, debug.in_range, debug.in_fov);
+            ImGui::Text("DWORDs: %08X %08X %08X", debug.raw_angles[0], debug.raw_angles[1], debug.raw_angles[2]);
+            if (debug.input_valid) ImGui::Text("Input: %.3f / %.3f / %.3f", debug.input.x, debug.input.y, debug.input.z);
+            if (debug.eye_valid) ImGui::Text("Eye XYZ: %.1f / %.1f / %.1f", debug.eye.x, debug.eye.y, debug.eye.z);
+            if (debug.target_valid) {
+                ImGui::TextWrapped("Selected enemy: %s", debug.target_name[0] ? debug.target_name : "Name unavailable");
+                const char* team = debug.target_team == 2 ? "T" : debug.target_team == 3 ? "CT" : "Other";
+                ImGui::Text("Health: %d | Team: %s (%d)", debug.target_health, team, debug.target_team);
+                ImGui::Text("Target XYZ: %.1f / %.1f / %.1f", debug.target.x, debug.target.y, debug.target.z);
+                ImGui::Text("Output: %.3f / %.3f / %.3f", debug.output.x, debug.output.y, debug.output.z);
+                ImGui::Text("Source write: %s", debug.written ? "Succeeded" : "Failed");
+            } else ImGui::TextDisabled("No selected enemy in this sample.");
+        }
         EndAnimatedCard();
 
         ImGui::Columns(1);
@@ -780,177 +820,161 @@ namespace menu_advanced {
         debug_console::Console::Get().Success("[MENU] Applied knife: %s", GetKnifeName(knife_id));
     }
 
-    // ==================== MAIN MENU ====================
-    static int selected_tab = 0;
+    // Dashboard icons are drawn directly, independent of external font files.
+    static void DashboardIcon(ImDrawList* draw, ImVec2 p, int kind, ImU32 color) {
+        const float x=p.x, y=p.y;
+        if (kind==11) {
+            for(int row=0;row<2;++row) for(int col=0;col<2;++col)
+                draw->AddRect(ImVec2(x+col*10,y+row*10),ImVec2(x+7+col*10,y+7+row*10),color,2,0,1.5f);
+        } else if(kind==0 || kind==1 || kind==9) {
+            draw->AddCircle(ImVec2(x+9,y+9),6,color,20,1.5f);
+            draw->AddLine(ImVec2(x+9,y-1),ImVec2(x+9,y+19),color,1.5f);
+            draw->AddLine(ImVec2(x-1,y+9),ImVec2(x+19,y+9),color,1.5f);
+        } else if(kind==2 || kind==4) {
+            draw->AddCircle(ImVec2(x+9,y+5),4,color,16,1.5f);
+            draw->AddBezierCubic(ImVec2(x,y+19),ImVec2(x,y+7),ImVec2(x+18,y+7),ImVec2(x+18,y+19),color,1.5f);
+        } else if(kind==8 || kind==3) {
+            draw->AddRect(ImVec2(x,y+5),ImVec2(x+18,y+19),color,3,0,1.5f);
+            draw->AddRect(ImVec2(x+5,y),ImVec2(x+13,y+7),color,2,0,1.5f);
+        } else {
+            for(int row=0;row<3;++row) {
+                draw->AddLine(ImVec2(x,y+3+row*6),ImVec2(x+18,y+3+row*6),color,1.5f);
+                draw->AddCircleFilled(ImVec2(x+4+(row%2)*9,y+3+row*6),2.5f,color);
+            }
+        }
+    }
+    static int selected_tab = 11;
+    static const char* page_names[] = {"Aimbot", "Triggerbot", "Players", "Items", "View", "HUD", "General", "Movement", "Inventory", "Grenades", "Profiles", "Overview"};
+
+    static void DashboardStat(const char* id, const char* title, const char* value, const char* detail, float width) {
+        ImGui::BeginChild(id, ImVec2(width,132), true);
+        ImGui::TextDisabled("%s",title);
+        ImGui::Dummy(ImVec2(0,3));
+        ImGui::TextColored(ImVec4(.40f,.85f,.95f,1),"%s",value);
+        ImGui::TextDisabled("%s",detail);
+        ImGui::EndChild();
+    }
+    static void RenderDashboard() {
+        const float width=(ImGui::GetContentRegionAvail().x-24)/3;
+        const auto state=game_state::GetSnapshot();
+        DashboardStat("session", "SESSION", state.in_game ? "Connected" : "Waiting", "Local player availability",width);
+        ImGui::SameLine();
+        DashboardStat("mode", "AIM MODE", !config::aimbot::enabled ? "Disabled" : config::aimbot::silent_aim ? "Silent" : "Normal", "Configure in Aimbot",width);
+        ImGui::SameLine();
+        DashboardStat("inventory", "INVENTORY", config::skin_changer::enabled ? "Enabled" : "Disabled", "Skins and weapon models",width);
+        ImGui::Dummy(ImVec2(0,8));
+        ImGui::BeginChild("quick_controls",ImVec2(0,172),true);
+        ImGui::TextUnformatted("Quick controls");
+        ImGui::TextDisabled("Your most-used settings, in one place.");
+        ImGui::Separator();
+        if(ImGui::BeginTable("toggles",3,ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextColumn(); ImGui::Checkbox("Aim assist",&config::aimbot::enabled);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Player visuals",&config::esp::enabled);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Skin changer",&config::skin_changer::enabled);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Triggerbot",&config::misc::trigger_bot);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Radar",&config::misc::radar_hack);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Bunny hop",&config::misc::bunny_hop);
+            ImGui::EndTable();
+        }
+        ImGui::EndChild();
+        ImGui::Dummy(ImVec2(0,8));
+        ImGui::BeginChild("activity",ImVec2(0,214),true);
+        ImGui::TextUnformatted("Aim diagnostics");
+        ImGui::TextDisabled("Last evaluation; aiming pauses while this menu is open.");
+        ImGui::Separator();
+        ImGui::Text("Controllers: %u    Resolved pawns: %u",features::aim_controllers.load(),features::aim_resolved_pawns.load());
+        ImGui::TextWrapped("Normal: %s",features::normal_aim_status.load());
+        ImGui::TextWrapped("Silent: %s",features::silent_aim_status.load());
+        ImGui::Text("Angle writes: %u normal / %u history",features::normal_aim_writes.load(),features::silent_history_writes.load());
+        ImGui::EndChild();
+    }
 
     void RenderMainMenu() {
-        static int weapon_tab = 0;
-        LoadLogoTexture();
-        if (!g_fonts_loaded) {
-            LoadIconFont();
-            g_fonts_loaded = true;
-        }
-
-        ImGui::SetNextWindowSize(ImVec2(900, 650), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImVec2(100, 50), ImGuiCond_FirstUseEver);
-
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 4.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 8));
-
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.06f, 0.08f, 0.96f));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.12f, 0.85f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.25f, 0.28f, 0.5f));
-        ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.08f, 0.08f, 0.09f, 0.8f));
-        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.35f, 0.35f, 0.38f, 0.8f));
-        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.50f, 0.50f, 0.53f, 0.9f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.14f, 0.14f, 0.15f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.85f, 0.85f, 0.88f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.18f, 0.20f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.28f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.12f, 0.12f, 0.13f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.22f, 0.22f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TabActive, ImVec4(0.18f, 0.18f, 0.20f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.25f, 0.25f, 0.28f, 0.6f));
-
-        if (ImGui::Begin("NEPHILIMGATE", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-            // Sidebar
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.07f, 0.08f, 1.0f));
-            ImGui::BeginChild("##Sidebar", ImVec2(220, 0), false, ImGuiWindowFlags_NoScrollbar);
-            ImGui::PopStyleColor();
-
-            if (g_logo_srv) {
-                float w = 64.0f, h = w * ((float)g_logo_height / g_logo_width);
-                ImGui::SetCursorPosX((220.0f - w) * 0.5f);
-                ImGui::Image((ImTextureID)g_logo_srv, ImVec2(w, h));
-            }
-            ImGui::Dummy(ImVec2(0, 5));
-
-            ImGui::PushFont(ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : nullptr);
-            ImGui::SetCursorPosX((220.0f - ImGui::CalcTextSize("NEPHILIMGATE").x) * 0.5f);
-            ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.95f, 1.0f), "NEPHILIMGATE");
+        g_card_hover_index=0;
+        ImGui::PushFont(g_dashboard_body);
+        ImGui::SetNextWindowSize(ImVec2(1120,760),ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(1040,680),ImVec2(1800,1200));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,14);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding,10);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,6);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(18,18));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,ImVec2(10,7));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(12,10));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg,ImVec4(.045f,.06f,.085f,1));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4(.065f,.085f,.115f,1));
+        ImGui::PushStyleColor(ImGuiCol_Border,ImVec4(.16f,.21f,.28f,.7f));
+        ImGui::PushStyleColor(ImGuiCol_Text,ImVec4(.89f,.93f,.98f,1));
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled,ImVec4(.46f,.56f,.67f,1));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(.10f,.14f,.19f,1));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,ImVec4(.14f,.21f,.28f,1));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive,ImVec4(.16f,.25f,.33f,1));
+        ImGui::PushStyleColor(ImGuiCol_CheckMark,ImVec4(.35f,.83f,.95f,1));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab,ImVec4(.28f,.73f,.88f,1));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive,ImVec4(.46f,.90f,1,1));
+        ImGui::PushStyleColor(ImGuiCol_Button,ImVec4(.10f,.19f,.26f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImVec4(.15f,.29f,.38f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImVec4(.20f,.38f,.47f,1));
+        ImGui::PushStyleColor(ImGuiCol_Header,ImVec4(.12f,.25f,.33f,1));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered,ImVec4(.16f,.31f,.39f,1));
+        ImGui::PushStyleColor(ImGuiCol_Separator,ImVec4(.17f,.23f,.29f,1));
+        if(ImGui::Begin("NEPHILIMGATE##Dashboard",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoCollapse)) {
+            ImGui::BeginChild("navigation",ImVec2(188,0),false);
+            ImGui::Dummy(ImVec2(0,8));
+            ImGui::TextColored(ImVec4(.40f,.85f,.95f,1),"NEPHILIMGATE");
+            ImGui::TextDisabled("CONTROL CENTER");
+            ImGui::Dummy(ImVec2(0,18));
+            auto nav=[](int index) {
+                ImGui::PushID(index);
+                const ImVec2 p=ImGui::GetCursorScreenPos();
+                const ImVec2 size(ImGui::GetContentRegionAvail().x,36);
+                if(ImGui::InvisibleButton("nav",size)) selected_tab=index;
+                static float blend[12]{};
+                const bool active=selected_tab==index;
+                const float goal=active ? 1.0f : ImGui::IsItemHovered() ? .45f : 0.0f;
+                blend[index]+=(goal-blend[index])*(1.0f-std::exp(-14.0f*ImGui::GetIO().DeltaTime));
+                auto* draw=ImGui::GetWindowDrawList();
+                draw->AddRectFilled(p,ImVec2(p.x+size.x,p.y+size.y),ImGui::GetColorU32(ImVec4(.14f,.31f,.40f,blend[index])),7);
+                const ImU32 color=ImGui::GetColorU32(active ? ImVec4(.5f,.9f,1,1) : ImVec4(.55f,.65f,.76f,1));
+                DashboardIcon(draw,ImVec2(p.x+12,p.y+9),index,color);
+                draw->AddText(ImVec2(p.x+44,p.y+(36-ImGui::GetFontSize())/2),color,page_names[index]);
+                ImGui::PopID();
+            };
+            nav(11);
+            ImGui::TextDisabled("COMBAT"); nav(0); nav(1);
+            ImGui::TextDisabled("VISUALS"); nav(2); nav(3); nav(4); nav(5);
+            ImGui::TextDisabled("PERSONALIZE"); nav(8); nav(7); nav(6); nav(9); nav(10);
+            ImGui::EndChild();
+            ImGui::SameLine();
+            ImGui::BeginChild("main",ImVec2(0,0),false);
+            ImGui::TextDisabled("WORKSPACE / %s",page_names[selected_tab]);
+            ImGui::PushFont(g_dashboard_title ? g_dashboard_title : g_dashboard_body);
+            ImGui::TextUnformatted(page_names[selected_tab]);
             ImGui::PopFont();
-
-            ImGui::Dummy(ImVec2(0, 10));
-
-            auto SectionLabel = [](const char* label) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.45f, 0.5f, 1.0f));
-                ImGui::Indent(20);
-                ImGui::Text("%s", label);
-                ImGui::Unindent(20);
-                ImGui::PopStyleColor();
-                };
-
-            auto TabButton = [](const char* icon, const char* label, int idx) {
-                bool sel = (selected_tab == idx);
-                if (sel) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.22f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-                }
-                else {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.65f, 1));
-                }
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.3f, 1));
-                std::string text = g_icon_font ? (std::string(icon) + "  " + label) : label;
-                if (ImGui::Button(text.c_str(), ImVec2(200, 32)))
-                    selected_tab = idx;
-                ImGui::PopStyleColor(3);
-                };
-
-            SectionLabel("COMBAT");
-            TabButton(ICON_FA_CROSSHAIRS, "Aimbot", 0);
-            TabButton(ICON_FA_BOLT, "Triggerbot", 1);
-            ImGui::Dummy(ImVec2(0, 10));
-            SectionLabel("VISUALS");
-            TabButton(ICON_FA_EYE, "Players", 2);
-            TabButton(ICON_FA_CUBE, "Items", 3);
-            TabButton(ICON_FA_USER, "View", 4);
-            TabButton(ICON_FA_SLIDERS_H, "Hud", 5);
-            ImGui::Dummy(ImVec2(0, 10));
-            SectionLabel("MISC");
-            TabButton(ICON_FA_HOME, "Main", 6);
-            TabButton(ICON_FA_RUNNING, "Movement", 7);
-            ImGui::Dummy(ImVec2(0, 10));
-            SectionLabel("CHEAT");
-            TabButton(ICON_FA_PAINT_BRUSH, "Inventory", 8);
-            TabButton(ICON_FA_BOMB, "Grenades", 9);
-            TabButton(ICON_FA_SAVE, "Configs", 10);
-
+            ImGui::TextDisabled(selected_tab==11 ? "Your settings and session at a glance." : "Fine-tune your settings. Changes apply immediately.");
+            ImGui::Dummy(ImVec2(0,8));
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0,8));
+            static int previous=-1;
+            static float fade=1;
+            if(previous!=selected_tab) { previous=selected_tab; fade=.35f; }
+            fade+=(1-fade)*(1-std::exp(-16.0f*ImGui::GetIO().DeltaTime));
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha,ImGui::GetStyle().Alpha*fade);
+            ImGui::BeginChild("page",ImVec2(0,0),false);
+            switch(selected_tab) {
+                case 0: RenderAimbotTab(); break; case 1: RenderTriggerBotTab(); break;
+                case 2: RenderESPTab(); break; case 3: RenderItemsTab(); break;
+                case 4: RenderViewTab(); break; case 5: RenderHudTab(); break;
+                case 6: RenderMainTab(); break; case 7: RenderMovementTab(); break;
+                case 8: RenderSkinTab(); break; case 9: RenderGrenadesTab(); break;
+                case 10: RenderConfigsTab(); break; default: RenderDashboard(); break;
+            }
             ImGui::EndChild();
-
-            ImGui::SameLine();
-            ImGui::BeginChild("##MainContent", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-
-            // Top bar
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.06f, 0.06f, 0.07f, 1.0f));
-            ImGui::BeginChild("##TopBar", ImVec2(0, 50));
-            ImGui::Dummy(ImVec2(0, 12));
-            ImGui::Indent(20);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(20, 8));
-            if (ImGui::Button("GLOBALS", ImVec2(100, 0))) weapon_tab = 0;
-            ImGui::SameLine();
-            if (ImGui::Button("WEAPONS", ImVec2(100, 0))) weapon_tab = 1;
             ImGui::PopStyleVar();
-            ImGui::Unindent(20);
             ImGui::EndChild();
-            ImGui::PopStyleColor();
-
-            // Warning
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.18f, 0.20f, 0.9f));
-            ImGui::BeginChild("##Warning", ImVec2(0, 28));
-            ImGui::SetCursorPosY(6);
-            ImGui::Indent(20);
-            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "%s VAC Live is active. Use at your own risk.", ICON_FA_EXCLAMATION);
-            ImGui::Unindent(20);
-            ImGui::EndChild();
-            ImGui::PopStyleColor();
-
-            ImGui::BeginChild("##ContentScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 15));
-
-            // Tab transition
-            static int last_tab = selected_tab;
-            if (last_tab != selected_tab) {
-                g_anim.transitioning = true;
-                g_anim.tab_transition_timer = 0.25f;
-                last_tab = selected_tab;
-            }
-            if (g_anim.transitioning) {
-                g_anim.tab_transition_timer -= ImGui::GetIO().DeltaTime;
-                float prog = 1.0f - (g_anim.tab_transition_timer / 0.25f);
-                g_anim.tab_fade_alpha = ImLerp(0.0f, 1.0f, prog);
-                if (g_anim.tab_transition_timer <= 0.0f) {
-                    g_anim.transitioning = false;
-                    g_anim.tab_fade_alpha = 1.0f;
-                }
-            }
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, g_anim.tab_fade_alpha);
-
-            switch (selected_tab) {
-            case 0: RenderAimbotTab(); break;
-            case 1: RenderTriggerBotTab(); break;
-            case 2: RenderESPTab(); break;
-            case 3: RenderItemsTab(); break;
-            case 4: RenderViewTab(); break;
-            case 5: RenderHudTab(); break;
-            case 6: RenderMainTab(); break;
-            case 7: RenderMovementTab(); break;
-            case 8: RenderSkinTab(); break;
-            case 9: RenderGrenadesTab(); break;
-            case 10: RenderConfigsTab(); break;
-            }
-
-            ImGui::PopStyleVar(2);
-            ImGui::EndChild();
-            ImGui::EndChild();
-            ImGui::End();
         }
-        ImGui::PopStyleColor(16);
-        ImGui::PopStyleVar(5);
+        ImGui::End();
+        ImGui::PopStyleColor(17);
+        ImGui::PopStyleVar(6);
+        ImGui::PopFont();
     }
 }

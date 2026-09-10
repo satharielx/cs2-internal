@@ -30,7 +30,7 @@ void ReleaseInputs() {}
 void RenderESP() { std::abort(); }
 void RunSilentAimSubTick(DWORD* input, sdk::C_CSPlayerPawn* pawn) {
     if (!test_silent_callback || pawn != reinterpret_cast<sdk::C_CSPlayerPawn*>(0x1234)) std::abort();
-    sdk::write_memory(reinterpret_cast<uintptr_t>(input + 4), sdk::Vector2{4, 5});
+    sdk::write_memory(reinterpret_cast<uintptr_t>(input + 4), sdk::Vector3{4, 5, 0});
     ++silent_aim_writes;
 }
 void StartAimbotThread() { std::abort(); }

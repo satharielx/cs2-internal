@@ -1,0 +1,154 @@
+    // Dashboard icons are drawn directly, independent of external font files.
+    static void DashboardIcon(ImDrawList* draw, ImVec2 p, int kind, ImU32 color) {
+        const float x=p.x, y=p.y;
+        if (kind==11) {
+            for(int row=0;row<2;++row) for(int col=0;col<2;++col)
+                draw->AddRect(ImVec2(x+col*10,y+row*10),ImVec2(x+7+col*10,y+7+row*10),color,2,0,1.5f);
+        } else if(kind==0 || kind==1 || kind==9) {
+            draw->AddCircle(ImVec2(x+9,y+9),6,color,20,1.5f);
+            draw->AddLine(ImVec2(x+9,y-1),ImVec2(x+9,y+19),color,1.5f);
+            draw->AddLine(ImVec2(x-1,y+9),ImVec2(x+19,y+9),color,1.5f);
+        } else if(kind==2 || kind==4) {
+            draw->AddCircle(ImVec2(x+9,y+5),4,color,16,1.5f);
+            draw->AddBezierCubic(ImVec2(x,y+19),ImVec2(x,y+7),ImVec2(x+18,y+7),ImVec2(x+18,y+19),color,1.5f);
+        } else if(kind==8 || kind==3) {
+            draw->AddRect(ImVec2(x,y+5),ImVec2(x+18,y+19),color,3,0,1.5f);
+            draw->AddRect(ImVec2(x+5,y),ImVec2(x+13,y+7),color,2,0,1.5f);
+        } else {
+            for(int row=0;row<3;++row) {
+                draw->AddLine(ImVec2(x,y+3+row*6),ImVec2(x+18,y+3+row*6),color,1.5f);
+                draw->AddCircleFilled(ImVec2(x+4+(row%2)*9,y+3+row*6),2.5f,color);
+            }
+        }
+    }
+    static int selected_tab = 11;
+    static const char* page_names[] = {"Aimbot", "Triggerbot", "Players", "Items", "View", "HUD", "General", "Movement", "Inventory", "Grenades", "Profiles", "Overview"};
+
+    static void DashboardStat(const char* id, const char* title, const char* value, const char* detail, float width) {
+        ImGui::BeginChild(id, ImVec2(width,104), true);
+        ImGui::TextDisabled("%s",title);
+        ImGui::Dummy(ImVec2(0,3));
+        ImGui::TextColored(ImVec4(.40f,.85f,.95f,1),"%s",value);
+        ImGui::TextDisabled("%s",detail);
+        ImGui::EndChild();
+    }
+    static void RenderDashboard() {
+        const float width=(ImGui::GetContentRegionAvail().x-24)/3;
+        const auto state=game_state::GetSnapshot();
+        DashboardStat("session", "SESSION", state.in_game ? "Connected" : "Waiting", "Local player availability",width);
+        ImGui::SameLine();
+        DashboardStat("mode", "AIM MODE", !config::aimbot::enabled ? "Disabled" : config::aimbot::silent_aim ? "Silent" : "Normal", "Configure in Aimbot",width);
+        ImGui::SameLine();
+        DashboardStat("inventory", "INVENTORY", config::skin_changer::enabled ? "Enabled" : "Disabled", "Skins and weapon models",width);
+        ImGui::Dummy(ImVec2(0,8));
+        ImGui::BeginChild("quick_controls",ImVec2(0,146),true);
+        ImGui::TextUnformatted("Quick controls");
+        ImGui::TextDisabled("Your most-used settings, in one place.");
+        ImGui::Separator();
+        if(ImGui::BeginTable("toggles",3,ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextColumn(); ImGui::Checkbox("Aim assist",&config::aimbot::enabled);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Player visuals",&config::esp::enabled);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Skin changer",&config::skin_changer::enabled);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Triggerbot",&config::misc::trigger_bot);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Radar",&config::misc::radar_hack);
+            ImGui::TableNextColumn(); ImGui::Checkbox("Bunny hop",&config::misc::bunny_hop);
+            ImGui::EndTable();
+        }
+        ImGui::EndChild();
+        ImGui::Dummy(ImVec2(0,8));
+        ImGui::BeginChild("activity",ImVec2(0,190),true);
+        ImGui::TextUnformatted("Aim diagnostics");
+        ImGui::TextDisabled("Last evaluation; aiming pauses while this menu is open.");
+        ImGui::Separator();
+        ImGui::Text("Controllers: %u    Resolved pawns: %u",features::aim_controllers.load(),features::aim_resolved_pawns.load());
+        ImGui::TextWrapped("Normal: %s",features::normal_aim_status.load());
+        ImGui::TextWrapped("Silent: %s",features::silent_aim_status.load());
+        ImGui::Text("Angle writes: %u normal / %u silent",features::normal_aim_writes.load(),features::silent_aim_writes.load());
+        ImGui::EndChild();
+    }
+
+    void RenderMainMenu() {
+        g_card_hover_index=0;
+        ImGui::SetNextWindowSize(ImVec2(1120,760),ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(1040,680),ImVec2(1800,1200));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,14);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding,10);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,6);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(18,18));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,ImVec2(10,7));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(12,10));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg,ImVec4(.045f,.06f,.085f,1));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4(.065f,.085f,.115f,1));
+        ImGui::PushStyleColor(ImGuiCol_Border,ImVec4(.16f,.21f,.28f,.7f));
+        ImGui::PushStyleColor(ImGuiCol_Text,ImVec4(.89f,.93f,.98f,1));
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled,ImVec4(.46f,.56f,.67f,1));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(.10f,.14f,.19f,1));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,ImVec4(.14f,.21f,.28f,1));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive,ImVec4(.16f,.25f,.33f,1));
+        ImGui::PushStyleColor(ImGuiCol_CheckMark,ImVec4(.35f,.83f,.95f,1));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab,ImVec4(.28f,.73f,.88f,1));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive,ImVec4(.46f,.90f,1,1));
+        ImGui::PushStyleColor(ImGuiCol_Button,ImVec4(.10f,.19f,.26f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImVec4(.15f,.29f,.38f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImVec4(.20f,.38f,.47f,1));
+        ImGui::PushStyleColor(ImGuiCol_Header,ImVec4(.12f,.25f,.33f,1));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered,ImVec4(.16f,.31f,.39f,1));
+        ImGui::PushStyleColor(ImGuiCol_Separator,ImVec4(.17f,.23f,.29f,1));
+        if(ImGui::Begin("NEPHILIMGATE##Dashboard",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoCollapse)) {
+            ImGui::BeginChild("navigation",ImVec2(188,0),false);
+            ImGui::Dummy(ImVec2(0,8));
+            ImGui::TextColored(ImVec4(.40f,.85f,.95f,1),"NEPHILIMGATE");
+            ImGui::TextDisabled("CONTROL CENTER");
+            ImGui::Dummy(ImVec2(0,18));
+            auto nav=[](int index) {
+                ImGui::PushID(index);
+                const ImVec2 p=ImGui::GetCursorScreenPos();
+                const ImVec2 size(ImGui::GetContentRegionAvail().x,36);
+                if(ImGui::InvisibleButton("nav",size)) selected_tab=index;
+                static float blend[12]{};
+                const bool active=selected_tab==index;
+                const float goal=active ? 1.0f : ImGui::IsItemHovered() ? .45f : 0.0f;
+                blend[index]+=(goal-blend[index])*(1.0f-std::exp(-14.0f*ImGui::GetIO().DeltaTime));
+                auto* draw=ImGui::GetWindowDrawList();
+                draw->AddRectFilled(p,ImVec2(p.x+size.x,p.y+size.y),ImGui::GetColorU32(ImVec4(.14f,.31f,.40f,blend[index])),7);
+                const ImU32 color=ImGui::GetColorU32(active ? ImVec4(.5f,.9f,1,1) : ImVec4(.55f,.65f,.76f,1));
+                DashboardIcon(draw,ImVec2(p.x+12,p.y+9),index,color);
+                draw->AddText(ImVec2(p.x+44,p.y+(36-ImGui::GetFontSize())/2),color,page_names[index]);
+                ImGui::PopID();
+            };
+            nav(11);
+            ImGui::TextDisabled("COMBAT"); nav(0); nav(1);
+            ImGui::TextDisabled("VISUALS"); nav(2); nav(3); nav(4); nav(5);
+            ImGui::TextDisabled("PERSONALIZE"); nav(8); nav(7); nav(6); nav(9); nav(10);
+            ImGui::EndChild();
+            ImGui::SameLine();
+            ImGui::BeginChild("main",ImVec2(0,0),false);
+            ImGui::TextDisabled("WORKSPACE / %s",page_names[selected_tab]);
+            ImGui::TextUnformatted(page_names[selected_tab]);
+            ImGui::TextDisabled(selected_tab==11 ? "Your settings and session at a glance." : "Fine-tune your settings. Changes apply immediately.");
+            ImGui::Dummy(ImVec2(0,8));
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0,8));
+            static int previous=-1;
+            static float fade=1;
+            if(previous!=selected_tab) { previous=selected_tab; fade=.35f; }
+            fade+=(1-fade)*(1-std::exp(-16.0f*ImGui::GetIO().DeltaTime));
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha,ImGui::GetStyle().Alpha*fade);
+            ImGui::BeginChild("page",ImVec2(0,0),false);
+            switch(selected_tab) {
+                case 0: RenderAimbotTab(); break; case 1: RenderTriggerBotTab(); break;
+                case 2: RenderESPTab(); break; case 3: RenderItemsTab(); break;
+                case 4: RenderViewTab(); break; case 5: RenderHudTab(); break;
+                case 6: RenderMainTab(); break; case 7: RenderMovementTab(); break;
+                case 8: RenderSkinTab(); break; case 9: RenderGrenadesTab(); break;
+                case 10: RenderConfigsTab(); break; default: RenderDashboard(); break;
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+            ImGui::EndChild();
+        }
+        ImGui::End();
+        ImGui::PopStyleColor(17);
+        ImGui::PopStyleVar(6);
+    }
+}
