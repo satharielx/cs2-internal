@@ -1,6 +1,7 @@
 #include "menu_advanced.h"
 #include "config.h"
 #include "skins.h"
+#include "loadout_web.h"
 #include "features.h"
 #include "interfaces.h"
 #include "game_state.h"
@@ -388,10 +389,12 @@ namespace menu_advanced {
         ImGui::TextUnformatted("Last aim evaluation");
         ImGui::TextWrapped("Normal: %s", features::normal_aim_status.load());
         ImGui::TextWrapped("Silent: %s", features::silent_aim_status.load());
-        ImGui::TextWrapped("Writes: normal %u, history %u | Engine calls (total): %u",
+        ImGui::TextWrapped("Normal writes %u, verified history samples %u | Engine calls (total): %u",
             features::normal_aim_writes.load(), features::silent_history_writes.load(), features::silent_callbacks.load());
         ImGui::TextWrapped("Target scans: %u | Cached evaluations: %u",
             features::silent_target_scans.load(), features::silent_cache_hits.load());
+        ImGui::TextWrapped("Geometry updates: %u | Busy-settings skips: %u",
+            features::silent_geometry_updates.load(), features::silent_settings_skips.load());
         if (ImGui::CollapsingHeader("Subtick angle debug")) {
             const auto debug = features::GetSilentAimDebug();
             ImGui::TextDisabled("Last sample, 4 Hz; angles are pitch/yaw/roll.");
@@ -688,6 +691,13 @@ namespace menu_advanced {
     void RenderSkinTab() {
         SectionHeader("Inventory Changer", ICON_FA_PAINT_BRUSH);
 
+        if (ImGui::Button("Open Web Editor")) loadout_web::OpenEditor();
+        ImGui::SameLine();
+        if (ImGui::Button("Export Catalog")) loadout_web::ExportCatalog();
+        ImGui::SameLine();
+        if (ImGui::Button("Import Loadout")) loadout_web::ImportLoadout();
+        if (!loadout_web::status.empty()) ImGui::TextWrapped("%s", loadout_web::status.c_str());
+
         ImGui::Checkbox("Enable Skin Changer", &config::skin_changer::enabled);
         ImGui::SameLine();
         if (!db_loaded && !db_loading) {
@@ -730,6 +740,7 @@ namespace menu_advanced {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Knives")) {
+                selected_knife = skins::selected_knife_id;
                 ImGui::Columns(2, "KnifeCols", true);
                 ImGui::BeginChild("KnifeList", ImVec2(0, 250), true);
                 for (const auto& k : knives) {
@@ -752,6 +763,30 @@ namespace menu_advanced {
                     it = skins::user_skins.find(selected_knife);
                 }
                 auto& cfg = it->second;
+                const char* finish = cfg.paint_kit == 0 ? "Default finish" : "Custom paintkit";
+                for (const auto& skin : skins::skin_database)
+                    if (skin.weapon_id == selected_knife && skin.paint_kit == cfg.paint_kit) finish = skin.name.c_str();
+                if (ImGui::BeginCombo("Paintkit", finish)) {
+                    if (ImGui::Selectable("Default finish", cfg.paint_kit == 0)) { cfg.paint_kit = 0; cfg.stattrak = false; }
+                    std::set<int> seen;
+                    for (const auto& skin : skins::skin_database) {
+                        if (skin.weapon_id != selected_knife || skin.name.empty() || !seen.insert(skin.paint_kit).second) continue;
+                        ImGui::PushID(skin.paint_kit);
+                        if (ImGui::Selectable(skin.name.c_str(), cfg.paint_kit == skin.paint_kit)) {
+                            cfg.paint_kit = skin.paint_kit;
+                            if (!skin.stattrak_available) cfg.stattrak = false;
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+                bool supports_stat = false;
+                for (const auto& skin : skins::skin_database)
+                    if (skin.weapon_id == selected_knife && skin.paint_kit == cfg.paint_kit) supports_stat = skin.stattrak_available;
+                ImGui::BeginDisabled(!supports_stat);
+                ImGui::Checkbox("StatTrak", &cfg.stattrak);
+                if (cfg.stattrak) ImGui::SliderInt("Kills", &cfg.stattrak_count, 0, 99999);
+                ImGui::EndDisabled();
                 ImGui::SliderInt("Seed", &cfg.seed, 0, 1000);
                 ImGui::SliderFloat("Wear", &cfg.wear, 0.0f, 1.0f);
                 if (ImGui::Button("Apply Knife", ImVec2(-1, 0)))
@@ -885,7 +920,7 @@ namespace menu_advanced {
         ImGui::Text("Controllers: %u    Resolved pawns: %u",features::aim_controllers.load(),features::aim_resolved_pawns.load());
         ImGui::TextWrapped("Normal: %s",features::normal_aim_status.load());
         ImGui::TextWrapped("Silent: %s",features::silent_aim_status.load());
-        ImGui::Text("Angle writes: %u normal / %u history",features::normal_aim_writes.load(),features::silent_history_writes.load());
+        ImGui::Text("Normal writes: %u / Verified history samples: %u",features::normal_aim_writes.load(),features::silent_history_writes.load());
         ImGui::EndChild();
     }
 

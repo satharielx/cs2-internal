@@ -2,10 +2,16 @@
 #include <iostream>
 #include <limits>
 #include <Windows.h>
+#include <chrono>
 static SHORT test_keys[256]{};
 static ULONGLONG test_time = 1000;
 static unsigned mouse_downs = 0, mouse_ups = 0;
 static HMODULE test_module = nullptr;
+static unsigned long long test_memory_reads = 0;
+static BOOL TestReadMemory(HANDLE process, LPCVOID address, LPVOID buffer, SIZE_T size, SIZE_T* read) {
+    ++test_memory_reads;
+    return ReadProcessMemory(process,address,buffer,size,read);
+}
 static HMODULE TestModule(const char*) { return test_module; }
 static SHORT TestKey(int key) { return key >= 0 && key < 256 ? test_keys[key] : 0; }
 static ULONGLONG TestTime() { return test_time; }
@@ -17,11 +23,13 @@ static void TestMouse(DWORD flags, DWORD, DWORD, DWORD, ULONG_PTR) {
 #define GetTickCount64 TestTime
 #define mouse_event TestMouse
 #define GetModuleHandleA TestModule
+#define ReadProcessMemory TestReadMemory
 #include "../manager/core/features.cpp"
 #undef GetAsyncKeyState
 #undef GetTickCount64
 #undef mouse_event
 #undef GetModuleHandleA
+#undef ReadProcessMemory
 #include "../manager/core/skins.cpp"
 #include "../manager/core/menu_advanced.cpp"
 #include "imgui_preview.h"
@@ -65,6 +73,100 @@ static void __fastcall Model(void* entity, const char*) { ++model_calls; model_e
 static uint64_t last_mesh_mask = 0;
 static void __fastcall Mesh(void* node, uint64_t mask) { ++mesh_calls; mesh_node = reinterpret_cast<uintptr_t>(node); last_mesh_mask = mask; }
 static bool AlmostEqual(float a, float b) { return std::abs(a-b) < 0.001f; }
+
+static void TestEspCrowd() {
+    Buffer system(0x100), chunk(512*0x70), local(0x5000);
+    Buffer client(cs2_dumper::offsets::client_dll::dwViewMatrix+sizeof(sdk::ViewMatrix));
+    system.put(0x10,chunk.addr());
+    local.put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,2);
+    sdk::ViewMatrix matrix{};
+    matrix.matrix[0][0]=0.003f; matrix.matrix[1][2]=0.01f; matrix.matrix[3][3]=1;
+    client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
+    std::vector<Buffer> controllers, pawns, identities, scenes, bones;
+    controllers.reserve(32); pawns.reserve(32); identities.reserve(32); scenes.reserve(32); bones.reserve(32);
+    for(int i=0;i<32;++i) {
+        controllers.emplace_back(0x1000); pawns.emplace_back(0x5000); identities.emplace_back(0x50);
+        scenes.emplace_back(0x300); bones.emplace_back(32*28);
+        const uint32_t handle=(128+i) | (7u<<15);
+        chunk.put((i+1)*0x70,controllers.back().addr()); chunk.put((128+i)*0x70,pawns.back().addr());
+        controllers.back().put(sdk::off::CCSPlayerController::m_hPlayerPawn,handle);
+        const char name[]="ESP regression player";
+        std::memcpy(controllers.back().bytes.data()+sdk::off::CBasePlayerController::m_iszPlayerName,name,sizeof(name));
+        pawns.back().put(0x10,identities.back().addr()); identities.back().put(0x10,handle);
+        pawns.back().put<int>(sdk::off::C_BaseEntity::m_iHealth,73);
+        pawns.back().put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,3);
+        pawns.back().put(sdk::off::C_BaseEntity::m_pGameSceneNode,scenes.back().addr());
+        scenes.back().put(sdk::off::CSkeletonInstance::m_modelState+0x80,bones.back().addr());
+        const float x=(i%8)*40.0f-140.0f;
+        pawns.back().put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{x,100,0});
+        for(int bone=0;bone<28;++bone) bones.back().put(bone*32,sdk::Vector3{x+bone%3,100,10.0f+bone});
+        bones.back().put(sdk::BONE_HEAD*32,sdk::Vector3{x,100,64});
+    }
+    game_state::test_state={true,system.addr(),0,local.addr(),"ESP test"};
+    test_module=reinterpret_cast<HMODULE>(client.addr());
+    config::esp::enabled=true; config::esp::skeleton=true; config::esp::box=true;
+    config::esp::health_bar=true; config::esp::name=true; config::esp::distance=true;
+    config::esp::team_check=true; config::esp::max_distance=300;
+    test_time+=1000;
+    const auto start=std::chrono::steady_clock::now();
+    const auto reads=test_memory_reads;
+    int vertices=0;
+    for(int frame=0;frame<60;++frame) {
+        test_time+=8;
+        ImGui::NewFrame(); features::RenderESP(); ImGui::Render();
+        vertices=ImGui::GetDrawData()->TotalVtxCount;
+        assert(vertices>0);
+    }
+    std::cout << "ESP (32 players, 60 frames): "
+        << std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()
+        << " ms, " << test_memory_reads-reads << " memory reads, " << vertices << " vertices/frame\n";
+    assert(test_memory_reads-reads < 40000); // Bounded reads, not per-segment bone traversal.
+    assert(vertices < 12000); // Text must not regress to nine glyph passes.
+    features::EspBones batch{};
+    const auto batchReads=test_memory_reads;
+    assert(features::ReadEspBones(scenes[0].addr(),batch));
+    assert(test_memory_reads==batchReads+2 && batch.bones[sdk::BONE_HEAD].position.z==64);
+
+    auto drawFrame=[] {
+        ImGui::NewFrame(); features::RenderESP(); ImGui::Render();
+        return ImGui::GetDrawData()->TotalVtxCount;
+    };
+    for(int i=2;i<=32;++i) chunk.put<uintptr_t>(i*0x70,0);
+    assert(drawFrame()>0);
+    config::esp::enabled=false; const auto disabledReads=test_memory_reads;
+    assert(drawFrame()==0 && test_memory_reads==disabledReads);
+    config::esp::enabled=true;
+    pawns[0].put<int>(sdk::off::C_BaseEntity::m_iHealth,0); assert(drawFrame()==0);
+    pawns[0].put<int>(sdk::off::C_BaseEntity::m_iHealth,73);
+    pawns[0].put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,2); assert(drawFrame()==0);
+    config::esp::team_check=false; assert(drawFrame()>0); config::esp::team_check=true;
+    pawns[0].put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,3);
+    scenes[0].put<bool>(sdk::off::CGameSceneNode::m_bDormant,true); assert(drawFrame()==0);
+    scenes[0].put<bool>(sdk::off::CGameSceneNode::m_bDormant,false);
+    config::esp::max_distance=1; assert(drawFrame()==0); config::esp::max_distance=300;
+    const uint32_t replacementHandle=128 | (8u<<15);
+    identities[0].put(0x10,replacementHandle); assert(drawFrame()==0); // Stale serial.
+    const char replacementName[]="Replacement player";
+    std::memcpy(controllers[0].bytes.data()+sdk::off::CBasePlayerController::m_iszPlayerName,replacementName,sizeof(replacementName));
+    controllers[0].put(sdk::off::CCSPlayerController::m_hPlayerPawn,replacementHandle);
+    assert(drawFrame()>0 && std::strcmp(features::esp_names[1].name,replacementName)==0);
+    matrix.matrix[3][3]=-1; client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
+    assert(drawFrame()==0); // Camera changes are reflected without a cache delay.
+    matrix.matrix[3][3]=1; client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
+    config::esp::skeleton=false; assert(drawFrame()>0);
+    config::esp::skeleton=true;
+    scenes[0].put<uintptr_t>(sdk::off::CSkeletonInstance::m_modelState+0x80,1);
+    assert(drawFrame()>0); // Failed bone read keeps the origin-based box.
+    scenes[0].put(sdk::off::CSkeletonInstance::m_modelState+0x80,bones[0].addr());
+    pawns[0].put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{1000,100,0});
+    bones[0].put(sdk::BONE_HEAD*32,sdk::Vector3{1000,100,64}); assert(drawFrame()==0);
+    pawns[0].put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{-140,100,0});
+    config::esp::box=config::esp::health_bar=config::esp::name=config::esp::distance=false;
+    for(int bone=0;bone<28;++bone) bones[0].put(bone*32,sdk::Vector3{std::numeric_limits<float>::quiet_NaN(),0,0});
+    assert(drawFrame()==0); // Invalid joints never enter ImGui geometry.
+    game_state::test_state.in_game=false; assert(drawFrame()==0 && features::esp_name_system==0);
+    config::esp::enabled=false; game_state::test_state={}; test_module=nullptr;
+}
 
 int main() {
     const float inf = std::numeric_limits<float>::infinity();
@@ -305,6 +407,66 @@ int main() {
     features::RunSilentAimSubTick(nullptr,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     assert(!features::GetSilentAimDebug().target_valid && features::silent_aim_writes==1002);
     assert(features::GetSilentAimDebug().target_name[0]=='\0');
+
+    // A crowded map must not repeat all entity/bone reads for every subtick.
+    // Give every controller a distinct live pawn and serial-checked identity.
+    std::vector<Buffer> crowdControllers, crowdPawns, crowdIdentities;
+    crowdControllers.reserve(63); crowdPawns.reserve(63); crowdIdentities.reserve(63);
+    for (int i=1;i<64;++i) {
+        crowdControllers.emplace_back(0x1000);
+        crowdPawns.emplace_back(0x5000);
+        crowdIdentities.emplace_back(0x50);
+        auto& remote=crowdPawns.back();
+        remote.bytes=first.bytes;
+        const uint32_t handle=(128+i) | (5u<<15);
+        crowdIdentities.back().put(0x10,handle);
+        remote.put(0x10,crowdIdentities.back().addr());
+        crowdControllers.back().put(CCSPlayerController::m_hPlayerPawn,handle);
+        chunk0.put(0x70*i,crowdControllers.back().addr());
+        chunk0.put(0x70*(128+i),remote.addr());
+    }
+    test_time+=9;
+    const auto crowdedScans=features::silent_target_scans.load();
+    const auto crowdedHits=features::silent_cache_hits.load();
+    const auto crowdedWrites=features::silent_aim_writes.load();
+    const auto crowdedGeometry=features::silent_geometry_updates.load();
+    const auto crowdedStart=std::chrono::steady_clock::now();
+    for (int repeat=0;repeat<1000;++repeat) {
+        sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sourceAngles);
+        features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    }
+    assert(features::aim_resolved_pawns==64);
+    assert(features::silent_target_scans==crowdedScans+1);
+    assert(features::silent_cache_hits==crowdedHits+999);
+    assert(features::silent_aim_writes==crowdedWrites+1000);
+    assert(features::silent_geometry_updates==crowdedGeometry+1);
+    std::cout << "Crowded-map callbacks (64 pawns, 1000 subticks): "
+        << std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-crowdedStart).count()
+        << " ms\n";
+    // Cached geometry must still respect current input angles and settings.
+    config::aimbot::fov=1;
+    sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{0,0,0});
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==crowdedWrites+1000);
+    assert(features::silent_geometry_updates==crowdedGeometry+1);
+    config::aimbot::fov=90;
+    auto& movedGeometry=features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    features::PrepareSilentGeometry(movedGeometry,{0,100,64});
+    assert(features::silent_geometry_updates==crowdedGeometry+2);
+    assert(AlmostEqual(movedGeometry.targets[64].angle.y,0));
+    features::PrepareSilentGeometry(movedGeometry,{0,100,64});
+    assert(features::silent_geometry_updates==crowdedGeometry+2);
+    test_time+=8;
+    features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    assert(features::silent_target_scans==crowdedScans+2); // Expiry refreshes the snapshot.
+    features::ReadSilentTargets(system.addr(),pawn.addr(),second.addr());
+    assert(features::silent_target_scans==crowdedScans+3); // Weapon changes invalidate it.
+    features::ReadSilentTargets(system.addr(),first.addr(),second.addr());
+    assert(features::silent_target_scans==crowdedScans+4); // Local pawn changes invalidate it.
+    for (int i=1;i<64;++i) {
+        chunk0.put<uintptr_t>(0x70*i,0);
+        chunk0.put<uintptr_t>(0x70*(128+i),0);
+    }
     test_module=nullptr;
 
     Buffer inventory(0x200), slots(2*0xC8);
@@ -349,6 +511,7 @@ int main() {
             if(frame==2 && (page==11 || page==0)) SaveMenuPreview(page==11 ? "dashboard.bmp" : "aim-page.bmp",pixels,atlasWidth,atlasHeight);
         }
     }
+    TestEspCrowd();
     ImGui::DestroyContext(ui);
     std::cout << "Feature regressions passed: math/projection, masks/handles/vectors, protected memory, user commands, staged weapons/gloves/removal, trigger timing/menu release, radar/no-flash, bunny-hop/release, and loadout stride.\n";
 }

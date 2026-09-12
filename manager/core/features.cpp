@@ -46,6 +46,14 @@ namespace features {
 
     // Get screen dimensions from multiple sources with fallback priority
     static void UpdateScreenDimensions() {
+        if (ImGui::GetCurrentContext()) {
+            const auto size = ImGui::GetIO().DisplaySize;
+            if (std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0 && size.y > 0) {
+                g_screen_width = static_cast<int>(size.x);
+                g_screen_height = static_cast<int>(size.y);
+                return;
+            }
+        }
         bool success = false;
         if (interfaces::swap_chain) {
             try {
@@ -245,14 +253,10 @@ namespace features {
             uint32_t handle = UINT32_MAX;
             if (!sdk::read_memory(controller + sdk::off::CCSPlayerController::m_hPlayerPawn, handle)) continue;
             const auto pawn = sdk::entity_from_handle(system, handle);
-			int pawnTeam = pawn ? sdk::read_value<uint8_t>(pawn + sdk::off::C_BaseEntity::m_iTeamNum) : 0;
-			int localTeam = local ? sdk::read_value<uint8_t>(local + sdk::off::C_BaseEntity::m_iTeamNum) : 0;
-			int pawnHealth = pawn ? sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) : 0;
-            if (pawn != local && pawnTeam != localTeam && pawnTeam != 0 && pawnHealth > 0) {
-                result.pawns[i] = pawn;
-                ++resolved;
-            }
-            //if (pawn) ++resolved;
+            // Enumeration is shared by normal and silent aim. Apply health and
+            // optional team filtering in the callers, without duplicate reads.
+            result.pawns[i] = pawn;
+            if (pawn) ++resolved;
             if (pawn == local) result.local_index = i;
         }
         aim_controllers = controllers;
@@ -260,23 +264,30 @@ namespace features {
         return result;
     }
     struct SilentTargetCache {
-        struct Target { uintptr_t pawn = 0; uint32_t handle = UINT32_MAX; int health = 0, team = 0; bool spotted = false; sdk::Vector3 head{}; };
+        struct Target {
+            uintptr_t pawn = 0; uint32_t handle = UINT32_MAX;
+            int health = 0, team = 0; bool spotted = false;
+            sdk::Vector3 head{}; sdk::Vector2 angle{};
+            float distance_squared = 0;
+        };
         Target targets[65]{};
         uintptr_t system = 0, local = 0, weapon = 0;
         int local_index = -1;
         ULONGLONG expires = 0;
+        sdk::Vector3 eye{};
+        bool geometry_valid = false;
     };
-    static const SilentTargetCache& ReadSilentTargets(uintptr_t system, uintptr_t local, uintptr_t weapon) {
+    static SilentTargetCache& ReadSilentTargets(uintptr_t system, uintptr_t local, uintptr_t weapon) {
         static thread_local SilentTargetCache cache{};
         const auto now = GetTickCount64();
-        //if (cache.system == system && cache.local == local && cache.weapon == weapon && now < cache.expires) {
-            //++silent_cache_hits;
-            //return cache;
-        //}
+        if (cache.system == system && cache.local == local && cache.weapon == weapon && now < cache.expires) {
+            ++silent_cache_hits;
+            return cache;
+        }
         cache = {};
         cache.system = system; cache.local = local; 
         cache.weapon = weapon; 
-        cache.expires = now;
+        cache.expires = now + 8;
         const auto players = ReadAimPlayers(system, local);
         cache.local_index = players.local_index;
         for (int i = 1; i <= 64; ++i) {
@@ -293,6 +304,18 @@ namespace features {
         }
         ++silent_target_scans;
         return cache;
+    }
+    static void PrepareSilentGeometry(SilentTargetCache& cache, const sdk::Vector3& eye) {
+        if (cache.geometry_valid && cache.eye.x == eye.x && cache.eye.y == eye.y && cache.eye.z == eye.z) return;
+        cache.eye = eye;
+        cache.geometry_valid = true;
+        for (auto& target : cache.targets) {
+            if (!target.pawn || target.pawn == cache.local || target.health <= 0) continue;
+            const auto delta = target.head - eye;
+            target.distance_squared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+            target.angle = CalcAngle(eye, target.head);
+        }
+        ++silent_geometry_updates;
     }
     void RunSilentAimSubTick(DWORD* a1, sdk::C_CSPlayerPawn* localPawn)
     {
@@ -327,20 +350,26 @@ namespace features {
         sample.data.input_valid = true;
         if (!localPawn) { silent_aim_status = "Local pawn unavailable"; return; }
         if (!config::aimbot::enabled || !config::aimbot::silent_aim) { silent_aim_status = "Silent aim disabled"; return; }
-        if (!game_state::IsInGame()) { silent_aim_status = "Local game state unavailable"; return; }
+        const auto state = game_state::GetSnapshot();
+        if (!state.in_game) { silent_aim_status = "Local game state unavailable"; return; }
         if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) { silent_aim_status = "Pause key held"; return; }
 
 
 
-        uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-        if (!client) {
-            silent_aim_status = "client.dll unavailable";
+        // The state monitor already resolves client.dll. Reuse one coherent
+        // snapshot instead of taking its mutex repeatedly or the loader lock.
+        const uintptr_t entity_list = state.entity_list;
+        if (!entity_list) {
+            silent_aim_status = "Entity list unavailable";
             return;
         }
 
         uintptr_t localPawnPtr = reinterpret_cast<uintptr_t>(localPawn);
 
-        const auto activeWeapon = skins::GetActiveWeapon();
+        const auto services = sdk::read_value<uintptr_t>(localPawnPtr + sdk::off::C_BasePlayerPawn::m_pWeaponServices);
+        uint32_t activeHandle = UINT32_MAX;
+        if (services) sdk::read_memory(services + sdk::off::CPlayer_WeaponServices::m_hActiveWeapon, activeHandle);
+        const auto activeWeapon = sdk::entity_from_handle(entity_list, activeHandle);
         if (!activeWeapon) { silent_aim_status = "Active weapon unresolved"; return; }
         if (skins::IsKnife(skins::GetDefIndex(activeWeapon))) { silent_aim_status = "Knife equipped"; return; }
         int localHealth = sdk::read_value<int>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
@@ -352,17 +381,17 @@ namespace features {
         if (!sample.data.eye_valid) { silent_aim_status = "Eye position contains NaN/Inf"; return; }
         int localTeam = sdk::read_value<uint8_t>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
 
-         uintptr_t entity_list = game_state::GetEntityList();
-        if (!entity_list || !sdk::is_valid_ptr(entity_list)) {
-            silent_aim_status = "Entity list unavailable";
-            return;
-        }
-
-        const auto& players = ReadSilentTargets(entity_list, localPawnPtr, activeWeapon);
+        auto& players = ReadSilentTargets(entity_list, localPawnPtr, activeWeapon);
+        PrepareSilentGeometry(players, localEye);
         const int localIndex = players.local_index;
         sdk::C_CSPlayerPawn* bestTarget = nullptr;
         sdk::Vector3 bestHeadPos;
-        float bestFov = config::aimbot::fov;
+        const float maxFov = config::aimbot::fov;
+        const float maxDistance = config::aimbot::max_distance;
+        if (!std::isfinite(maxFov) || maxFov < 0 || !std::isfinite(maxDistance) || maxDistance < 0) return;
+        const float maxFovSquared = maxFov * maxFov;
+        const float maxDistanceSquared = maxDistance * maxDistance;
+        float bestFovSquared = maxFovSquared;
         int bestControllerIndex = -1;
 
         for (int i = 1; i <= 64; i++) {
@@ -385,25 +414,23 @@ namespace features {
 
 
 
-            if (headPos.x == 0.0f && headPos.y == 0.0f && headPos.z == 0.0f) {
+            if (!sdk::finite(headPos) || (headPos.x == 0.0f && headPos.y == 0.0f && headPos.z == 0.0f)) {
                 continue;
             }
 
 
 
             ++sample.data.bones;
-            float dist = localEye.Distance(headPos);
-            if (dist > config::aimbot::max_distance) continue;
+            if (candidate.distance_squared > maxDistanceSquared) continue;
             ++sample.data.in_range;
 
-            sdk::Vector2 aim2D = CalcAngle(localEye, headPos);
-            sdk::QAngle aimAngles(aim2D.x, aim2D.y, 0.0f);
+            const float pitch = candidate.angle.x - sourceAngles.x;
+            const float yaw = sdk::normalize_yaw(candidate.angle.y - sourceAngles.y);
+            const float fovSquared = pitch * pitch + yaw * yaw;
 
-            float fov = GetFovA({sourceAngles.x, sourceAngles.y, sourceAngles.z}, aimAngles);
-
-            if (fov <= config::aimbot::fov) ++sample.data.in_fov;
-            if (fov <= bestFov) {
-                bestFov = fov;
+            if (fovSquared <= maxFovSquared) ++sample.data.in_fov;
+            if (fovSquared <= bestFovSquared) {
+                bestFovSquared = fovSquared;
                 bestTarget = reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn);
                 bestHeadPos = headPos;
                 bestControllerIndex = i;
@@ -437,7 +464,7 @@ namespace features {
         sample.data.target = bestHeadPos;
         sample.data.target_valid = true;
         // Angle calculation
-        sdk::Vector2 target2D = CalcAngle(localEye, bestHeadPos);
+        sdk::Vector2 target2D = selected.angle;
         sdk::QAngle targetAngles(target2D.x, target2D.y, 0.0f);
 
         sdk::QAngle currentAngles = {sourceAngles.x, sourceAngles.y, sourceAngles.z};
@@ -658,12 +685,8 @@ namespace features {
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
         ImU32 outline_col = ImGui::ColorConvertFloat4ToU32(ImVec4(0.0f, 0.0f, 0.0f, 0.8f));
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                if (x == 0 && y == 0) continue;
-                draw_list->AddText(ImVec2(pos.x + x, pos.y + y), outline_col, text);
-            }
-        }
+        // One shadow pass instead of eight full copies of every glyph.
+        draw_list->AddText(ImVec2(pos.x + 1, pos.y + 1), outline_col, text);
         draw_list->AddText(ImVec2(pos.x, pos.y), col, text);
     }
 
@@ -690,7 +713,17 @@ namespace features {
         }
     }
 
-    void DrawSkeleton(sdk::C_CSPlayerPawn* player, const sdk::ViewMatrix& view_matrix, int screen_width, int screen_height, const float color[4]) {
+    struct EspBones {
+        struct Bone { sdk::Vector3 position; unsigned char padding[20]; };
+        static_assert(sizeof(Bone) == 32);
+        Bone bones[sdk::BONE_RIGHT_FOOT + 1]{};
+    };
+    static bool ReadEspBones(uintptr_t scene, EspBones& bones) {
+        const auto array = sdk::read_value<uintptr_t>(scene + sdk::off::CSkeletonInstance::m_modelState + 0x80);
+        // One bounded read includes every skeleton joint, including the head.
+        return array && sdk::read_memory(array, bones);
+    }
+    static void DrawEspSkeleton(const EspBones& bones, const sdk::ViewMatrix& view_matrix, int screen_width, int screen_height, const float color[4]) {
         const int bone_connections[][2] = {
             {sdk::BONE_HEAD, sdk::BONE_NECK},
             {sdk::BONE_NECK, sdk::BONE_CHEST},
@@ -708,16 +741,29 @@ namespace features {
             {sdk::BONE_RIGHT_HIP, sdk::BONE_RIGHT_KNEE},
             {sdk::BONE_RIGHT_KNEE, sdk::BONE_RIGHT_FOOT}
         };
+        sdk::Vector2 projected[sdk::BONE_RIGHT_FOOT + 1]{};
+        bool visited[sdk::BONE_RIGHT_FOOT + 1]{}, valid[sdk::BONE_RIGHT_FOOT + 1]{};
+        auto* draw = ImGui::GetBackgroundDrawList();
+        const auto packed = ImGui::ColorConvertFloat4ToU32({color[0],color[1],color[2],color[3]});
         for (const auto& connection : bone_connections) {
-            sdk::Vector3 bone1_pos = player->GetBonePosition(connection[0]);
-            sdk::Vector3 bone2_pos = player->GetBonePosition(connection[1]);
-            if (bone1_pos.Length() == 0.0f || bone2_pos.Length() == 0.0f) continue;
-            sdk::Vector2 bone1_screen, bone2_screen;
-            if (WorldToScreen(bone1_pos, bone1_screen, view_matrix, screen_width, screen_height) &&
-                WorldToScreen(bone2_pos, bone2_screen, view_matrix, screen_width, screen_height)) {
-                DrawLine(bone1_screen, bone2_screen, color, 2.0f);
+            for (int joint : connection) {
+                if (visited[joint]) continue;
+                visited[joint] = true;
+                const auto& position = bones.bones[joint].position;
+                valid[joint] = (position.x != 0 || position.y != 0 || position.z != 0) &&
+                    WorldToScreen(position, projected[joint], view_matrix, screen_width, screen_height);
+            }
+            if (valid[connection[0]] && valid[connection[1]]) {
+                const auto& a = projected[connection[0]]; const auto& b = projected[connection[1]];
+                draw->AddLine({a.x,a.y},{b.x,b.y},packed,2.0f);
             }
         }
+    }
+    void DrawSkeleton(sdk::C_CSPlayerPawn* player, const sdk::ViewMatrix& view_matrix, int screen_width, int screen_height, const float color[4]) {
+        if (!player) return;
+        const auto scene = sdk::read_value<uintptr_t>(reinterpret_cast<uintptr_t>(player) + sdk::off::C_BaseEntity::m_pGameSceneNode);
+        EspBones bones{};
+        if (scene && ReadEspBones(scene,bones)) DrawEspSkeleton(bones,view_matrix,screen_width,screen_height,color);
     }
 
     // ======================== ENTITY LIST MANAGEMENT ========================
@@ -767,72 +813,107 @@ namespace features {
     }
 
 
-    static void UpdateCache() {
-
-
-        g_view_matrix = {};
-        GetPlayerList();
-        HMODULE client_mod = GetModuleHandleA("client.dll");
-        if (client_mod) {
-            uintptr_t base = reinterpret_cast<uintptr_t>(client_mod);
-            auto* matrix_ptr = reinterpret_cast<sdk::ViewMatrix*>(base + cs2_dumper::offsets::client_dll::dwViewMatrix);
-            if (matrix_ptr) {
-                sdk::read_memory(reinterpret_cast<uintptr_t>(matrix_ptr), g_view_matrix);
-            }
-        }
-
-        UpdateScreenDimensions();
-    }
+    struct EspNameCache {
+        uintptr_t controller = 0;
+        uint32_t handle = UINT32_MAX;
+        ULONGLONG expires = 0;
+        char name[128]{};
+    };
+    static EspNameCache esp_names[65]{};
+    static uintptr_t esp_name_system = 0, esp_name_local = 0;
 
     void RenderESP() {
         if (!config::esp::enabled) return;
-        if (!game_state::IsInGame()) return;
-        UpdateCache();
+        const auto state = game_state::GetSnapshot();
+        if (!state.in_game || !state.pawn || !state.entity_list) {
+            std::fill(std::begin(esp_names),std::end(esp_names),EspNameCache{});
+            esp_name_system = esp_name_local = 0;
+            return;
+        }
+        if (esp_name_system != state.entity_list || esp_name_local != state.pawn) {
+            std::fill(std::begin(esp_names),std::end(esp_names),EspNameCache{});
+            esp_name_system = state.entity_list; esp_name_local = state.pawn;
+        }
+        if (!config::esp::box && !config::esp::health_bar && !config::esp::name &&
+            !config::esp::skeleton && !config::esp::distance && !config::esp::snaplines) return;
+        const auto client = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
+        if (!client || !sdk::read_memory(client + cs2_dumper::offsets::client_dll::dwViewMatrix, g_view_matrix)) return;
+        UpdateScreenDimensions();
+        uint8_t local_team = 0;
+        sdk::Vector3 local_origin{};
+        if (!sdk::read_memory(state.pawn + sdk::off::C_BaseEntity::m_iTeamNum,local_team) ||
+            !sdk::read_memory(state.pawn + sdk::off::C_BasePlayerPawn::m_vOldOrigin,local_origin) ||
+            !sdk::finite(local_origin)) return;
+        const float max_distance = config::esp::max_distance / 0.0254f;
+        if (!std::isfinite(max_distance) || max_distance < 0) return;
+        const float max_distance_squared = max_distance * max_distance;
+        const auto now = GetTickCount64();
 
-		uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
+        // Resolve current handles every frame: only names are cached. Position,
+        // health, dormancy and serial checks never use stale player snapshots.
+        for (int index = 1; index <= 64; ++index) {
+            const auto controller = sdk::entity_at(state.entity_list,index);
+            auto& cached_name = esp_names[index];
+            if (!controller) { cached_name = {}; continue; }
+            uint32_t handle = UINT32_MAX;
+            if (!sdk::read_memory(controller + sdk::off::CCSPlayerController::m_hPlayerPawn,handle)) continue;
+            const auto player = sdk::entity_from_handle(state.entity_list,handle);
+            if (!player || player == state.pawn) continue;
+            int health = 0; uint8_t team = 0;
+            if (!sdk::read_memory(player + sdk::off::C_BaseEntity::m_iHealth,health) || health <= 0 ||
+                !sdk::read_memory(player + sdk::off::C_BaseEntity::m_iTeamNum,team)) continue;
+            if (config::esp::team_check && team == local_team) continue;
+            sdk::Vector3 origin{};
+            if (!sdk::read_memory(player + sdk::off::C_BasePlayerPawn::m_vOldOrigin,origin) || !sdk::finite(origin)) continue;
+            const auto delta = local_origin - origin;
+            const float distance_squared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+            if (!std::isfinite(distance_squared) || distance_squared > max_distance_squared) continue;
+            const auto scene = sdk::read_value<uintptr_t>(player + sdk::off::C_BaseEntity::m_pGameSceneNode);
+            bool dormant = true;
+            if (!scene || !sdk::read_memory(scene + sdk::off::CGameSceneNode::m_bDormant,dormant) || dormant) continue;
 
-		uintptr_t g_local_player2 = game_state::GetLocalPawnRaw();
-        if (!g_local_player2) return;
-
-		int local_team = sdk::read_value<uint8_t>(g_local_player2 + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-        uintptr_t local_pawn_addr = g_local_player2;
-
-        for (uintptr_t player : playerPawns) {
-            if (!player || player == local_pawn_addr) continue;
-            int player_team = sdk::read_value<uint8_t>(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-            int health = sdk::read_value<int>(player + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
-            if (config::esp::team_check && player_team == local_team) continue;
-
-            try {
-                sdk::Vector3 origin = sdk::read_value<sdk::Vector3>(player + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
-                sdk::Vector3 head_pos = { origin.x, origin.y, origin.z + 65.0f };
-                const auto bone_head = GetBonePositionRaw(player, sdk::BONE_HEAD);
-                if (sdk::finite(bone_head) && bone_head.Length() > 0.0f) head_pos = bone_head + sdk::Vector3(0, 0, 5);
-                sdk::Vector3 ourpos = sdk::read_value<sdk::Vector3>(local_pawn_addr + cs2_dumper::schemas::client_dll::C_BasePlayerPawn::m_vOldOrigin);
-                float distance = ourpos.Distance(origin);
-                if (distance * 0.0254f > config::esp::max_distance) continue;
-                sdk::Vector2 screen_pos, screen_head;
-                if (!WorldToScreen(origin, screen_pos, g_view_matrix, g_screen_width, g_screen_height)) continue;
-                if (!WorldToScreen(head_pos, screen_head, g_view_matrix, g_screen_width, g_screen_height)) continue;
-                float height = screen_pos.y - screen_head.y;
-                float width = height / 2.0f;
-                const float* color = (player_team == local_team) ? config::esp::team_color : config::esp::box_color;
-
-                if (config::esp::name) {
-                    auto found = player_names.find(player);
-                    if (found != player_names.end()) DrawText({screen_head.x, screen_head.y - 16}, found->second.c_str(), color);
-                }
-                if (config::esp::box) DrawBox(screen_head, screen_pos, width, color);
-                if (config::esp::health_bar) DrawHealthBar(sdk::Vector2(screen_head.x - width / 2, screen_head.y), sdk::Vector2(screen_pos.x - width / 2, screen_pos.y), health, 100);
-                if (config::esp::skeleton) DrawSkeleton(reinterpret_cast<sdk::C_CSPlayerPawn*>(player), g_view_matrix, g_screen_width, g_screen_height, config::esp::skeleton_color);
-                if (config::esp::distance) {
-                    char dist_text[32];
-                    sprintf_s(dist_text, "%.0fm", distance * 0.0254f);
-                    DrawText(sdk::Vector2(screen_pos.x - 15, screen_pos.y + 5), dist_text, color);
-                }
-                if (config::esp::snaplines) DrawLine(sdk::Vector2(g_screen_width / 2.0f, static_cast<float>(g_screen_height)), screen_pos, color, 1.0f);
+            EspBones bones{};
+            bool has_bones = false;
+            sdk::Vector3 bone_head{};
+            if (config::esp::skeleton) {
+                has_bones = ReadEspBones(scene,bones);
+                if (has_bones) bone_head = bones.bones[sdk::BONE_HEAD].position;
+            } else {
+                const auto array = sdk::read_value<uintptr_t>(scene + sdk::off::CSkeletonInstance::m_modelState + 0x80);
+                if (array) sdk::read_memory(array + sdk::BONE_HEAD * 32,bone_head);
             }
-            catch (...) { continue; }
+            sdk::Vector3 head = origin + sdk::Vector3{0,0,65};
+            if (sdk::finite(bone_head) && (bone_head.x != 0 || bone_head.y != 0 || bone_head.z != 0))
+                head = bone_head + sdk::Vector3{0,0,5};
+            sdk::Vector2 screen_pos{}, screen_head{};
+            if (!WorldToScreen(origin,screen_pos,g_view_matrix,g_screen_width,g_screen_height) ||
+                !WorldToScreen(head,screen_head,g_view_matrix,g_screen_width,g_screen_height)) continue;
+            const float height = screen_pos.y - screen_head.y;
+            const float width = height * 0.5f;
+            if (!std::isfinite(height) || height <= 0) continue;
+            // Skip fully off-screen boxes, including margin for labels/limbs.
+            if (screen_head.x + width + 128 < 0 || screen_head.x - width - 128 > g_screen_width ||
+                screen_pos.y + 32 < 0 || screen_head.y - 32 > g_screen_height) continue;
+            const float* color = team == local_team ? config::esp::team_color : config::esp::box_color;
+
+            if (config::esp::name) {
+                if (cached_name.controller != controller || cached_name.handle != handle || now >= cached_name.expires) {
+                    cached_name = {}; cached_name.controller = controller; cached_name.handle = handle;
+                    cached_name.expires = now + 250;
+                    sdk::read_memory(controller + sdk::off::CBasePlayerController::m_iszPlayerName,cached_name.name);
+                    cached_name.name[127] = '\0';
+                }
+                if (cached_name.name[0]) DrawText({screen_head.x,screen_head.y-16},cached_name.name,color);
+            }
+            if (config::esp::box) DrawBox(screen_head,screen_pos,width,color);
+            if (config::esp::health_bar) DrawHealthBar({screen_head.x-width/2,screen_head.y},{screen_pos.x-width/2,screen_pos.y},health,100);
+            if (config::esp::skeleton && has_bones) DrawEspSkeleton(bones,g_view_matrix,g_screen_width,g_screen_height,config::esp::skeleton_color);
+            if (config::esp::distance) {
+                char distance_text[32];
+                sprintf_s(distance_text,"%.0fm",std::sqrt(distance_squared)*0.0254f);
+                DrawText({screen_pos.x-15,screen_pos.y+5},distance_text,color);
+            }
+            if (config::esp::snaplines) DrawLine({g_screen_width/2.0f,static_cast<float>(g_screen_height)},screen_pos,color,1.0f);
         }
     }
 

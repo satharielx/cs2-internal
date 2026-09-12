@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <cstdio>
 #include <thread>
+#include <future>
 #include "swapchain_hook_unused_stubs.h"
 
 using Microsoft::WRL::ComPtr;
@@ -248,6 +249,24 @@ int main() {
         test_silent_callback = true;
         globals::console_open = false;
         config::aimbot::enabled = config::aimbot::silent_aim = true;
+        // A long ESP/menu render on another thread must not stall serialization.
+        oSubTickAngle = [](DWORD*, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 { return 987; };
+        const auto skippedBefore=features::silent_settings_skips.load();
+        const auto writesBefore=features::silent_aim_writes.load();
+        std::promise<bool> forwarded;
+        auto forwardedResult=forwarded.get_future();
+        std::unique_lock<std::recursive_mutex> renderLock(config::mutex);
+        std::thread serializer([&] {
+            bool correct=true;
+            for (int i=0;i<1000;++i) correct &= hkSubTickAngle(nullptr,nullptr,0,0,0,nullptr)==987;
+            forwarded.set_value(correct);
+        });
+        const bool nonblocking=forwardedResult.wait_for(std::chrono::seconds(1))==std::future_status::ready;
+        renderLock.unlock();
+        serializer.join();
+        Check(nonblocking && forwardedResult.get(), "Busy settings do not block original subtick callbacks");
+        Check(features::silent_settings_skips==skippedBefore+1000 && features::silent_aim_writes==writesBefore,
+            "Contended subticks skip aim without reading shared settings or changing source");
         DWORD history[7]{123,456,789,1011,0,0,0};
         alignas(8) unsigned char entry[0x80]{}, angleMessage[0x30]{};
         sdk::write_memory(reinterpret_cast<uintptr_t>(entry)+0x18,reinterpret_cast<uintptr_t>(angleMessage));

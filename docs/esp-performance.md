@@ -1,0 +1,9 @@
+ESP performance follow-up
+
+The previous renderer fetched both endpoints separately for every skeleton segment, repeatedly resolving and validating the same scene and bone-array pointers. It also drew each label nine times, rebuilt name maps every frame, and reread local position and player health during enumeration and drawing.
+
+The renderer now reads the required 28 bone records as one bounded block per player and projects each used joint once. Head placement reuses that block. With skeletons disabled, it reads only the head. Labels use one shadow and one foreground pass. One pass over controllers resolves current serial-checked handles and reads each player's health, team, origin and dormancy; local origin and game state are read once. Names are cached for 250 ms and invalidated on controller/handle or local/entity-system changes. Position, health, camera and bone data remain live on every frame. Distance/team filtering precedes bone reads; fully off-screen boxes are skipped before label and skeleton drawing.
+
+Validation: `powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_feature_regressions.ps1` passes. Its 32-player, 60-frame ESP fixture measured approximately 730 ms before and 21 ms after, with memory reads reduced from 213,240 to 30,964 and vertices from 23,312 to 8,320 per frame. The fixture checks disabled ESP, dead/dormant/team/distance rejection, stale serials and replacement names, camera changes, off-screen culling, missing bones, invalid bone positions, and disconnect cleanup. Read-count and vertex-count bounds guard against regressions; elapsed time is reported without a machine-dependent pass threshold.
+
+These measurements use owned synthetic buffers and ImGui draw-list generation, not live game FPS or GPU timing. Rebuild the DLL to use the changes; in-game frame-time improvement remains unverified.

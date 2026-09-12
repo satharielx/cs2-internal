@@ -3690,6 +3690,16 @@
     <Font Include="core\fonts\main_menu\variants\Orbitron-SemiBold.ttf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup>
+    <None Include="ui\index.html" />
+    <None Include="ui\style.css" />
+    <None Include="ui\app.js" />
+    <ClInclude Include="core\loadout_web.h" />
+  </ItemGroup>
+  <Target Name="CopyWebEditor" AfterTargets="Build">
+    <ItemGroup><WebEditorFiles Include="$(ProjectDir)ui\*" /></ItemGroup>
+    <Copy SourceFiles="@(WebEditorFiles)" DestinationFolder="$(OutDir)ui" SkipUnchangedFiles="true" />
+  </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>

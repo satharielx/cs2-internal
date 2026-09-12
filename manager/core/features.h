@@ -15,6 +15,7 @@ namespace features {
     inline std::atomic<unsigned> aim_controllers{0}, aim_resolved_pawns{0};
     inline std::atomic<unsigned> silent_history_writes{0};
     inline std::atomic<unsigned> silent_target_scans{0}, silent_cache_hits{0};
+    inline std::atomic<unsigned> silent_settings_skips{0}, silent_geometry_updates{0};
     struct SilentAimDebug {
         uintptr_t source = 0;
         DWORD raw_angles[3]{};

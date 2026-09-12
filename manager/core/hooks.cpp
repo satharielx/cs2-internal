@@ -92,20 +92,29 @@ __int64 __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float
     ++features::silent_callbacks;
     sdk::Vector3 requested{};
     bool applied = false;
+    bool verify_history = false;
     {
-        std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
-        if (!s_stopping && !globals::menu_open && !globals::console_open &&
+        // Present holds this mutex while drawing ESP and menus. Never make the
+        // game's subtick serializer wait for a render-thread pass.
+        std::unique_lock<std::recursive_mutex> settings_lock(config::mutex, std::try_to_lock);
+        if (!settings_lock.owns_lock()) {
+            ++features::silent_settings_skips;
+        } else if (!s_stopping && !globals::menu_open && !globals::console_open &&
             config::aimbot::enabled && config::aimbot::silent_aim) {
             const auto before = features::silent_aim_writes.load();
             // The serializer consumes source floats at +0x10/+0x14/+0x18.
             // Keep the source edit for later consumers; leave its tick fields alone.
             features::RunSilentAimSubTick(source, game_state::GetLocalPawn());
-            applied = features::silent_aim_writes.load() != before && source &&
+            applied = features::silent_aim_writes.load() != before;
+            static thread_local ULONGLONG next_verification = 0;
+            const auto now = GetTickCount64();
+            verify_history = applied && now >= next_verification && source &&
                 sdk::read_memory(reinterpret_cast<uintptr_t>(source + 4), requested);
+            if (verify_history) next_verification = now + 250;
         } else features::silent_aim_status = "Disabled or menu/console open";
     }
     const auto result = oSubTickAngle(source, history, mode, frameFraction, playerFraction, target);
-    if (applied) {
+    if (verify_history) {
         const auto entry = reinterpret_cast<uintptr_t>(history);
         const auto message = entry ? sdk::read_value<uintptr_t>(entry + 0x18) : 0;
         sdk::Vector3 actual{};
