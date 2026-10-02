@@ -138,6 +138,9 @@
     <ClInclude Include="core\debug_console.h" />
     <ClInclude Include="core\error_logger.h" />
     <ClInclude Include="core\features.h" />
+    <ClInclude Include="core\skybox.h" />
+    <ClInclude Include="core\lighting.h" />
+    <ClInclude Include="core\viewmodel.h" />
     <ClInclude Include="core\game_state.h" />
     <ClInclude Include="core\hooks.h" />
     <ClInclude Include="core\Hook_FrameStageNotify.hpp" />
@@ -3645,6 +3648,7 @@
     <ClCompile Include="core\debug_console.cpp" />
     <ClCompile Include="core\error_logger.cpp" />
     <ClCompile Include="core\features.cpp" />
+    <ClCompile Include="core\skybox.cpp" />
     <ClCompile Include="core\game_state.cpp" />
     <ClCompile Include="core\hooks.cpp" />
     <ClCompile Include="core\Hook_FrameStageNotify.cpp" />

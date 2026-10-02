@@ -1,5 +1,7 @@
 #include "menu_advanced.h"
 #include "config.h"
+#include "skybox.h"
+#include "lighting.h"
 #include "skins.h"
 #include "loadout_web.h"
 #include "features.h"
@@ -452,6 +454,36 @@ namespace menu_advanced {
         SectionHeader("View & Visuals", ICON_FA_EYE);
         BeginAnimatedCard("##ViewCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::Indent(10);
+        ImGui::Checkbox("Custom viewmodel FOV", &config::viewmodel::fov_enabled);
+        ImGui::BeginDisabled(!config::viewmodel::fov_enabled);
+        ImGui::SliderFloat("Viewmodel FOV", &config::viewmodel::fov, 40.0f, 120.0f, "%.0f deg");
+        ImGui::EndDisabled();
+        ImGui::Checkbox("No visual aim punch", &config::viewmodel::no_aim_punch);
+        ImGui::Separator();
+        ImGui::Checkbox("Custom light color", &config::lighting::enabled);
+        ImGui::BeginDisabled(!config::lighting::enabled);
+        ImGui::ColorEdit3("Light color", config::lighting::color);
+        ImGui::SliderFloat("Light brightness", &config::lighting::brightness, 0.0f, 5.0f, "%.2f");
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("%s", lighting::status.load());
+        ImGui::Separator();
+        ImGui::Checkbox("Custom sky color", &config::skybox::color_enabled);
+        ImGui::ColorEdit3("Sky color", config::skybox::color);
+        ImGui::SliderFloat("Sky brightness", &config::skybox::brightness, 0.0f, 5.0f, "%.2f");
+        ImGui::TextWrapped("%s", skybox::color_status.load());
+        ImGui::Checkbox("Custom skybox", &config::skybox::enabled);
+        static char sky_material[256] = "materials/skybox/sky_day02_01.vmat";
+        ImGui::InputText("Sky material", sky_material, sizeof(sky_material));
+        ImGui::TextDisabled("Game-relative material path (.vmat or .vmat_c)");
+        if (ImGui::Button("Apply skybox")) {
+            strcpy_s(config::skybox::material, sky_material);
+            config::skybox::enabled = true;
+            ++skybox::world_revision;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Restore map sky")) config::skybox::enabled = false;
+        ImGui::TextWrapped("%s", skybox::status.load());
+        ImGui::Separator();
         ImGui::Checkbox("No Flash", &config::misc::no_flash);
         ImGui::SameLine(200); ImGui::TextDisabled("Remove flashbang effect");
         ImGui::Checkbox("Radar Hack", &config::misc::radar_hack);
@@ -477,6 +509,23 @@ namespace menu_advanced {
         ImGui::Indent(10);
         ImGui::Checkbox("Bunny Hop", &config::misc::bunny_hop);
         ImGui::SameLine(200); ImGui::TextDisabled("Auto-jump");
+        ImGui::Checkbox("Custom sky color", &config::skybox::color_enabled);
+        ImGui::ColorEdit3("Sky color", config::skybox::color);
+        ImGui::SliderFloat("Sky brightness", &config::skybox::brightness, 0.0f, 5.0f, "%.2f");
+        ImGui::TextWrapped("%s", skybox::color_status.load());
+        ImGui::Checkbox("Custom skybox", &config::skybox::enabled);
+        static char sky_material[256] = "materials/skybox/sky_day02_01.vmat";
+        ImGui::InputText("Sky material", sky_material, sizeof(sky_material));
+        ImGui::TextDisabled("Game-relative material path (.vmat or .vmat_c)");
+        if (ImGui::Button("Apply skybox")) {
+            strcpy_s(config::skybox::material, sky_material);
+            config::skybox::enabled = true;
+            ++skybox::world_revision;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Restore map sky")) config::skybox::enabled = false;
+        ImGui::TextWrapped("%s", skybox::status.load());
+        ImGui::Separator();
         ImGui::Checkbox("No Flash", &config::misc::no_flash);
         ImGui::Checkbox("Radar Hack", &config::misc::radar_hack);
         ImGui::Unindent(10);

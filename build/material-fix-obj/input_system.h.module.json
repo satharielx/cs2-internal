@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "C:\\Windows\\cs2-internal-master\\build\\material-fix-obj\\input_system.h.obj",
+            "outputs": [
+                "C:\\Windows\\cs2-internal-master\\build\\material-fix-obj\\vc145.pdb",
+                "C:\\Windows\\cs2-internal-master\\build\\material-fix-obj\\",
+                "C:\\Windows\\cs2-internal-master\\build\\material-fix-obj\\input_system.h.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "sdk\\interfaces\\input_system.h",
+                    "source-path": "c:\\windows\\cs2-internal-master\\manager\\sdk\\interfaces\\input_system.h",
+                    "lookup-method": "absolute"
+                }
+            ],
+            "requires": []
+        }
+    ]
+}

@@ -67,6 +67,19 @@ static unsigned refreshes = 0, attributes = 0;
 static uintptr_t last_refresh_owner = 0;
 static void __fastcall Refresh(void* owner, bool) { ++refreshes; last_refresh_owner = reinterpret_cast<uintptr_t>(owner); }
 static void __fastcall Attribute(void*, const char*, float) { ++attributes; }
+static unsigned regenerations=0, gloveBuilds=0, bodyGroups=0;
+static bool failGloveBuild=false;
+static Buffer generatedGlove(0xB0);
+static void __fastcall BuildSkin(void* item, void* model, int64_t zero, int size, char a, char b, void* extra) {
+    assert(item && model && zero==0 && size==2048 && !a && !b && !extra);
+    ++refreshes; last_refresh_owner=reinterpret_cast<uintptr_t>(model);
+}
+static void __fastcall Regenerate() { ++regenerations; }
+static void* __fastcall CreateGlove(void*) { ++gloveBuilds; return failGloveBuild ? nullptr : reinterpret_cast<void*>(generatedGlove.addr()); }
+static void __fastcall BodyGroup(void*, const char* name, unsigned int value) {
+    assert(std::strcmp(name,"first_or_third_person")==0 && value==1); ++bodyGroups;
+}
+
 static unsigned model_calls = 0, mesh_calls = 0;
 static uintptr_t model_entity = 0, mesh_node = 0;
 static void __fastcall Model(void* entity, const char*) { ++model_calls; model_entity = reinterpret_cast<uintptr_t>(entity); }
@@ -245,11 +258,19 @@ int main() {
     game_state::test_state={true,system.addr(),0,pawn.addr()};
     skins::g_engine_funcs_resolved=true; skins::s_engineFunctionsResolved=true;
     skins::g_fnUpdateComposite=Refresh; skins::g_compositeOwnerOffset=0x608; skins::g_fnSetAttribute=Attribute;
+    Buffer paintSchema(0x310), paintNodes(0x40), gunKit(0xB0), gloveKit(0xB0);
+    gunKit.put<int>(0,282); gunKit.put<bool>(0xAE,true);
+    gloveKit.put<int>(0,10018); gloveKit.put<uintptr_t>(8,reinterpret_cast<uintptr_t>("sporty_blue"));
+    paintSchema.put<int>(0x2F0,2); paintSchema.put(0x2F8,paintNodes.addr());
+    paintNodes.put(0x18,gunKit.addr()); paintNodes.put(0x38,gloveKit.addr());
+    skins::g_paintKitSchema=paintSchema.addr();
+    skins::g_fnBuildSkin=BuildSkin; skins::g_fnRegenerateSkins=Regenerate;
+    skins::g_fnCreatePaintKit=CreateGlove; skins::g_fnSetBodyGroup=BodyGroup;
     skins::PlayerSkinConfig cfg; cfg.paint_kit=282; cfg.seed=12; cfg.wear=0.1f;
     cfg.stattrak=true; cfg.stattrak_count=321; cfg.name_tag="regression";
     skins::user_skins[7]=cfg; skins::user_skins[9]=cfg;
-    skins::SetCurrentFrameStage(7); skins::ApplyAllSkins(); assert(refreshes==0);
-    skins::SetCurrentFrameStage(6); skins::ApplyAllSkins();
+    skins::SetCurrentFrameStage(6); skins::ApplyAllSkins(); assert(refreshes==0);
+    skins::SetCurrentFrameStage(7); skins::ApplyAllSkins();
     assert(refreshes==2 && attributes==6); // Includes the inactive weapon.
     assert(skins::GetActiveWeapon()==first.addr());
     auto weapon_reads=skins::GetWeaponReadDiagnostics();
@@ -273,7 +294,7 @@ int main() {
     skins::user_skins[7].wear=inf; skins::user_skins[7].stattrak=false;
     skins::user_skins[7].name_tag=std::string(200,'x');
     skins::ApplyAllSkins(); assert(refreshes==3);
-    assert(last_refresh_owner==first.addr()+0x608);
+    assert(last_refresh_owner==first.addr());
     assert(sdk::read_value<float>(first.addr()+skins::OFF_FALLBACK_WEAR)==0);
     assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_STATTRAK)==-1);
     assert(sdk::read_value<char>(first.addr()+skins::OFF_CUSTOM_NAME+160)==0);
@@ -284,14 +305,43 @@ int main() {
     assert(sdk::read_value<char>(first.addr()+skins::OFF_CUSTOM_NAME)==0);
     skins::ApplyAllSkins(); assert(refreshes==4);
 
+    // A schema/material failure must not become a permanent cache hit after
+    // the fallback fields have already been written.
+    gunKit.put<int>(0,999);
+    skins::user_skins[9].wear=0.2f;
+    const auto beforeRetry=refreshes;
+    skins::ApplyAllSkins(); assert(refreshes==beforeRetry);
+    assert(!skins::saved_skins.at(second.addr()).materialReady);
+    gunKit.put<int>(0,282);
+    skins::ApplyAllSkins(); assert(refreshes==beforeRetry+1);
+    assert(skins::saved_skins.at(second.addr()).materialReady);
+    skins::ApplyAllSkins(); assert(refreshes==beforeRetry+1);
+
     skins::glove_database.emplace_back(10018,"Superconductor",5030);
     skins::selected_glove_kit=10018;
     unsigned before=attributes;
-    skins::SetCurrentFrameStage(7); skins::ApplyGloves(); assert(attributes==before);
-    skins::SetCurrentFrameStage(6); skins::ApplyGloves(); assert(attributes==before+3);
+    skins::SetCurrentFrameStage(6); skins::ApplyGloves(); assert(attributes==before);
+    skins::SetCurrentFrameStage(7); skins::ApplyGloves(); assert(attributes==before+3);
     auto glove=pawn.addr()+cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
     assert(sdk::read_value<uint16_t>(glove+C_EconItemView::m_iItemDefinitionIndex)==5030);
     skins::ApplyGloves(); assert(attributes==before+3);
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flLastSpawnTimeIndex, 1.0f);
+    skins::ApplyGloves(); assert(attributes==before+6);
+    pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum, 3);
+    skins::ApplyGloves(); assert(attributes==before+9);
+    skins::selected_glove_kit=0;
+    skins::ApplyGloves(); assert(attributes==before+12);
+    assert(sdk::read_value<uint16_t>(glove+C_EconItemView::m_iItemDefinitionIndex)==5029);
+    assert(sdk::read_value<uint32_t>(glove+C_EconItemView::m_iItemIDHigh)==0);
+    skins::ApplyGloves(); assert(attributes==before+12);
+    assert(gloveBuilds==3 && bodyGroups==4);
+    assert(sdk::read_value<uintptr_t>(generatedGlove.addr()+8)==sdk::read_value<uintptr_t>(gloveKit.addr()+8));
+    skins::selected_glove_kit=10018; failGloveBuild=true;
+    skins::ApplyGloves(); assert(gloveBuilds==4 && bodyGroups==4);
+    failGloveBuild=false;
+    skins::ApplyGloves(); assert(gloveBuilds==5 && bodyGroups==5);
+    skins::selected_glove_kit=0; skins::ApplyGloves();
+
 
     pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum,2);
     first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,150);
@@ -485,6 +535,30 @@ int main() {
     scene.put(0,sceneVtable.addr()); handsScene.put(0,sceneVtable.addr());
     second.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,handsScene.addr());
     pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_hHudModelArms,handle2);
+    Buffer hudNode(0x100), hudWeapon(0x1000);
+    handsScene.put(CGameSceneNode::m_pChild,hudNode.addr());
+    hudNode.put(CGameSceneNode::m_pOwner,hudWeapon.addr());
+    hudWeapon.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity,handle1);
+    // Paint-kit metadata selects the legacy mesh on both model instances.
+    Buffer worldScene(0x500), hudScene(0x500);
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,worldScene.addr());
+    hudWeapon.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,hudScene.addr());
+    first.put<int>(skins::OFF_FALLBACK_PAINT,282);
+    skins::g_fnSetMeshGroupMask=Mesh;
+    const auto beforeHudRefresh=refreshes;
+    skins::RefreshWeaponMaterials(first.addr());
+    assert(refreshes==beforeHudRefresh+2); // World weapon plus its matching HUD child.
+    assert(mesh_calls==2 && last_mesh_mask==2 && mesh_node==hudScene.addr());
+    hudWeapon.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity,handle2);
+    skins::RefreshWeaponMaterials(first.addr());
+    assert(refreshes==beforeHudRefresh+3); // Unrelated child must not be refreshed.
+    hudNode.put(CGameSceneNode::m_pNextSibling,hudNode.addr());
+    skins::RefreshWeaponMaterials(first.addr()); // Corrupt cyclic lists are bounded.
+    assert(refreshes==beforeHudRefresh+4);
+    handsScene.put<uintptr_t>(CGameSceneNode::m_pChild,0);
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,scene.addr());
+    first.put<int>(skins::OFF_FALLBACK_PAINT,0);
+    mesh_calls=0;
     first.put(0,handle2); // Must never be interpreted as a model attachment handle.
     first.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,42);
     skins::g_fnSetModel=Model; skins::g_fnSetMeshGroupMask=Mesh;

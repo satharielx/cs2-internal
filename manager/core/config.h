@@ -5,6 +5,23 @@
 
 namespace config {
     inline std::recursive_mutex mutex;
+    namespace lighting {
+        inline bool enabled = false;
+        inline float color[3] = {1.0f, 1.0f, 1.0f};
+        inline float brightness = 3.0f;
+    }
+    namespace viewmodel {
+        inline bool fov_enabled = false;
+        inline float fov = 68.0f;
+        inline bool no_aim_punch = false;
+    }
+    namespace skybox {
+        inline bool color_enabled = false;
+        inline float color[3] = {1.0f, 1.0f, 1.0f};
+        inline float brightness = 3.0f;
+        inline bool enabled = false;
+        inline char material[256] = "materials/skybox/sky_day02_01.vmat";
+    }
     // ESP Settings
     namespace esp {
         inline bool enabled = false;
@@ -34,10 +51,10 @@ namespace config {
         inline bool silent_aim = true; // Enable instant silent aim (micro-flick)
     }
 
-    // RCS (Recoil Control System) — only active while shooting
+    // RCS (Recoil Control System) ï¿½ only active while shooting
     namespace rcs {
         inline bool enabled = false;
-        inline float strength = 1.0f;  // 0.0 – 1.0
+        inline float strength = 1.0f;  // 0.0 ï¿½ 1.0
     }
 
     // Misc Settings

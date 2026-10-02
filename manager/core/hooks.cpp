@@ -1,6 +1,9 @@
 #include "hooks.h"
 #include "features.h"
 #include "game_state.h"
+#include "skybox.h"
+#include "lighting.h"
+#include "viewmodel.h"
 #include "config.h"
 #include "menu_advanced.h"
 #include "skins.h"
@@ -77,6 +80,22 @@ namespace {
     void shutdown_renderer();
     bool initialize_renderer(IDXGISwapChain* chain);
 }
+using SkyboxDrawArrayFn = void(__fastcall*)(uintptr_t, uintptr_t, uintptr_t, int, int, uintptr_t, uintptr_t);
+using UpdateLightObjectFn = void(__fastcall*)(void*, void*, void*);
+UpdateLightObjectFn oUpdateLightObject = nullptr;
+void __fastcall hkUpdateLightObject(void* context, void* light, void* data) {
+    CallbackScope callback;
+    lighting::ScopedColor color(!s_stopping && game_state::GetSnapshot().in_game
+        ? reinterpret_cast<uintptr_t>(light) : 0);
+    oUpdateLightObject(context, light, data);
+}
+SkyboxDrawArrayFn oSkyboxDrawArray = nullptr;
+void __fastcall hkSkyboxDrawArray(uintptr_t a1, uintptr_t a2, uintptr_t data, int count,
+    int a5, uintptr_t a6, uintptr_t a7) {
+    CallbackScope callback;
+    skybox::ScopedColor color(s_stopping ? 0 : data, count);
+    oSkyboxDrawArray(a1, a2, data, count, a5, a6, a7);
+}
 using CreateMoveFn = bool(__fastcall*)(void*, uint32_t, char);
 inline CreateMoveFn oCreateMove = nullptr;
 
@@ -132,7 +151,13 @@ static void __fastcall hkFrameStageNotify(CSource2Client* client, int stage) {
     CallbackScope callback;
     if (s_stopping)
         hooks::FrameStageNotify_o(client, stage);
-    else
+    else if (stage == viewmodel::render_start) {
+        std::unique_lock<std::recursive_mutex> lock(config::mutex, std::try_to_lock);
+        const auto pawn = lock.owns_lock() && game_state::IsInGame()
+            ? game_state::GetLocalPawnRaw() : 0;
+        viewmodel::ScopedOverride view(pawn);
+        hooks::Hook_FrameStageNotify(client, stage);
+    } else
         hooks::Hook_FrameStageNotify(client, stage);
 }
 
@@ -672,6 +697,9 @@ namespace hooks {
                         debug_console::Console::Get().Success("[KNIFE] FrameStageNotify hook created successfully");
                         error_logger::ErrorLogger::Get().Log("MinHook", "FrameStageNotify hook created", 0);
 
+                        if (skybox::Initialize())
+                            RegisterOnFrameStageNotify(&skybox::OnFrameStage);
+
                         // ========== KNIFE CHANGER CALLBACK REGISTRATION ==========
                         // Subscribe to FrameStageNotify events via event-driven callback system
                         // Callback dispatcher (Hook_FrameStageNotify.cpp) invokes all registered callbacks
@@ -686,7 +714,7 @@ namespace hooks {
                             std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
                             skins::SetCurrentFrameStage(stage);
                             try {
-                                if (config::skin_changer::enabled && stage == 6)
+                                if (config::skin_changer::enabled && (stage == 6 || stage == 7))
                                     skins::ApplyAllSkins();
                             } catch (...) {
                                 error_logger::ErrorLogger::Get().Log("Skins", "Frame-stage update failed", 1);
@@ -731,6 +759,20 @@ namespace hooks {
                 }
             }
 
+            auto sky_target = sdk::find_pattern("scenesystem.dll", "45 85 C9 0F 8E ? ? ? ? 4C 8B DC 55");
+            skybox::color_status = "Unavailable: sky draw signature not found";
+            if (sky_target) {
+                const auto sky_status = MH_CreateHook(sky_target, &hkSkyboxDrawArray,
+                    reinterpret_cast<void**>(&oSkyboxDrawArray));
+                skybox::color_status = sky_status == MH_OK ? "Sky color ready" : "Unavailable: sky draw hook failed";
+            }
+            auto light_target = sdk::find_pattern("scenesystem.dll", "48 89 54 24 ? 55 57 41 56 48 83 EC");
+            lighting::status = "Unavailable: light update signature not found";
+            if (light_target) {
+                const auto light_status = MH_CreateHook(light_target, &hkUpdateLightObject,
+                    reinterpret_cast<void**>(&oUpdateLightObject));
+                lighting::status = light_status == MH_OK ? "Light color ready" : "Unavailable: light update hook failed";
+            }
             // Present will initialize D3D11, ImGui and WndProc from its COM argument.
             status = MH_EnableHook(MH_ALL_HOOKS);
             if (status != MH_OK) {
@@ -757,6 +799,7 @@ namespace hooks {
     }
 
     void destroy() {
+        skybox::RestoreBeforeUnload();
         s_stopping = true;
         features::SetInputBlocked(true);
         MH_DisableHook(MH_ALL_HOOKS);

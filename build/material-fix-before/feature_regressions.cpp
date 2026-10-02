@@ -1,0 +1,541 @@
+#include <cassert>
+#include <iostream>
+#include <limits>
+#include <Windows.h>
+#include <chrono>
+static SHORT test_keys[256]{};
+static ULONGLONG test_time = 1000;
+static unsigned mouse_downs = 0, mouse_ups = 0;
+static HMODULE test_module = nullptr;
+static unsigned long long test_memory_reads = 0;
+static BOOL TestReadMemory(HANDLE process, LPCVOID address, LPVOID buffer, SIZE_T size, SIZE_T* read) {
+    ++test_memory_reads;
+    return ReadProcessMemory(process,address,buffer,size,read);
+}
+static HMODULE TestModule(const char*) { return test_module; }
+static SHORT TestKey(int key) { return key >= 0 && key < 256 ? test_keys[key] : 0; }
+static ULONGLONG TestTime() { return test_time; }
+static void TestMouse(DWORD flags, DWORD, DWORD, DWORD, ULONG_PTR) {
+    if (flags & MOUSEEVENTF_LEFTDOWN) ++mouse_downs;
+    if (flags & MOUSEEVENTF_LEFTUP) ++mouse_ups;
+}
+#define GetAsyncKeyState TestKey
+#define GetTickCount64 TestTime
+#define mouse_event TestMouse
+#define GetModuleHandleA TestModule
+#define ReadProcessMemory TestReadMemory
+#include "../manager/core/features.cpp"
+#undef GetAsyncKeyState
+#undef GetTickCount64
+#undef mouse_event
+#undef GetModuleHandleA
+#undef ReadProcessMemory
+#include "../manager/core/skins.cpp"
+#include "../manager/core/menu_advanced.cpp"
+#include "imgui_preview.h"
+
+// Exercise production feature code against owned buffers; no game or input injection.
+namespace game_state {
+Snapshot test_state{};
+Snapshot GetSnapshot() { return test_state; }
+bool IsInGame() { return test_state.in_game; }
+uintptr_t GetEntityList() { return test_state.entity_list; }
+uintptr_t GetLocalController() { return test_state.controller; }
+uintptr_t GetLocalPawnRaw() { return test_state.pawn; }
+sdk::C_CSPlayerPawn* GetLocalPawn() { return reinterpret_cast<sdk::C_CSPlayerPawn*>(test_state.pawn); }
+}
+namespace sdk { std::uint8_t* find_pattern(const char*, const char*) { return nullptr; } }
+namespace debug_console {
+Console& Console::Get() { static Console instance; return instance; }
+void Console::Info(const char*, ...) {}
+void Console::Success(const char*, ...) {}
+void Console::Warning(const char*, ...) {}
+void Console::Error(const char*, ...) {}
+void Console::Debug(const char*, ...) {}
+}
+
+struct Buffer {
+    std::vector<unsigned char> bytes;
+    explicit Buffer(size_t n) : bytes(n) {}
+    uintptr_t addr() { return reinterpret_cast<uintptr_t>(bytes.data()); }
+    template<class T> void put(size_t offset, T value) {
+        assert(offset + sizeof(T) <= bytes.size());
+        std::memcpy(bytes.data() + offset, &value, sizeof(value));
+    }
+};
+static unsigned refreshes = 0, attributes = 0;
+static uintptr_t last_refresh_owner = 0;
+static void __fastcall Refresh(void* owner, bool) { ++refreshes; last_refresh_owner = reinterpret_cast<uintptr_t>(owner); }
+static void __fastcall Attribute(void*, const char*, float) { ++attributes; }
+static unsigned model_calls = 0, mesh_calls = 0;
+static uintptr_t model_entity = 0, mesh_node = 0;
+static void __fastcall Model(void* entity, const char*) { ++model_calls; model_entity = reinterpret_cast<uintptr_t>(entity); }
+static uint64_t last_mesh_mask = 0;
+static void __fastcall Mesh(void* node, uint64_t mask) { ++mesh_calls; mesh_node = reinterpret_cast<uintptr_t>(node); last_mesh_mask = mask; }
+static bool AlmostEqual(float a, float b) { return std::abs(a-b) < 0.001f; }
+
+static void TestEspCrowd() {
+    Buffer system(0x100), chunk(512*0x70), local(0x5000);
+    Buffer client(cs2_dumper::offsets::client_dll::dwViewMatrix+sizeof(sdk::ViewMatrix));
+    system.put(0x10,chunk.addr());
+    local.put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,2);
+    sdk::ViewMatrix matrix{};
+    matrix.matrix[0][0]=0.003f; matrix.matrix[1][2]=0.01f; matrix.matrix[3][3]=1;
+    client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
+    std::vector<Buffer> controllers, pawns, identities, scenes, bones;
+    controllers.reserve(32); pawns.reserve(32); identities.reserve(32); scenes.reserve(32); bones.reserve(32);
+    for(int i=0;i<32;++i) {
+        controllers.emplace_back(0x1000); pawns.emplace_back(0x5000); identities.emplace_back(0x50);
+        scenes.emplace_back(0x300); bones.emplace_back(32*28);
+        const uint32_t handle=(128+i) | (7u<<15);
+        chunk.put((i+1)*0x70,controllers.back().addr()); chunk.put((128+i)*0x70,pawns.back().addr());
+        controllers.back().put(sdk::off::CCSPlayerController::m_hPlayerPawn,handle);
+        const char name[]="ESP regression player";
+        std::memcpy(controllers.back().bytes.data()+sdk::off::CBasePlayerController::m_iszPlayerName,name,sizeof(name));
+        pawns.back().put(0x10,identities.back().addr()); identities.back().put(0x10,handle);
+        pawns.back().put<int>(sdk::off::C_BaseEntity::m_iHealth,73);
+        pawns.back().put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,3);
+        pawns.back().put(sdk::off::C_BaseEntity::m_pGameSceneNode,scenes.back().addr());
+        scenes.back().put(sdk::off::CSkeletonInstance::m_modelState+0x80,bones.back().addr());
+        const float x=(i%8)*40.0f-140.0f;
+        pawns.back().put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{x,100,0});
+        for(int bone=0;bone<28;++bone) bones.back().put(bone*32,sdk::Vector3{x+bone%3,100,10.0f+bone});
+        bones.back().put(sdk::BONE_HEAD*32,sdk::Vector3{x,100,64});
+    }
+    game_state::test_state={true,system.addr(),0,local.addr(),"ESP test"};
+    test_module=reinterpret_cast<HMODULE>(client.addr());
+    config::esp::enabled=true; config::esp::skeleton=true; config::esp::box=true;
+    config::esp::health_bar=true; config::esp::name=true; config::esp::distance=true;
+    config::esp::team_check=true; config::esp::max_distance=300;
+    test_time+=1000;
+    const auto start=std::chrono::steady_clock::now();
+    const auto reads=test_memory_reads;
+    int vertices=0;
+    for(int frame=0;frame<60;++frame) {
+        test_time+=8;
+        ImGui::NewFrame(); features::RenderESP(); ImGui::Render();
+        vertices=ImGui::GetDrawData()->TotalVtxCount;
+        assert(vertices>0);
+    }
+    std::cout << "ESP (32 players, 60 frames): "
+        << std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()
+        << " ms, " << test_memory_reads-reads << " memory reads, " << vertices << " vertices/frame\n";
+    assert(test_memory_reads-reads < 40000); // Bounded reads, not per-segment bone traversal.
+    assert(vertices < 12000); // Text must not regress to nine glyph passes.
+    features::EspBones batch{};
+    const auto batchReads=test_memory_reads;
+    assert(features::ReadEspBones(scenes[0].addr(),batch));
+    assert(test_memory_reads==batchReads+2 && batch.bones[sdk::BONE_HEAD].position.z==64);
+
+    auto drawFrame=[] {
+        ImGui::NewFrame(); features::RenderESP(); ImGui::Render();
+        return ImGui::GetDrawData()->TotalVtxCount;
+    };
+    for(int i=2;i<=32;++i) chunk.put<uintptr_t>(i*0x70,0);
+    assert(drawFrame()>0);
+    config::esp::enabled=false; const auto disabledReads=test_memory_reads;
+    assert(drawFrame()==0 && test_memory_reads==disabledReads);
+    config::esp::enabled=true;
+    pawns[0].put<int>(sdk::off::C_BaseEntity::m_iHealth,0); assert(drawFrame()==0);
+    pawns[0].put<int>(sdk::off::C_BaseEntity::m_iHealth,73);
+    pawns[0].put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,2); assert(drawFrame()==0);
+    config::esp::team_check=false; assert(drawFrame()>0); config::esp::team_check=true;
+    pawns[0].put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,3);
+    scenes[0].put<bool>(sdk::off::CGameSceneNode::m_bDormant,true); assert(drawFrame()==0);
+    scenes[0].put<bool>(sdk::off::CGameSceneNode::m_bDormant,false);
+    config::esp::max_distance=1; assert(drawFrame()==0); config::esp::max_distance=300;
+    const uint32_t replacementHandle=128 | (8u<<15);
+    identities[0].put(0x10,replacementHandle); assert(drawFrame()==0); // Stale serial.
+    const char replacementName[]="Replacement player";
+    std::memcpy(controllers[0].bytes.data()+sdk::off::CBasePlayerController::m_iszPlayerName,replacementName,sizeof(replacementName));
+    controllers[0].put(sdk::off::CCSPlayerController::m_hPlayerPawn,replacementHandle);
+    assert(drawFrame()>0 && std::strcmp(features::esp_names[1].name,replacementName)==0);
+    matrix.matrix[3][3]=-1; client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
+    assert(drawFrame()==0); // Camera changes are reflected without a cache delay.
+    matrix.matrix[3][3]=1; client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
+    config::esp::skeleton=false; assert(drawFrame()>0);
+    config::esp::skeleton=true;
+    scenes[0].put<uintptr_t>(sdk::off::CSkeletonInstance::m_modelState+0x80,1);
+    assert(drawFrame()>0); // Failed bone read keeps the origin-based box.
+    scenes[0].put(sdk::off::CSkeletonInstance::m_modelState+0x80,bones[0].addr());
+    pawns[0].put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{1000,100,0});
+    bones[0].put(sdk::BONE_HEAD*32,sdk::Vector3{1000,100,64}); assert(drawFrame()==0);
+    pawns[0].put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{-140,100,0});
+    config::esp::box=config::esp::health_bar=config::esp::name=config::esp::distance=false;
+    for(int bone=0;bone<28;++bone) bones[0].put(bone*32,sdk::Vector3{std::numeric_limits<float>::quiet_NaN(),0,0});
+    assert(drawFrame()==0); // Invalid joints never enter ImGui geometry.
+    game_state::test_state.in_game=false; assert(drawFrame()==0 && features::esp_name_system==0);
+    config::esp::enabled=false; game_state::test_state={}; test_module=nullptr;
+}
+
+int main() {
+    const float inf = std::numeric_limits<float>::infinity();
+    assert(AlmostEqual(features::CalcAngle({}, {1, 0, 0}).y, 0));
+    assert(AlmostEqual(features::CalcAngle({}, {0, 1, 0}).y, 90));
+    assert(AlmostEqual(std::abs(features::CalcAngle({}, {-1, 0, 0}).y), 180));
+    assert(AlmostEqual(features::CalcAngle({}, {0, -1, 0}).y, -90));
+    assert(AlmostEqual(features::CalcAngle({}, {1, 0, 1}).x, -45));
+    assert(AlmostEqual(features::GetFovA({0, 179, 0}, {0, -179, 0}), 2));
+    assert(std::isinf(features::GetFovA({0, inf, 0}, {})));
+    sdk::QAngle angle{270, 721, 10}; features::ClampAnglesA(angle);
+    assert(angle.x == 89 && AlmostEqual(angle.y, 1) && angle.z == 0);
+    sdk::ViewMatrix matrix{}; matrix.matrix[0][0]=matrix.matrix[1][1]=matrix.matrix[3][3]=1;
+    sdk::Vector2 screen{};
+    assert(features::WorldToScreen({}, screen, matrix, 800, 600));
+    assert(screen.x == 400 && screen.y == 300);
+    assert(!features::WorldToScreen({inf, 0, 0}, screen, matrix, 800, 600));
+    assert(!features::WorldToScreen({}, screen, matrix, 0, 600));
+    matrix.matrix[3][3]=-1;
+    assert(!features::WorldToScreen({}, screen, matrix, 800, 600));
+    uint32_t mask[2]{0x80000000u, 0x80000001u};
+    assert(sdk::spotted_by(mask,32) && sdk::spotted_by(mask,33) && sdk::spotted_by(mask,64));
+    assert(!sdk::spotted_by(mask,31) && !sdk::spotted_by(mask,0) && !sdk::spotted_by(mask,65));
+
+    Buffer system(0x100), chunk0(0x70*512), chunk1(0x70*512);
+    Buffer pawn(0x5000), first(0x5000), second(0x5000), identity1(0x50), identity2(0x50);
+    system.put(0x10,chunk0.addr()); system.put(0x18,chunk1.addr());
+    chunk0.put(0x70*511,first.addr()); chunk1.put(0,second.addr());
+    const uint32_t handle1=511 | (3u<<15), handle2=512 | (4u<<15);
+    first.put(0x10,identity1.addr()); second.put(0x10,identity2.addr());
+    identity1.put(0x10,handle1); identity2.put(0x10,handle2);
+    assert(sdk::entity_from_handle(system.addr(),handle1)==first.addr());
+    assert(sdk::entity_from_handle(system.addr(),handle2)==second.addr());
+    assert(!sdk::entity_from_handle(system.addr(),handle1+(1u<<15)));
+    assert(!sdk::entity_from_handle(system.addr(),UINT32_MAX));
+    assert(!sdk::entity_at(system.addr(),-1));
+
+    Buffer services(0x100), handles(8), vec(24);
+    handles.put(0,handle1); handles.put(4,handle2);
+    vec.put(0,2); vec.put(8,handles.addr()); vec.put(16,2);
+    sdk::VectorView view{};
+    assert(sdk::read_vector(vec.addr(),view,64) && view.count==2 && view.data==handles.addr());
+    vec.put(0,65); assert(!sdk::read_vector(vec.addr(),view,64));
+    vec.put(0,2); vec.put(16,1); assert(!sdk::read_vector(vec.addr(),view,64));
+    vec.put(16,2); vec.put<uintptr_t>(8,0); assert(!sdk::read_vector(vec.addr(),view,64));
+
+    auto* pages = static_cast<unsigned char*>(VirtualAlloc(nullptr,8192,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
+    assert(pages); DWORD previous=0;
+    assert(VirtualProtect(pages+4096,4096,PAGE_NOACCESS,&previous));
+    uint64_t sentinel=42;
+    assert(!sdk::read_memory(reinterpret_cast<uintptr_t>(pages+4092),sentinel) && sentinel==42);
+    assert(!sdk::write_memory(reinterpret_cast<uintptr_t>(pages+4092),sentinel));
+    assert(!sdk::write_memory(reinterpret_cast<uintptr_t>(pages+4096),sentinel));
+    VirtualFree(pages,0,MEM_RELEASE);
+
+    sdk::CUserCmd cmd{};
+    assert(!cmd.GetInputHistoryEntry(-1) && !cmd.GetInputHistoryEntry(0));
+    assert(!cmd.IsButtonPressed(sdk::IN_ATTACK));
+    cmd.SetSubTickAngle({1,2,0});
+    sdk::CMsgQAngle msg{}; sdk::CCSGOInputHistoryEntryPB entry{}; entry.pViewAngles=&msg;
+    sdk::RepeatedPtrField_t<sdk::CCSGOInputHistoryEntryPB>::Rep_t rep{};
+    rep.nAllocatedSize=1; rep.tElements[0]=&entry;
+    cmd.csgoUserCmd.inputHistoryField.pRep=&rep; cmd.csgoUserCmd.inputHistoryField.nCurrentSize=1;
+    assert(cmd.GetInputHistoryEntry(0)==&entry && !cmd.GetInputHistoryEntry(1));
+    cmd.SetSubTickAngle({3,4,0}); assert(msg.angValue.x==3 && msg.angValue.y==4);
+    cmd.SetSubTickAngle({inf,4,0}); assert(msg.angValue.x==3);
+
+    using namespace cs2_dumper::schemas::client_dll;
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,100);
+    pawn.put(C_BasePlayerPawn::m_pWeaponServices,services.addr());
+    services.put(CPlayer_WeaponServices::m_hMyWeapons,2);
+    services.put(CPlayer_WeaponServices::m_hMyWeapons+8,handles.addr());
+    services.put(CPlayer_WeaponServices::m_hMyWeapons+16,2);
+    services.put(CPlayer_WeaponServices::m_hActiveWeapon,handle1);
+    first.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,7); second.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,9);
+    game_state::test_state={true,system.addr(),0,pawn.addr()};
+    skins::g_engine_funcs_resolved=true; skins::s_engineFunctionsResolved=true;
+    skins::g_fnUpdateComposite=Refresh; skins::g_compositeOwnerOffset=0x608; skins::g_fnSetAttribute=Attribute;
+    skins::PlayerSkinConfig cfg; cfg.paint_kit=282; cfg.seed=12; cfg.wear=0.1f;
+    cfg.stattrak=true; cfg.stattrak_count=321; cfg.name_tag="regression";
+    skins::user_skins[7]=cfg; skins::user_skins[9]=cfg;
+    skins::SetCurrentFrameStage(7); skins::ApplyAllSkins(); assert(refreshes==0);
+    skins::SetCurrentFrameStage(6); skins::ApplyAllSkins();
+    assert(refreshes==2 && attributes==6); // Includes the inactive weapon.
+    assert(skins::GetActiveWeapon()==first.addr());
+    auto weapon_reads=skins::GetWeaponReadDiagnostics();
+    assert(weapon_reads.services==services.addr() && weapon_reads.count==2 && weapon_reads.active==first.addr());
+    pawn.put<uintptr_t>(C_BasePlayerPawn::m_pWeaponServices,0);
+    assert(!skins::GetActiveWeapon() && skins::GetAllWeapons().empty());
+    assert(std::strstr(skins::GetWeaponReadDiagnostics().status,"Weapon-services pointer"));
+    pawn.put(C_BasePlayerPawn::m_pWeaponServices,services.addr());
+    services.put(CPlayer_WeaponServices::m_hMyWeapons+16,1);
+    assert(skins::GetActiveWeapon()==first.addr()); // Active handle is independent of vector validity.
+    assert(std::strstr(skins::GetWeaponReadDiagnostics().status,"invalid bounds"));
+    services.put(CPlayer_WeaponServices::m_hMyWeapons+16,2);
+    Buffer aim_punch(0x200);
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_pAimPunchServices,aim_punch.addr());
+    aim_punch.put(CCSPlayer_AimPunchServices::m_predictableBaseAngle,sdk::Vector3(1,2,0));
+    assert(features::ReadAimPunch(pawn.addr()).y==2);
+    assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_STATTRAK)==321);
+    assert(sdk::read_value<uint32_t>(second.addr()+skins::OFF_ITEM_ID_HIGH)==UINT32_MAX);
+    assert(std::strcmp(reinterpret_cast<char*>(first.addr()+skins::OFF_CUSTOM_NAME),"regression")==0);
+    skins::ApplyAllSkins(); assert(refreshes==2 && attributes==6);
+    skins::user_skins[7].wear=inf; skins::user_skins[7].stattrak=false;
+    skins::user_skins[7].name_tag=std::string(200,'x');
+    skins::ApplyAllSkins(); assert(refreshes==3);
+    assert(last_refresh_owner==first.addr()+0x608);
+    assert(sdk::read_value<float>(first.addr()+skins::OFF_FALLBACK_WEAR)==0);
+    assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_STATTRAK)==-1);
+    assert(sdk::read_value<char>(first.addr()+skins::OFF_CUSTOM_NAME+160)==0);
+    skins::user_skins.erase(7);
+    skins::ApplyAllSkins(); assert(refreshes==4);
+    assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_PAINT)==0);
+    assert(sdk::read_value<uint32_t>(first.addr()+skins::OFF_ITEM_ID_HIGH)==0);
+    assert(sdk::read_value<char>(first.addr()+skins::OFF_CUSTOM_NAME)==0);
+    skins::ApplyAllSkins(); assert(refreshes==4);
+
+    skins::glove_database.emplace_back(10018,"Superconductor",5030);
+    skins::selected_glove_kit=10018;
+    unsigned before=attributes;
+    skins::SetCurrentFrameStage(7); skins::ApplyGloves(); assert(attributes==before);
+    skins::SetCurrentFrameStage(6); skins::ApplyGloves(); assert(attributes==before+3);
+    auto glove=pawn.addr()+cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
+    assert(sdk::read_value<uint16_t>(glove+C_EconItemView::m_iItemDefinitionIndex)==5030);
+    skins::ApplyGloves(); assert(attributes==before+3);
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flLastSpawnTimeIndex, 1.0f);
+    skins::ApplyGloves(); assert(attributes==before+6);
+    pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum, 3);
+    skins::ApplyGloves(); assert(attributes==before+9);
+    skins::selected_glove_kit=0;
+    skins::ApplyGloves(); assert(attributes==before+12);
+    assert(sdk::read_value<uint16_t>(glove+C_EconItemView::m_iItemDefinitionIndex)==5029);
+    assert(sdk::read_value<uint32_t>(glove+C_EconItemView::m_iItemIDHigh)==0);
+    skins::ApplyGloves(); assert(attributes==before+12);
+
+
+    pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum,2);
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,150);
+    second.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,100);
+    first.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum,3);
+    second.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum,3);
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_iIDEntIndex,511);
+    config::misc::trigger_bot=true; config::misc::trigger_key=VK_SHIFT; config::misc::trigger_delay=0.1f;
+    features::SetInputBlocked(false);
+    features::TriggerBot(); assert(mouse_downs==0); // Key is required.
+    test_keys[VK_SHIFT]=static_cast<SHORT>(0x8000);
+    features::TriggerBot(); test_time+=90; features::TriggerBot(); assert(mouse_downs==0);
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_iIDEntIndex,512);
+    features::TriggerBot(); test_time+=20; features::TriggerBot(); assert(mouse_downs==0); // Target change resets delay.
+    test_time+=90; features::TriggerBot(); assert(mouse_downs==1);
+    features::SetInputBlocked(true); features::TriggerBot(); assert(mouse_ups==1);
+    test_time+=200; features::TriggerBot(); assert(mouse_downs==1);
+
+    Buffer controller(0x1000);
+    Buffer scene(0x300);
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,scene.addr());
+    controller.put(CCSPlayerController::m_hPlayerPawn,handle1);
+    chunk0.put(0x70*64,controller.addr());
+    config::esp::enabled=false; config::misc::radar_hack=true;
+    features::RadarHack(); // Includes controller 64, independently of ESP.
+    assert(sdk::read_value<bool>(first.addr()+cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_entitySpottedState+
+        EntitySpottedState_t::m_bSpotted));
+    config::misc::no_flash=true;
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flFlashDuration,4.0f);
+    features::NoFlash();
+    assert(sdk::read_value<float>(pawn.addr()+cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flFlashDuration)==0);
+
+    const auto jumpOffset=cs2_dumper::buttons::jump;
+    const auto jumpPage=static_cast<uintptr_t>(jumpOffset)&~uintptr_t{4095};
+    auto* module=static_cast<unsigned char*>(VirtualAlloc(nullptr,jumpPage+4096,MEM_RESERVE,PAGE_READWRITE));
+    assert(module && VirtualAlloc(module+jumpPage,4096,MEM_COMMIT,PAGE_READWRITE));
+    test_module=reinterpret_cast<HMODULE>(module);
+    features::SetInputBlocked(false); config::misc::bunny_hop=true;
+    test_keys[VK_SPACE]=static_cast<SHORT>(0x8000);
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags,1);
+    features::BunnyHop(); assert(sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(module)+jumpOffset)==65537);
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags,0);
+    features::BunnyHop(); assert(sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(module)+jumpOffset)==256);
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags,1);
+    features::BunnyHop(); features::ReleaseInputs();
+    assert(sdk::read_value<uint32_t>(reinterpret_cast<uintptr_t>(module)+jumpOffset)==256);
+    test_module=nullptr; VirtualFree(module,0,MEM_RELEASE);
+
+    Buffer clientMemory(cs2_dumper::offsets::client_dll::dwViewAngles+0x100);
+    Buffer localScene(0x300), bones(256*32);
+    test_module=reinterpret_cast<HMODULE>(clientMemory.addr());
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,localScene.addr());
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseModelEntity::m_vecViewOffset+0x20,64.0f);
+    scene.put(CSkeletonInstance::m_modelState+0x80,bones.addr());
+    bones.put(6*32,sdk::Vector3(100,100,64));
+    config::aimbot::enabled=true; config::aimbot::silent_aim=false;
+    config::aimbot::visible_check=false; config::aimbot::team_check=true;
+    config::aimbot::fov=90; config::aimbot::max_distance=10000; config::aimbot::smoothing=0;
+    config::aimbot::auto_shoot=false; config::rcs::enabled=false;
+    test_keys[VK_LBUTTON]=static_cast<SHORT>(0x8000);
+    features::RunNormalAimTick();
+    auto angles=sdk::read_value<sdk::Vector2>(clientMemory.addr()+cs2_dumper::offsets::client_dll::dwViewAngles);
+    assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
+    assert(features::normal_aim_writes==1);
+    assert(features::aim_controllers==1 && features::aim_resolved_pawns==1);
+    auto readPlayers=features::ReadAimPlayers(system.addr(),first.addr());
+    assert(readPlayers.local_index==64 && readPlayers.pawns[64]==first.addr());
+    test_keys[VK_LBUTTON]=0;
+    features::RunNormalAimTick(); assert(features::normal_aim_writes==1);
+    config::aimbot::silent_aim=true;
+    DWORD history[7]{};
+    const char enemyName[]="Regression enemy";
+    std::memcpy(reinterpret_cast<void*>(controller.addr()+sdk::off::CBasePlayerController::m_iszPlayerName),enemyName,sizeof(enemyName));
+    const sdk::Vector3 sourceAngles{10,20,3};
+    std::memcpy(history+4,&sourceAngles,sizeof(sourceAngles));
+    history[0]=123; history[2]=456;
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    angles=sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(history+4));
+    assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
+    assert(features::silent_aim_writes==1);
+    auto debug=features::GetSilentAimDebug();
+    assert(debug.input_valid && debug.input.x==10 && debug.input.y==20 && debug.input.z==3);
+    assert(debug.raw_angles[0]==0x41200000 && debug.target_valid && debug.written);
+    assert(debug.eye.z==64 && debug.target.x==100 && debug.output.y==45);
+    assert(debug.target_pawn==first.addr() && debug.target_health==150 && debug.target_team==3);
+    assert(std::strcmp(debug.target_name,"Regression enemy")==0);
+    assert(history[0]==123 && history[2]==456);
+    const auto scansBefore=features::silent_target_scans.load();
+    for(int repeat=0;repeat<1000;++repeat)
+        features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1001 && features::silent_target_scans==scansBefore);
+    assert(features::silent_cache_hits>=1000);
+    // A target leaving FOV must not permanently disable later writes.
+    config::aimbot::fov=1;
+    sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{0,0,0});
+    test_time+=9;
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1001);
+    assert(std::strcmp(features::silent_aim_status.load(),"Enemies outside aim FOV")==0);
+    config::aimbot::fov=90;
+    test_time+=9;
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1002);
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,0);
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1002); // Cached target cannot survive death validation.
+    first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,150);
+    test_time+=250;
+    sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{inf,0,0});
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==1002 && !features::GetSilentAimDebug().input_valid);
+    test_time+=250;
+    features::RunSilentAimSubTick(nullptr,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(!features::GetSilentAimDebug().target_valid && features::silent_aim_writes==1002);
+    assert(features::GetSilentAimDebug().target_name[0]=='\0');
+
+    // A crowded map must not repeat all entity/bone reads for every subtick.
+    // Give every controller a distinct live pawn and serial-checked identity.
+    std::vector<Buffer> crowdControllers, crowdPawns, crowdIdentities;
+    crowdControllers.reserve(63); crowdPawns.reserve(63); crowdIdentities.reserve(63);
+    for (int i=1;i<64;++i) {
+        crowdControllers.emplace_back(0x1000);
+        crowdPawns.emplace_back(0x5000);
+        crowdIdentities.emplace_back(0x50);
+        auto& remote=crowdPawns.back();
+        remote.bytes=first.bytes;
+        const uint32_t handle=(128+i) | (5u<<15);
+        crowdIdentities.back().put(0x10,handle);
+        remote.put(0x10,crowdIdentities.back().addr());
+        crowdControllers.back().put(CCSPlayerController::m_hPlayerPawn,handle);
+        chunk0.put(0x70*i,crowdControllers.back().addr());
+        chunk0.put(0x70*(128+i),remote.addr());
+    }
+    test_time+=9;
+    const auto crowdedScans=features::silent_target_scans.load();
+    const auto crowdedHits=features::silent_cache_hits.load();
+    const auto crowdedWrites=features::silent_aim_writes.load();
+    const auto crowdedGeometry=features::silent_geometry_updates.load();
+    const auto crowdedStart=std::chrono::steady_clock::now();
+    for (int repeat=0;repeat<1000;++repeat) {
+        sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sourceAngles);
+        features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    }
+    assert(features::aim_resolved_pawns==64);
+    assert(features::silent_target_scans==crowdedScans+1);
+    assert(features::silent_cache_hits==crowdedHits+999);
+    assert(features::silent_aim_writes==crowdedWrites+1000);
+    assert(features::silent_geometry_updates==crowdedGeometry+1);
+    std::cout << "Crowded-map callbacks (64 pawns, 1000 subticks): "
+        << std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-crowdedStart).count()
+        << " ms\n";
+    // Cached geometry must still respect current input angles and settings.
+    config::aimbot::fov=1;
+    sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{0,0,0});
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==crowdedWrites+1000);
+    assert(features::silent_geometry_updates==crowdedGeometry+1);
+    config::aimbot::fov=90;
+    auto& movedGeometry=features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    features::PrepareSilentGeometry(movedGeometry,{0,100,64});
+    assert(features::silent_geometry_updates==crowdedGeometry+2);
+    assert(AlmostEqual(movedGeometry.targets[64].angle.y,0));
+    features::PrepareSilentGeometry(movedGeometry,{0,100,64});
+    assert(features::silent_geometry_updates==crowdedGeometry+2);
+    test_time+=8;
+    features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    assert(features::silent_target_scans==crowdedScans+2); // Expiry refreshes the snapshot.
+    features::ReadSilentTargets(system.addr(),pawn.addr(),second.addr());
+    assert(features::silent_target_scans==crowdedScans+3); // Weapon changes invalidate it.
+    features::ReadSilentTargets(system.addr(),first.addr(),second.addr());
+    assert(features::silent_target_scans==crowdedScans+4); // Local pawn changes invalidate it.
+    for (int i=1;i<64;++i) {
+        chunk0.put<uintptr_t>(0x70*i,0);
+        chunk0.put<uintptr_t>(0x70*(128+i),0);
+    }
+    test_module=nullptr;
+
+    Buffer inventory(0x200), slots(2*0xC8);
+    controller.put(skins::OFF_INV_SERVICES,inventory.addr());
+    inventory.put(skins::OFF_LOADOUT_VEC,2);
+    inventory.put(skins::OFF_LOADOUT_VEC+8,slots.addr());
+    inventory.put(skins::OFF_LOADOUT_VEC+16,2);
+    slots.put(0,first.addr()+skins::ECON_ITEM_VIEW_BASE);
+    slots.put(0xC8,second.addr()+skins::ECON_ITEM_VIEW_BASE);
+    game_state::test_state.controller=controller.addr();
+    auto loadout=skins::ReadLoadout();
+    assert(loadout.size()==2 && loadout[0].def_index==7 && loadout[1].def_index==9);
+    Buffer handsScene(0x500), sceneVtable(0x20);
+    handsScene.put<uint64_t>(skins::OFF_MODEL_STATE+skins::OFF_MESH_GROUP_MASK,0x105);
+    sceneVtable.put(0,reinterpret_cast<uintptr_t>(&Model));
+    scene.put(0,sceneVtable.addr()); handsScene.put(0,sceneVtable.addr());
+    second.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,handsScene.addr());
+    pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_hHudModelArms,handle2);
+    Buffer hudNode(0x100), hudWeapon(0x1000);
+    handsScene.put(CGameSceneNode::m_pChild,hudNode.addr());
+    hudNode.put(CGameSceneNode::m_pOwner,hudWeapon.addr());
+    hudWeapon.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity,handle1);
+    const auto beforeHudRefresh=refreshes;
+    skins::RefreshWeaponMaterials(first.addr());
+    assert(refreshes==beforeHudRefresh+2); // World weapon plus its matching HUD child.
+    hudWeapon.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity,handle2);
+    skins::RefreshWeaponMaterials(first.addr());
+    assert(refreshes==beforeHudRefresh+3); // Unrelated child must not be refreshed.
+    hudNode.put(CGameSceneNode::m_pNextSibling,hudNode.addr());
+    skins::RefreshWeaponMaterials(first.addr()); // Corrupt cyclic lists are bounded.
+    assert(refreshes==beforeHudRefresh+4);
+    handsScene.put<uintptr_t>(CGameSceneNode::m_pChild,0);
+    first.put(0,handle2); // Must never be interpreted as a model attachment handle.
+    first.put<uint16_t>(skins::OFF_ITEM_DEF_INDEX,42);
+    skins::g_fnSetModel=Model; skins::g_fnSetMeshGroupMask=Mesh;
+    skins::selected_knife_id=500;
+    skins::SetCurrentFrameStage(6);
+    skins::ApplyKnifeSkins(); skins::ApplyKnifeSkins();
+    assert(model_calls==1 && model_entity==first.addr());
+    assert(mesh_calls==2 && mesh_node==handsScene.addr());
+    assert(last_mesh_mask==0x107); // Existing hands/glove groups survive.
+    services.put(CPlayer_WeaponServices::m_hActiveWeapon,handle2);
+    skins::ApplyKnifeSkins(); skins::ApplyKnifeSkins();
+    assert(model_calls==1 && mesh_calls==2 && skins::GetDefIndex(second.addr())==9);
+    auto* ui=ImGui::CreateContext();
+    menu_advanced::LoadIconFont();
+    auto& io=ImGui::GetIO();
+    io.IniFilename=nullptr; io.DisplaySize=ImVec2(1280,900); io.DeltaTime=1.0f/60;
+    unsigned char* pixels=nullptr; int atlasWidth=0, atlasHeight=0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&atlasWidth,&atlasHeight);
+    for(int page=0;page<12;++page) {
+        menu_advanced::selected_tab=page;
+        for(int frame=0;frame<3;++frame) {
+            ImGui::NewFrame(); menu_advanced::RenderMainMenu(); ImGui::Render();
+            assert(ImGui::GetDrawData()->TotalVtxCount>0);
+            if(frame==2 && (page==11 || page==0)) SaveMenuPreview(page==11 ? "dashboard.bmp" : "aim-page.bmp",pixels,atlasWidth,atlasHeight);
+        }
+    }
+    TestEspCrowd();
+    ImGui::DestroyContext(ui);
+    std::cout << "Feature regressions passed: math/projection, masks/handles/vectors, protected memory, user commands, staged weapons/gloves/removal, trigger timing/menu release, radar/no-flash, bunny-hop/release, and loadout stride.\n";
+}
