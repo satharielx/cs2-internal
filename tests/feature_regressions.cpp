@@ -5,7 +5,7 @@
 #include <chrono>
 static SHORT test_keys[256]{};
 static ULONGLONG test_time = 1000;
-static unsigned mouse_downs = 0, mouse_ups = 0;
+static unsigned mouse_downs = 0, mouse_ups = 0, scope_downs = 0, scope_ups = 0;
 static HMODULE test_module = nullptr;
 static unsigned long long test_memory_reads = 0;
 static BOOL TestReadMemory(HANDLE process, LPCVOID address, LPVOID buffer, SIZE_T size, SIZE_T* read) {
@@ -18,6 +18,8 @@ static ULONGLONG TestTime() { return test_time; }
 static void TestMouse(DWORD flags, DWORD, DWORD, DWORD, ULONG_PTR) {
     if (flags & MOUSEEVENTF_LEFTDOWN) ++mouse_downs;
     if (flags & MOUSEEVENTF_LEFTUP) ++mouse_ups;
+    if (flags & MOUSEEVENTF_RIGHTDOWN) ++scope_downs;
+    if (flags & MOUSEEVENTF_RIGHTUP) ++scope_ups;
 }
 #define GetAsyncKeyState TestKey
 #define GetTickCount64 TestTime
@@ -25,14 +27,28 @@ static void TestMouse(DWORD flags, DWORD, DWORD, DWORD, ULONG_PTR) {
 #define GetModuleHandleA TestModule
 #define ReadProcessMemory TestReadMemory
 #include "../manager/core/features.cpp"
+#include "../manager/core/engine_trace.h"
 #undef GetAsyncKeyState
 #undef GetTickCount64
 #undef mouse_event
 #undef GetModuleHandleA
 #undef ReadProcessMemory
 #include "../manager/core/skins.cpp"
+#include "../manager/core/menu_advanced.h"
+struct RecordedCheckbox { ImVec2 center; ImGuiID id; };
+static std::map<bool*,RecordedCheckbox> checkboxLocations;
+namespace ImGui {
+static bool RecordedAimCheckbox(const char* label,bool* value) {
+    const bool changed=Checkbox(label,value);
+    checkboxLocations[value]={(GetItemRectMin()+GetItemRectMax())*.5f,GetItemID()};
+    return changed;
+}
+}
+#define Checkbox RecordedAimCheckbox
 #include "../manager/core/menu_advanced.cpp"
+#undef Checkbox
 #include "imgui_preview.h"
+#include "skin_browser_preview.h"
 
 // Exercise production feature code against owned buffers; no game or input injection.
 namespace game_state {
@@ -87,6 +103,40 @@ static uint64_t last_mesh_mask = 0;
 static void __fastcall Mesh(void* node, uint64_t mask) { ++mesh_calls; mesh_node = reinterpret_cast<uintptr_t>(node); last_mesh_mask = mask; }
 static bool AlmostEqual(float a, float b) { return std::abs(a-b) < 0.001f; }
 
+static void TestTraceAdapter() {
+    using namespace engine_trace;
+    static int mode;
+    Functions fn{
+        +[](Data*) {}, +[](Hit* hit) { hit->fraction = 0; },
+        +[](Filter*, uintptr_t, uint64_t, int, int)->void* { return nullptr; },
+        +[](Data* data, sdk::Vector3, sdk::Vector3, Filter*, int, bool)->void {
+            if (mode == 1) { data->entries.size = -1; return; }
+            if (mode == 2) return;
+            data->entries.size = mode == 3 ? -1 : 1;
+            data->entries.data = data->inline_entries;
+            data->inline_entries[0].surface_end = mode == 4 ? 128 : 0;
+        },
+        +[](Data*, Hit* hit, float, void*) {
+            hit->fraction = mode == 5 ? 1.f : .98f;
+            hit->entity = mode == 6 ? reinterpret_cast<void*>(2) : nullptr;
+            hit->all_solid = mode == 7;
+            if (mode == 8) hit->fraction = std::numeric_limits<float>::quiet_NaN();
+        }
+    };
+    auto run = [&](uint64_t mask = 1) { return Trace(fn, {1,2,3}, {100,2,3}, 1, 2, mask); };
+    assert(run(0) == Result::Unavailable);
+    mode=0; assert(run() == Result::Blocked); // Near-end walls must still block.
+    mode=1; assert(run() == Result::Failed);
+    mode=2; assert(run() == Result::Visible);
+    mode=3; assert(run() == Result::Failed);
+    mode=4; assert(run() == Result::Failed);
+    mode=5; assert(run() == Result::Visible);
+    mode=6; assert(run() == Result::Visible);
+    mode=7; assert(run() == Result::Blocked);
+    mode=8; assert(run() == Result::Failed);
+    fn.create=nullptr; assert(run() == Result::Unavailable);
+}
+
 static void TestEspCrowd() {
     Buffer system(0x100), chunk(512*0x70), local(0x5000);
     Buffer client(cs2_dumper::offsets::client_dll::dwViewMatrix+sizeof(sdk::ViewMatrix));
@@ -135,6 +185,7 @@ static void TestEspCrowd() {
         << " ms, " << test_memory_reads-reads << " memory reads, " << vertices << " vertices/frame\n";
     assert(test_memory_reads-reads < 40000); // Bounded reads, not per-segment bone traversal.
     assert(vertices < 12000); // Text must not regress to nine glyph passes.
+    assert(features::esp_diagnostics.drawn == 32);
     features::EspBones batch{};
     const auto batchReads=test_memory_reads;
     assert(features::ReadEspBones(scenes[0].addr(),batch));
@@ -144,6 +195,16 @@ static void TestEspCrowd() {
         ImGui::NewFrame(); features::RenderESP(); ImGui::Render();
         return ImGui::GetDrawData()->TotalVtxCount;
     };
+    client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,sdk::ViewMatrix{});
+    assert(drawFrame()==0 && std::strstr(features::esp_diagnostics.status,"zero"));
+    // A stale compiled offset must not override the runtime-resolved matrix.
+    pattern_resolver::view_matrix = &matrix;
+    assert(drawFrame()>0 && features::esp_diagnostics.drawn==32);
+    matrix.matrix[3][3] = -1;
+    assert(drawFrame()==0); // Resolved camera data remains live each frame.
+    matrix.matrix[3][3] = 1;
+    pattern_resolver::view_matrix = nullptr;
+    client.put(cs2_dumper::offsets::client_dll::dwViewMatrix,matrix);
     for(int i=2;i<=32;++i) chunk.put<uintptr_t>(i*0x70,0);
     assert(drawFrame()>0);
     config::esp::enabled=false; const auto disabledReads=test_memory_reads;
@@ -181,7 +242,141 @@ static void TestEspCrowd() {
     config::esp::enabled=false; game_state::test_state={}; test_module=nullptr;
 }
 
+static void TestFeatureExpansion() {
+    using namespace sdk::off;
+    const auto savedState=game_state::test_state;
+    Buffer system(0x2200), chunk(0x70*512), local(0x5000), remote(0x5000), smoke(0x2000);
+    Buffer controller(0x1000), enemyController(0x1000), stats(0x200), scene(0x300), bones(0x800);
+    Buffer localIdentity(0x80), remoteIdentity(0x80), smokeIdentity(0x80), smokeName(128);
+    const uint32_t lh=128|(1u<<15), rh=129|(2u<<15), sh=130|(3u<<15);
+    system.put(0x10,chunk.addr());
+    system.put(cs2_dumper::offsets::client_dll::dwGameEntitySystem_highestEntityIndex,130);
+    chunk.put(0x70,controller.addr()); chunk.put(0x70*2,enemyController.addr());
+    chunk.put(0x70*128,local.addr()); chunk.put(0x70*129,remote.addr()); chunk.put(0x70*130,smoke.addr());
+    local.put(0x10,localIdentity.addr()); remote.put(0x10,remoteIdentity.addr()); smoke.put(0x10,smokeIdentity.addr());
+    localIdentity.put(0x10,lh); remoteIdentity.put(0x10,rh); smokeIdentity.put(0x10,sh);
+    controller.put(CCSPlayerController::m_hPlayerPawn,lh); enemyController.put(CCSPlayerController::m_hPlayerPawn,rh);
+    controller.put(CCSPlayerController::m_pActionTrackingServices,stats.addr());
+    local.put(sdk::off::C_BaseEntity::m_iHealth,100); remote.put(sdk::off::C_BaseEntity::m_iHealth,100);
+    local.put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,2); remote.put<uint8_t>(sdk::off::C_BaseEntity::m_iTeamNum,3);
+    local.put<uint32_t>(sdk::off::C_BaseEntity::m_fFlags,1);
+    remote.put(sdk::off::C_BaseEntity::m_pGameSceneNode,scene.addr()); scene.put(CSkeletonInstance::m_modelState+0x80,bones.addr());
+    bones.put(sdk::BONE_HEAD*32,sdk::Vector3(100,100,64)); bones.put(sdk::BONE_CHEST*32,sdk::Vector3(100,0,64));
+    game_state::test_state={true,system.addr(),controller.addr(),local.addr(),"Expansion fixtures"};
+    test_time=10000;
+    features::SetInputBlocked(false);
+    config::aimbot::hitboxes[0]=true; config::aimbot::hitboxes[2]=true; config::aimbot::hitscan=false;
+    assert(features::AimPoint(remote.addr(),{0,0,64},{0,0}).y==100);
+    config::aimbot::hitscan=true;
+    assert(features::AimPoint(remote.addr(),{0,0,64},{0,0}).y==0);
+    config::aimbot::hitboxes[0]=false; config::aimbot::hitboxes[2]=false;
+    assert(features::AimPoint(remote.addr(),{0,0,64},{0,0}).Length()==0);
+    config::aimbot::hitboxes[0]=true; config::aimbot::hitscan=false;
+    features::ReadSilentTargets(system.addr(),local.addr(),remote.addr());
+    const auto scans=features::silent_target_scans.load();
+    config::aimbot::hitboxes[0]=false; config::aimbot::hitboxes[2]=true;
+    const auto& refreshed=features::ReadSilentTargets(system.addr(),local.addr(),remote.addr());
+    assert(features::silent_target_scans==scans+1 && refreshed.targets[2].points[2].x==100);
+    config::aimbot::hitboxes[0]=true; config::aimbot::hitboxes[2]=false;
+    config::aimbot::disable_airborne=true;
+    assert(!features::AimDisabled(local.addr())); local.put<uint32_t>(sdk::off::C_BaseEntity::m_fFlags,0);
+    assert(features::AimDisabled(local.addr())); config::aimbot::disable_airborne=false;
+    config::aimbot::disable_flashed=true; local.put(C_CSPlayerPawnBase::m_flFlashDuration,1.0f);
+    assert(features::AimDisabled(local.addr())); config::aimbot::disable_flashed=false;
+    config::aimbot::disable_scoped=true; local.put(sdk::off::C_CSPlayerPawn::m_bIsScoped,true);
+    assert(features::AimDisabled(local.addr())); config::aimbot::disable_scoped=false;
+    features::AimSession session;
+    config::aimbot::shot_delay=.5f; config::aimbot::kill_delay=1;
+    session.Begin(local.addr(),system.addr());
+    assert(!session.Ready(remote.addr(),rh)); test_time+=499; assert(!session.Ready(remote.addr(),rh));
+    ++test_time; assert(session.Ready(remote.addr(),rh));
+    stats.put(CCSPlayerController_ActionTrackingServices::m_iNumRoundKills,1); session.Begin(local.addr(),system.addr());
+    assert(!session.Ready(remote.addr(),rh)); test_time+=1000; assert(session.Ready(remote.addr(),rh));
+    remoteIdentity.put(0x10,rh+(1u<<15)); session.Begin(local.addr(),system.addr()); assert(!session.target);
+    remoteIdentity.put(0x10,rh); config::aimbot::shot_delay=config::aimbot::kill_delay=0;
+
+    features::RestoreVisualFields();
+    const auto glow=C_BaseModelEntity::m_Glow;
+    remote.put(glow+CGlowProperty::m_iGlowType,1);
+    config::esp::glow=true; config::esp::team_check=true;
+    features::UpdateWorldVisuals(game_state::test_state);
+    assert(sdk::read_value<int>(remote.addr()+glow+CGlowProperty::m_iGlowType)==3);
+    assert(sdk::read_value<bool>(remote.addr()+glow+CGlowProperty::m_bGlowing));
+    config::esp::glow=false; features::UpdateWorldVisuals(game_state::test_state);
+    assert(sdk::read_value<int>(remote.addr()+glow+CGlowProperty::m_iGlowType)==1);
+    assert(!sdk::read_value<bool>(remote.addr()+glow+CGlowProperty::m_bGlowing));
+    config::esp::glow=true; features::UpdateWorldVisuals(game_state::test_state);
+    remote.put(glow+CGlowProperty::m_iGlowType,7); // New engine value must survive disable.
+    config::esp::glow=false; features::UpdateWorldVisuals(game_state::test_state);
+    assert(sdk::read_value<int>(remote.addr()+glow+CGlowProperty::m_iGlowType)==7);
+    config::esp::glow=true; features::UpdateWorldVisuals(game_state::test_state);
+    remoteIdentity.put(0x10,rh+(1u<<15)); // Recycled entity must not receive restoration writes.
+    config::esp::glow=false; features::UpdateWorldVisuals(game_state::test_state);
+    assert(sdk::read_value<int>(remote.addr()+glow+CGlowProperty::m_iGlowType)==3);
+    remoteIdentity.put(0x10,rh);
+    const char name[]="smokegrenade_projectile"; std::memcpy(smokeName.bytes.data(),name,sizeof(name));
+    smokeIdentity.put(CEntityIdentity::m_designerName,smokeName.addr());
+    smoke.put(C_SmokeGrenadeProjectile::m_vSmokeColor,sdk::Vector3(50,60,70));
+    config::world::smoke_color_enabled=true;
+    config::world::smoke_color[0]=1; config::world::smoke_color[1]=0; config::world::smoke_color[2]=0;
+    features::UpdateWorldVisuals(game_state::test_state);
+    const auto tint=sdk::read_value<sdk::Vector3>(smoke.addr()+C_SmokeGrenadeProjectile::m_vSmokeColor);
+    assert(tint.x==255 && tint.y==0 && tint.z==0);
+    config::world::smoke_color_enabled=false; features::UpdateWorldVisuals(game_state::test_state);
+    const auto restored=sdk::read_value<sdk::Vector3>(smoke.addr()+C_SmokeGrenadeProjectile::m_vSmokeColor);
+    assert(restored.x==50 && restored.y==60 && restored.z==70 && features::visual_fields.empty());
+    for(float& channel:config::world::smoke_color) channel=1;
+    Buffer weaponServices(0x200), weapon(0x5000), weaponIdentity(0x80), weaponHandles(4);
+    const uint32_t wh=131|(4u<<15);
+    chunk.put(0x70*131,weapon.addr()); weapon.put(0x10,weaponIdentity.addr()); weaponIdentity.put(0x10,wh);
+    weapon.put<uint16_t>(C_EconEntity::m_AttributeManager+C_AttributeContainer::m_Item+C_EconItemView::m_iItemDefinitionIndex,49);
+    local.put(C_BasePlayerPawn::m_pWeaponServices,weaponServices.addr());
+    weaponServices.put(CPlayer_WeaponServices::m_hActiveWeapon,wh);
+    weaponServices.put(CPlayer_WeaponServices::m_hMyWeapons,1);
+    weaponServices.put(CPlayer_WeaponServices::m_hMyWeapons+8,weaponHandles.addr());
+    weaponServices.put(CPlayer_WeaponServices::m_hMyWeapons+16,1); weaponHandles.put(0,wh);
+    assert(features::CarriesBomb(weaponServices.addr(),system.addr()));
+    weapon.put<uint16_t>(C_EconEntity::m_AttributeManager+C_AttributeContainer::m_Item+C_EconItemView::m_iItemDefinitionIndex,9);
+    assert(!features::CarriesBomb(weaponServices.addr(),system.addr()));
+    config::aimbot::enabled=config::aimbot::autoscope=true;
+    local.put(sdk::off::C_CSPlayerPawn::m_bIsScoped,false);
+    const auto downBefore=scope_downs, upBefore=scope_ups;
+    features::PublishFireTarget(remote.addr()); features::AutoScope();
+    assert(scope_downs==downBefore+1 && features::s_scope_down);
+    test_time+=11; features::AutoScope(); assert(scope_ups==upBefore+1 && !features::s_scope_down);
+    local.put(sdk::off::C_CSPlayerPawn::m_iIDEntIndex,129);
+    config::misc::trigger_bot=false; config::aimbot::auto_shoot=true;
+    test_keys[VK_LBUTTON]=test_keys[VK_RBUTTON]=0;
+    const auto shotsBefore=mouse_downs;
+    features::PublishFireTarget(remote.addr()); features::TriggerBot(); assert(mouse_downs==shotsBefore);
+    local.put(sdk::off::C_CSPlayerPawn::m_bIsScoped,true);
+    features::TriggerBot(); assert(mouse_downs==shotsBefore+1);
+    features::ReleaseInputs(); config::aimbot::autoscope=config::aimbot::auto_shoot=false;
+    config::aimbot::draw_fov=true; config::esp::enabled=false;
+    ImGui::NewFrame(); features::RenderOverlays(); ImGui::Render();
+    assert(ImGui::GetDrawData()->TotalVtxCount>0); // FOV overlay is independent of player ESP.
+    config::aimbot::draw_fov=false;
+    ImGui::NewFrame(); features::RenderOverlays(); ImGui::Render();
+    assert(ImGui::GetDrawData()->TotalVtxCount==0);
+    Buffer bullet(0x100); local.put(sdk::off::C_CSPlayerPawn::m_pBulletServices,bullet.addr());
+    config::misc::hit_marker=config::misc::hit_effect=config::misc::kill_effect=true;
+    bullet.put(CCSPlayer_BulletServices::m_totalHitsOnServer,1);
+    ImGui::NewFrame(); features::RenderOverlays(); ImGui::Render();
+    assert(ImGui::GetDrawData()->TotalVtxCount>0);
+    test_time+=600;
+    ImGui::NewFrame(); features::RenderOverlays(); ImGui::Render();
+    assert(ImGui::GetDrawData()->TotalVtxCount==0);
+    stats.put(CCSPlayerController_ActionTrackingServices::m_iNumRoundKills,2);
+    ImGui::NewFrame(); features::RenderOverlays(); ImGui::Render();
+    assert(ImGui::GetDrawData()->TotalVtxCount>0);
+    config::misc::hit_marker=config::misc::hit_effect=config::misc::kill_effect=false;
+    game_state::test_state=savedState;
+    features::world_entities.clear(); features::world_system=features::world_local=0;
+    std::cout << "Feature expansion passed: bone scan, conditions, shot/kill timing, serial validation, glow restoration, engine updates, smoke tint.\n";
+}
+
 int main() {
+    TestTraceAdapter();
     const float inf = std::numeric_limits<float>::infinity();
     assert(AlmostEqual(features::CalcAngle({}, {1, 0, 0}).y, 0));
     assert(AlmostEqual(features::CalcAngle({}, {0, 1, 0}).y, 90));
@@ -233,6 +428,29 @@ int main() {
     assert(!sdk::read_memory(reinterpret_cast<uintptr_t>(pages+4092),sentinel) && sentinel==42);
     assert(!sdk::write_memory(reinterpret_cast<uintptr_t>(pages+4092),sentinel));
     assert(!sdk::write_memory(reinterpret_cast<uintptr_t>(pages+4096),sentinel));
+    assert(skins::WriteKnifeValue(reinterpret_cast<uintptr_t>(pages),uint32_t{17}));
+    assert(VirtualProtect(pages,4096,PAGE_READONLY,&previous));
+    assert(skins::WriteKnifeValue(reinterpret_cast<uintptr_t>(pages),uint32_t{17})); // No write needed.
+    assert(!skins::WriteKnifeValue(reinterpret_cast<uintptr_t>(pages),uint32_t{18}));
+    assert(!skins::WriteKnifeValue(reinterpret_cast<uintptr_t>(pages+4096),uint32_t{17}));
+    {
+        sdk::ScopedLocalReads localReads;
+        uint32_t value=99;
+        assert(sdk::read_memory(reinterpret_cast<uintptr_t>(pages),value) && value==17);
+        assert(VirtualProtect(pages,4096,PAGE_NOACCESS,&previous));
+        value=99;
+        assert(!sdk::read_memory(reinterpret_cast<uintptr_t>(pages),value) && value==99); // Cached mapping became inaccessible.
+        assert(!sdk::read_memory(reinterpret_cast<uintptr_t>(pages+4092),sentinel));
+    }
+    assert(!sdk::local_read_cache);
+    assert(VirtualProtect(pages,4096,PAGE_READWRITE|PAGE_GUARD,&previous));
+    {
+        sdk::ScopedLocalReads localReads;
+        uint32_t value=99;
+        assert(!sdk::read_memory(reinterpret_cast<uintptr_t>(pages),value) && value==99);
+        MEMORY_BASIC_INFORMATION info{};
+        assert(VirtualQuery(pages,&info,sizeof(info)) && (info.Protect&PAGE_GUARD));
+    }
     VirtualFree(pages,0,MEM_RELEASE);
 
     sdk::CUserCmd cmd{};
@@ -429,26 +647,42 @@ int main() {
     assert(debug.target_pawn==first.addr() && debug.target_health==150 && debug.target_team==3);
     assert(std::strcmp(debug.target_name,"Regression enemy")==0);
     assert(history[0]==123 && history[2]==456);
+    config::aimbot::shot_delay=1.f; config::aimbot::kill_delay=2.f;
     const auto scansBefore=features::silent_target_scans.load();
     for(int repeat=0;repeat<1000;++repeat)
         features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
-    assert(features::silent_aim_writes==1001 && features::silent_target_scans==scansBefore);
-    assert(features::silent_cache_hits>=1000);
+    assert(features::silent_aim_writes==1001 && features::silent_target_scans==scansBefore+1000);
+    config::aimbot::shot_delay=config::aimbot::kill_delay=0;
+    assert(features::silent_cache_hits==0);
+    const auto& sparseTargets = features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    for (int n=0;n<sparseTargets.active_count;++n) {
+        const auto& target=sparseTargets.targets[sparseTargets.active_indices[n]];
+        assert(target.pawn && target.pawn!=pawn.addr() && target.health>0);
+    }
     // A target leaving FOV must not permanently disable later writes.
     config::aimbot::fov=1;
     sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{0,0,0});
-    test_time+=9;
+    test_time+=17;
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     assert(features::silent_aim_writes==1001);
     assert(std::strcmp(features::silent_aim_status.load(),"Enemies outside aim FOV")==0);
     config::aimbot::fov=90;
-    test_time+=9;
+    test_time+=17;
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     assert(features::silent_aim_writes==1002);
     first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,0);
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     assert(features::silent_aim_writes==1002); // Cached target cannot survive death validation.
     first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth,150);
+    const auto scansAfterDeath=features::silent_target_scans.load();
+    const auto& respawned=features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    assert(features::silent_target_scans==scansAfterDeath+1); // No time/camera change required.
+    bool foundRespawn=false;
+    for(int n=0;n<respawned.active_count;++n) {
+        const auto& candidate=respawned.targets[respawned.active_indices[n]];
+        foundRespawn |= candidate.pawn==first.addr() && candidate.health==150;
+    }
+    assert(foundRespawn);
     test_time+=250;
     sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{inf,0,0});
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
@@ -475,21 +709,23 @@ int main() {
         chunk0.put(0x70*i,crowdControllers.back().addr());
         chunk0.put(0x70*(128+i),remote.addr());
     }
-    test_time+=9;
+    test_time+=17;
     const auto crowdedScans=features::silent_target_scans.load();
     const auto crowdedHits=features::silent_cache_hits.load();
     const auto crowdedWrites=features::silent_aim_writes.load();
     const auto crowdedGeometry=features::silent_geometry_updates.load();
+    const auto readsBeforeCrowd=test_memory_reads;
     const auto crowdedStart=std::chrono::steady_clock::now();
     for (int repeat=0;repeat<1000;++repeat) {
         sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sourceAngles);
         features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     }
+    assert(test_memory_reads>readsBeforeCrowd); // RPM avoids costly VirtualQuery validation.
     assert(features::aim_resolved_pawns==64);
-    assert(features::silent_target_scans==crowdedScans+1);
-    assert(features::silent_cache_hits==crowdedHits+999);
+    assert(features::silent_target_scans==crowdedScans+1000);
+    assert(features::silent_cache_hits==crowdedHits);
     assert(features::silent_aim_writes==crowdedWrites+1000);
-    assert(features::silent_geometry_updates==crowdedGeometry+1);
+    assert(features::silent_geometry_updates==crowdedGeometry+1000);
     std::cout << "Crowded-map callbacks (64 pawns, 1000 subticks): "
         << std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-crowdedStart).count()
         << " ms\n";
@@ -498,21 +734,53 @@ int main() {
     sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sdk::Vector3{0,0,0});
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     assert(features::silent_aim_writes==crowdedWrites+1000);
-    assert(features::silent_geometry_updates==crowdedGeometry+1);
+    assert(features::silent_geometry_updates==crowdedGeometry+1001);
     config::aimbot::fov=90;
-    auto& movedGeometry=features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    auto movedGeometry=features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
+    assert(movedGeometry.active_count==64);
     features::PrepareSilentGeometry(movedGeometry,{0,100,64});
-    assert(features::silent_geometry_updates==crowdedGeometry+2);
+    assert(features::silent_geometry_updates==crowdedGeometry+1002);
     assert(AlmostEqual(movedGeometry.targets[64].angle.y,0));
     features::PrepareSilentGeometry(movedGeometry,{0,100,64});
-    assert(features::silent_geometry_updates==crowdedGeometry+2);
-    test_time+=8;
+    assert(features::silent_geometry_updates==crowdedGeometry+1003);
+    test_time+=16;
     features::ReadSilentTargets(system.addr(),pawn.addr(),first.addr());
-    assert(features::silent_target_scans==crowdedScans+2); // Expiry refreshes the snapshot.
+    assert(features::silent_target_scans==crowdedScans+1003); // Expiry refreshes the snapshot.
     features::ReadSilentTargets(system.addr(),pawn.addr(),second.addr());
-    assert(features::silent_target_scans==crowdedScans+3); // Weapon changes invalidate it.
+    assert(features::silent_target_scans==crowdedScans+1004); // Weapon changes invalidate it.
     features::ReadSilentTargets(system.addr(),first.addr(),second.addr());
-    assert(features::silent_target_scans==crowdedScans+4); // Local pawn changes invalidate it.
+    assert(features::silent_target_scans==crowdedScans+1005); // Local pawn changes invalidate it.
+    // Live wall checks: retry blocked candidates within this evaluation, with
+    // no spotted-bit requirement, and fail closed when tracing is unavailable.
+    static unsigned traceCalls = 0;
+    static bool blockAll = false;
+    engine_trace::functions = {
+        +[](engine_trace::Data*) {}, +[](engine_trace::Hit*) {},
+        +[](engine_trace::Filter*, uintptr_t, uint64_t mask, int, int)->void* {
+            assert(mask == 0x1C300BULL); return nullptr;
+        },
+        +[](engine_trace::Data* data, sdk::Vector3, sdk::Vector3, engine_trace::Filter*, int, bool)->void {
+            ++traceCalls;
+            if (blockAll || traceCalls == 1) {
+                data->entries.size = 1; data->entries.data = data->inline_entries;
+            }
+        },
+        +[](engine_trace::Data*, engine_trace::Hit* hit, float, void*) { hit->fraction = .5f; }
+    };
+    config::aimbot::visible_check = true;
+    const auto beforeTraceWrites = features::silent_aim_writes.load();
+    auto traceTick = [&] {
+        sdk::write_memory(reinterpret_cast<uintptr_t>(history+4),sourceAngles);
+        features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    };
+    traceTick();
+    assert(traceCalls == 2 && features::silent_aim_writes == beforeTraceWrites+1);
+    blockAll = true; traceCalls = 0; traceTick();
+    assert(traceCalls == 64 && features::silent_aim_writes == beforeTraceWrites+1);
+    engine_trace::functions = {}; traceTick();
+    assert(features::silent_aim_writes == beforeTraceWrites+1);
+    assert(std::strstr(features::silent_aim_status.load(),"signatures missing"));
+    config::aimbot::visible_check = false;
     for (int i=1;i<64;++i) {
         chunk0.put<uintptr_t>(0x70*i,0);
         chunk0.put<uintptr_t>(0x70*(128+i),0);
@@ -571,6 +839,55 @@ int main() {
     services.put(CPlayer_WeaponServices::m_hActiveWeapon,handle2);
     skins::ApplyKnifeSkins(); skins::ApplyKnifeSkins();
     assert(model_calls==1 && mesh_calls==2 && skins::GetDefIndex(second.addr())==9);
+    // Knife paint uses the material builder and remains idle once applied.
+    skins::user_skins[500]=cfg;
+    const auto knifeRefreshes=refreshes;
+    skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
+    assert(refreshes==knifeRefreshes+1);
+    assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_PAINT)==282);
+    skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
+    assert(refreshes==knifeRefreshes+1);
+    services.put(CPlayer_WeaponServices::m_hActiveWeapon,handle1);
+    for(int i=0;i<100;++i) skins::ApplyKnifeSkins();
+    assert(model_calls==1);
+    skins::InvalidateSkinMaterial(first.addr());
+    skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
+    assert(refreshes==knifeRefreshes+2);
+    skins::user_skins.erase(500);
+    skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
+    assert(refreshes==knifeRefreshes+3);
+    assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_PAINT)==0);
+    {
+        Buffer eventSystem(0x40), eventChunk(0x70*512), eventController(0x1000), eventPawn(0x100), controllerIdentity(0x30), pawnIdentity(0x30);
+        const uint32_t controllerHandle=1|(4u<<15), pawnHandle=128|(6u<<15);
+        eventSystem.put(0x10,eventChunk.addr());
+        eventChunk.put(0x70,eventController.addr()); eventChunk.put(128*0x70,eventPawn.addr());
+        eventController.put(0x10,controllerIdentity.addr()); controllerIdentity.put(0x10,controllerHandle);
+        eventController.put(sdk::off::CCSPlayerController::m_hPlayerPawn,pawnHandle);
+        eventPawn.put(0x10,pawnIdentity.addr()); pawnIdentity.put(0x10,pawnHandle);
+        entity_events::Reset(); entity_events::enabled=true;
+        auto initial=features::ReadAimPlayers(eventSystem.addr(),eventPawn.addr(),true);
+        assert(initial.pawns[1]==eventPawn.addr() && initial.local_index==1);
+        const auto rebuilds=entity_events::rebuilds.load();
+        auto cached=features::ReadAimPlayers(eventSystem.addr(),eventPawn.addr(),true);
+        assert(cached.pawns[1]==eventPawn.addr() && entity_events::rebuilds==rebuilds);
+        entity_events::Removed(eventSystem.addr(),eventController.addr(),controllerHandle);
+        assert(features::ReadAimPlayers(eventSystem.addr(),0,true).pawns[1]==0);
+        const auto newHandle=1|(5u<<15); controllerIdentity.put(0x10,newHandle);
+        entity_events::Added(eventSystem.addr(),eventController.addr(),newHandle);
+        entity_events::Removed(eventSystem.addr(),eventController.addr(),controllerHandle); // Old serial cannot remove replacement.
+        assert(features::ReadAimPlayers(eventSystem.addr(),0,true).pawns[1]==eventPawn.addr());
+        const auto respawnHandle=128|(7u<<15);
+        eventController.put(sdk::off::CCSPlayerController::m_hPlayerPawn,respawnHandle);
+        pawnIdentity.put(0x10,respawnHandle);
+        entity_events::Removed(eventSystem.addr(),eventPawn.addr(),pawnHandle);
+        entity_events::Added(eventSystem.addr(),eventPawn.addr(),respawnHandle);
+        assert(entity_events::Resolve(eventSystem.addr(),pawnHandle)==0);
+        assert(entity_events::Resolve(eventSystem.addr(),respawnHandle)==eventPawn.addr());
+        assert(features::ReadAimPlayers(eventSystem.addr(),0,true).handles[1]==respawnHandle);
+        entity_events::Reset();
+        assert(features::ReadAimPlayers(eventSystem.addr(),0,true).pawns[1]==eventPawn.addr()); // Disabled-hook fallback.
+    }
     auto* ui=ImGui::CreateContext();
     menu_advanced::LoadIconFont();
     auto& io=ImGui::GetIO();
@@ -585,7 +902,56 @@ int main() {
             if(frame==2 && (page==11 || page==0)) SaveMenuPreview(page==11 ? "dashboard.bmp" : "aim-page.bmp",pixels,atlasWidth,atlasHeight);
         }
     }
+    // Real mouse events must toggle exactly the clicked aim setting once.
+    menu_advanced::selected_tab=0;
+    bool* aimSettings[]={&config::aimbot::enabled,&config::aimbot::auto_shoot,&config::aimbot::team_check,
+        &config::aimbot::visible_check,&config::aimbot::silent_aim,&config::rcs::enabled};
+    auto drawAim=[&] { ImGui::NewFrame(); menu_advanced::RenderMainMenu(); ImGui::Render(); };
+    for(int i=0;i<5;++i) drawAim();
+    std::set<ImGuiID> aimIds;
+    for(auto* setting:aimSettings) assert(aimIds.insert(checkboxLocations.at(setting).id).second);
+    for(auto* setting:aimSettings) for(int repeat=0;repeat<2;++repeat) {
+        bool before[6]; for(int i=0;i<6;++i) before[i]=*aimSettings[i];
+        const auto center=checkboxLocations.at(setting).center;
+        io.AddMousePosEvent(center.x,center.y); drawAim();
+        io.AddMouseButtonEvent(0,true); drawAim();
+        for(int i=0;i<3;++i) drawAim(); // Holding the button must not repeat.
+        io.AddMouseButtonEvent(0,false); drawAim();
+        for(int i=0;i<3;++i) drawAim();
+        for(int i=0;i<6;++i) assert(*aimSettings[i]==(aimSettings[i]==setting ? !before[i] : before[i]));
+    }
+    {
+        aim_profiler::Start();
+        auto delayed=aim_profiler::current.load();
+        { aim_profiler::Scope scope(aim_profiler::Scan); }
+        assert(delayed->counters[aim_profiler::Scan].calls==0);
+        auto session=std::make_shared<aim_profiler::Capture>();
+        session->begin=aim_profiler::Clock::now()-std::chrono::seconds(1);
+        session->end=aim_profiler::Clock::now()+std::chrono::seconds(10);
+        aim_profiler::current.store(session);
+        aim_profiler::deadline=std::chrono::duration_cast<std::chrono::nanoseconds>(session->end.time_since_epoch()).count();
+        {
+            aim_profiler::Scope outer(aim_profiler::Callback);
+            { aim_profiler::Scope inner(aim_profiler::Scan); aim_profiler::Mark(aim_profiler::CacheMiss); }
+            aim_profiler::Start(); // An in-flight scope must stay with its original capture.
+        }
+        assert(session->byRootNs[aim_profiler::Callback][aim_profiler::Scan]==session->counters[aim_profiler::Scan].total_ns);
+        assert(session->events[aim_profiler::CacheMiss]==1);
+        assert(session->attributed[aim_profiler::Callback][aim_profiler::CacheMiss]==1);
+        assert(session->counters[aim_profiler::Callback].calls==1);
+        assert(session->counters[aim_profiler::Callback].self_ns+session->counters[aim_profiler::Scan].total_ns==session->counters[aim_profiler::Callback].total_ns);
+        aim_profiler::Counter histogram;
+        histogram.Add(1000); histogram.Add(1000000);
+        assert(aim_profiler::Percentile(histogram,.5)==.001 && aim_profiler::Percentile(histogram,.95)==1.0);
+        assert(session->counters[aim_profiler::Scan].calls==1 && session->pending==0);
+        assert(session->counters[aim_profiler::Callback].total_ns>=session->counters[aim_profiler::Scan].total_ns);
+        assert(aim_profiler::Report(*session).find("Engine: aimed")!=std::string::npos);
+        aim_profiler::deadline=0;
+        aim_profiler::current.store(nullptr);
+    }
+    TestSkinImagesAndPreview();
     TestEspCrowd();
+    TestFeatureExpansion();
     ImGui::DestroyContext(ui);
     std::cout << "Feature regressions passed: math/projection, masks/handles/vectors, protected memory, user commands, staged weapons/gloves/removal, trigger timing/menu release, radar/no-flash, bunny-hop/release, and loadout stride.\n";
 }

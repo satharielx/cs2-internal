@@ -6,11 +6,17 @@
 namespace config {
     inline std::recursive_mutex mutex;
     namespace lighting {
+        inline bool night_mode = false;
+        inline float night_brightness = .25f;
         inline bool enabled = false;
         inline float color[3] = {1.0f, 1.0f, 1.0f};
         inline float brightness = 3.0f;
     }
     namespace viewmodel {
+        inline bool offsets_enabled = false;
+        inline float offset[3] = {};
+        inline bool camera_fov_enabled = false;
+        inline float camera_fov = 90.0f;
         inline bool fov_enabled = false;
         inline float fov = 68.0f;
         inline bool no_aim_punch = false;
@@ -24,6 +30,13 @@ namespace config {
     }
     // ESP Settings
     namespace esp {
+        inline bool glow = false;
+        inline float glow_color[4] = {1, .2f, .1f, .8f};
+        inline bool preview = true;
+        inline bool armor_bar = false, weapon_text = false, bomb = false, defuse_kit = false;
+        inline bool flashed = false, scoped = false, planting = false, defusing = false, hostage = false;
+        inline bool out_of_fov_arrows = false;
+        inline float scale = 1.0f, alpha = 1.0f;
         inline bool enabled = false;
         inline bool box = true;
         inline bool skeleton = true;
@@ -38,8 +51,19 @@ namespace config {
         inline float max_distance = 300.0f;
     }
 
+    namespace world {
+        inline bool items = false, bomb = false, grenade_warning = false, smoke_color_enabled = false;
+        inline float smoke_color[3] = {1, 1, 1};
+    }
+
     // Aimbot Settings
     namespace aimbot {
+        // Head, neck, chest and pelvis; hitscan chooses the nearest enabled bone in FOV.
+        inline bool hitboxes[4] = {true, false, false, false};
+        inline bool hitscan = false, lock_target = false, draw_fov = false, autoscope = false;
+        inline bool disable_flashed = false, disable_airborne = false, disable_scoped = false;
+        inline float shot_delay = 0.0f, kill_delay = 0.0f;
+        inline float fov_color[4] = {1, 1, 1, .65f};
         inline bool enabled = false;
         inline bool team_check = true;
         inline bool visible_check = true;
@@ -59,6 +83,11 @@ namespace config {
 
     // Misc Settings
     namespace misc {
+        inline bool show_money = false, spectator_list = false;
+        inline bool hit_marker = false, hit_effect = false, kill_effect = false;
+        inline bool knife_range = false, taser_range = false;
+        inline bool external_radar = false;
+        inline float radar_scale = 1.0f, radar_alpha = .8f;
         inline bool bunny_hop = false;
         inline bool no_flash = false;
         inline bool radar_hack = false;

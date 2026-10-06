@@ -36,6 +36,25 @@ int main() {
         const auto restored = sdk::read_value<sdk::Vector3>(field);
         assert(restored.x == 2 && restored.y == 3 && restored.z == 4);
     }
+    sdk::write_memory(p + sdk::off::C_CSPlayerPawn::m_flViewmodelOffsetX, 1.0f);
+    config::viewmodel::offsets_enabled = config::viewmodel::camera_fov_enabled = true;
+    config::viewmodel::offset[0] = 100; config::viewmodel::camera_fov = 110;
+    std::array<unsigned char, 0x400> largeCamera{};
+    const auto lc = reinterpret_cast<uintptr_t>(largeCamera.data());
+    sdk::write_memory(p + sdk::off::C_BasePlayerPawn::m_pCameraServices, lc);
+    sdk::write_memory(lc + sdk::off::CCSPlayerBase_CameraServices::m_iFOV, uint32_t{90});
+    {
+        viewmodel::ScopedOverride expanded(p);
+        assert(sdk::read_value<float>(p + sdk::off::C_CSPlayerPawn::m_flViewmodelOffsetX) == 20);
+        assert(sdk::read_value<uint32_t>(lc + sdk::off::CCSPlayerBase_CameraServices::m_iFOV) == 110);
+    }
+    assert(sdk::read_value<float>(p + sdk::off::C_CSPlayerPawn::m_flViewmodelOffsetX) == 1);
+    assert(sdk::read_value<uint32_t>(lc + sdk::off::CCSPlayerBase_CameraServices::m_iFOV) == 90);
+    sdk::write_memory(p + sdk::off::C_CSPlayerPawn::m_bIsScoped, true);
+    { viewmodel::ScopedOverride scoped(p); assert(sdk::read_value<uint32_t>(lc + sdk::off::CCSPlayerBase_CameraServices::m_iFOV) == 90); }
+    sdk::write_memory(p + sdk::off::C_CSPlayerPawn::m_bIsScoped, false);
+    sdk::write_memory(p + sdk::off::C_BasePlayerPawn::m_pCameraServices, c);
+    config::viewmodel::offsets_enabled = config::viewmodel::camera_fov_enabled = false;
     config::viewmodel::fov = 200;
     { viewmodel::ScopedOverride clamped(p); assert(sdk::read_value<float>(fov) == 120); }
     config::viewmodel::fov = std::numeric_limits<float>::quiet_NaN();

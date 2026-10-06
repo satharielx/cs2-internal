@@ -1,3 +1,4 @@
+#include "aim_profiler.h"
 #include "skins.h"
 #include "interfaces.h"
 #include "game_state.h"
@@ -491,8 +492,8 @@ namespace skins {
     }
 
     static bool RefreshWeaponMaterials(uintptr_t weapon) {
-        // Preserve the existing knife path.
-        if (IsKnife(GetDefIndex(weapon))) { CallUpdateComposite(weapon, true); return true; }
+        aim_profiler::Scope profile(IsKnife(GetDefIndex(weapon)) ? aim_profiler::KnifeMaterials : aim_profiler::OtherMaterials);
+        // Knives also need their world and HUD paint materials rebuilt.
         if (!g_fnBuildSkin || !g_fnRegenerateSkins) return false;
         const int paint = sdk::read_value<int>(weapon + OFF_FALLBACK_PAINT);
         const auto kit = paint > 0 ? FindPaintKit(paint) : 0;
@@ -565,6 +566,7 @@ namespace skins {
     };
 
     static std::vector<LoadoutItem> ReadLoadout() {
+        aim_profiler::Scope profile(aim_profiler::Loadout);
         std::vector<LoadoutItem> items;
         try {
             uintptr_t ctrl = game_state::GetLocalController();
@@ -657,8 +659,17 @@ namespace skins {
     static int       s_subclassRefreshFrames = 0;
     static int       s_setModelDelayFrames = 0;
     static bool      s_engineFunctionsResolved = false;
+    static uint32_t s_lastKnifeHandle = UINT32_MAX;
+    static void InvalidateSkinMaterial(uintptr_t weapon);
+
+    template<class T> static bool WriteKnifeValue(uintptr_t address, T value) {
+        T current{};
+        if (!sdk::read_memory(address, current)) return false;
+        return current == value || sdk::write_memory(address, value);
+    }
 
     void ApplyKnifeSkins() {
+        aim_profiler::Scope profile(aim_profiler::Knife);
         if (!s_engineFunctionsResolved) {
             ResolveEngineFunctions();
             s_engineFunctionsResolved = true;
@@ -699,21 +710,39 @@ namespace skins {
         if (!IsKnife(def_index) && !IsDefaultKnife(def_index)) return;
 
         // New weapon detection
-        if (weapon != s_lastWeaponPtr) {
+        const auto identity = sdk::read_value<uintptr_t>(weapon + 0x10);
+        const auto handle = identity ? sdk::read_value<uint32_t>(identity + 0x10) : UINT32_MAX;
+        if (handle == UINT32_MAX) return;
+        if (weapon != s_lastWeaponPtr || handle != s_lastKnifeHandle) {
             s_lastKnifeDefIndex = 0;
             s_subclassRefreshFrames = 0;
             s_setModelDelayFrames = 0;
             s_lastWeaponPtr = weapon;
+            s_lastKnifeHandle = handle;
             return;
         }
 
-        std::vector<LoadoutItem> loadout;
-        try { loadout = ReadLoadout(); }
-        catch (...) {}
         uint8_t team = GetLocalTeam();
+        // Custom paint has no inventory dependency. Otherwise copy the loadout
+        // at most four times a second, rather than scanning it every frame.
+        static std::vector<LoadoutItem> loadout;
+        static uintptr_t loadoutController = 0;
+        static uint8_t loadoutTeam = 0;
+        static ULONGLONG nextLoadoutRead = 0;
+        const bool customPaint = selected_knife_id >= 500 && user_skins.find(selected_knife_id) != user_skins.end();
+        const LoadoutItem* melee = nullptr;
+        if (!customPaint) {
+            const auto controller = game_state::GetLocalController();
+            const auto now = GetTickCount64();
+            if (controller != loadoutController || team != loadoutTeam || now >= nextLoadoutRead) {
+                loadout = ReadLoadout();
+                loadoutController = controller; loadoutTeam = team;
+                nextLoadoutRead = now + 250;
+            }
+            melee = FindMeleeItem(loadout, team);
+        }
 
         uint16_t knifeDefIndex = 0;
-        const LoadoutItem* melee = FindMeleeItem(loadout, team);
         if (selected_knife_id < 500 && melee && melee->def_index >= 500)
             knifeDefIndex = melee->def_index;
         else if (selected_knife_id >= 500)
@@ -724,25 +753,25 @@ namespace skins {
         const KnifeData* kd = GetKnifeData(knifeDefIndex);
         if (!kd) return;
 
-        // --- Cheap writes every frame ---
+        // Avoid VirtualQuery/WriteProcessMemory on unchanged knife fields.
         if (melee && melee->item_id != 0 && user_skins.find(knifeDefIndex) == user_skins.end()) {
-            sdk::write_memory<uint64_t>(weapon + OFF_ITEM_ID, melee->item_id);
-            sdk::write_memory<uint32_t>(weapon + OFF_ITEM_ID_HIGH, melee->item_id_high);
-            sdk::write_memory<uint32_t>(weapon + OFF_ITEM_ID_LOW, melee->item_id_low);
-            sdk::write_memory<uint32_t>(weapon + OFF_ACCOUNT_ID, melee->account_id);
+            WriteKnifeValue<uint64_t>(weapon + OFF_ITEM_ID, melee->item_id);
+            WriteKnifeValue<uint32_t>(weapon + OFF_ITEM_ID_HIGH, melee->item_id_high);
+            WriteKnifeValue<uint32_t>(weapon + OFF_ITEM_ID_LOW, melee->item_id_low);
+            WriteKnifeValue<uint32_t>(weapon + OFF_ACCOUNT_ID, melee->account_id);
         }
         else {
-            sdk::write_memory(weapon + OFF_ITEM_ID_HIGH, UINT32_MAX);
+            WriteKnifeValue(weapon + OFF_ITEM_ID_HIGH, UINT32_MAX);
         }
 
         // Common writes (definition index, subclass, fallback skin)
-        sdk::write_memory<bool>(weapon + OFF_DISALLOW_SOC, false);
-        sdk::write_memory<bool>(weapon + OFF_RESTORE_MATERIAL, true);
+        WriteKnifeValue<bool>(weapon + OFF_DISALLOW_SOC, false);
+        WriteKnifeValue<bool>(weapon + OFF_RESTORE_MATERIAL, true);
 
 
 
-        sdk::write_memory<uint16_t>(weapon + OFF_ITEM_DEF_INDEX, knifeDefIndex);
-        sdk::write_memory<uint32_t>(weapon + OFF_SUBCLASS_ID, kd->subclass_hash);
+        WriteKnifeValue<uint16_t>(weapon + OFF_ITEM_DEF_INDEX, knifeDefIndex);
+        WriteKnifeValue<uint32_t>(weapon + OFF_SUBCLASS_ID, kd->subclass_hash);
 
         // Type change detection (used for model update)
         if (s_lastKnifeDefIndex != knifeDefIndex) {
@@ -757,6 +786,7 @@ namespace skins {
 
         // Run model update sequence only once per knife type change
         if (s_setModelDelayFrames == 0 && s_subclassRefreshFrames >= 0) {
+            aim_profiler::Scope modelProfile(aim_profiler::KnifeModel);
             // The arms have their own visible groups. Preserve them before
             // changing the weapon; assigning 2 alone clears every other bit.
             const auto arms = GetArmsEntity();
@@ -793,6 +823,7 @@ namespace skins {
             // Keep the arms update, but enable the requested group without
             // removing groups used by the hands/gloves. Apply after SetModel.
             if (have_arms_mask) SetMeshGroupMask(arms_node, arms_mask | uint64_t{2});
+            InvalidateSkinMaterial(weapon);
 
             // Prevent this block from running again until next knife change
             s_subclassRefreshFrames = -1;
@@ -819,12 +850,13 @@ namespace skins {
             [](const GloveInfo& glove) { return glove.paint_kit == selected_glove_kit; });
         if (!g_fnSetAttribute || !g_fnSetBodyGroup || !g_fnCreatePaintKit || (custom && (it == glove_database.end() || it->weapon_id <= 0))) return;
         if (!custom && team != 2 && team != 3) return;
-        const auto paintKit = custom ? FindPaintKit(selected_glove_kit) : 0;
-        if (custom && !paintKit) return;
         const auto gv = pawn + cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
         const auto def = static_cast<uint16_t>(custom ? it->weapon_id : (team == 2 ? 5028 : 5029));
         const auto defAddress = gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex;
         if (s_glovePawn == pawn && s_glovePaint == selected_glove_kit && s_gloveSpawnTime == spawnTime && s_gloveTeam == team && sdk::read_value<uint16_t>(defAddress) == def) return;
+        // Schema traversal is only needed when rebuilding the glove material.
+        const auto paintKit = custom ? FindPaintKit(selected_glove_kit) : 0;
+        if (custom && !paintKit) return;
         if (!sdk::write_memory(defAddress, def)) return;
         sdk::write_memory(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_bInitialized, false);
         sdk::write_memory(gv + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh, custom ? UINT32_MAX : 0u);
@@ -854,6 +886,7 @@ namespace skins {
 
     // ==================== MAIN TICK ====================
     void ApplyAllSkins() {
+        aim_profiler::Scope profile(aim_profiler::Skins);
         const int stage = GetCurrentFrameStage();
         if (!game_state::IsInGame() || (stage != 6 && stage != 7)) return;
         const auto pawn = GetLocalPawn();
@@ -1146,6 +1179,10 @@ namespace skins {
         uintptr_t hudWeapon = 0;
     };
     static std::map<uintptr_t, SavedSkin> saved_skins;
+    static void InvalidateSkinMaterial(uintptr_t weapon) {
+        const auto it = saved_skins.find(weapon);
+        if (it != saved_skins.end()) it->second.materialReady = false;
+    }
 
     void ApplySkin(void* weapon, int weapon_id) {
         if (!weapon) return;
@@ -1207,12 +1244,11 @@ namespace skins {
             sdk::read_value<int>(w + OFF_FALLBACK_STATTRAK) != stat ||
             sdk::read_value<uint32_t>(w + OFF_ITEM_ID_HIGH) != UINT32_MAX ||
             !name_read || std::memcmp(name, previous, sizeof(name)) != 0;
-        const bool gun = !IsKnife(weapon_id);
         auto& state = saved_skins.at(w);
-        const auto hud = gun ? FindHudWeapon(w) : 0;
-        if (!changed && (!gun || (state.materialReady && state.hudWeapon == hud))) return;
-        if (gun && (!g_fnSetAttribute || !g_fnBuildSkin || !g_fnRegenerateSkins)) return;
-        if (gun) sdk::write_memory(w + ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_bInitialized, true);
+        const auto hud = FindHudWeapon(w);
+        if (!changed && state.materialReady && state.hudWeapon == hud) return;
+        if (!g_fnSetAttribute || !g_fnBuildSkin || !g_fnRegenerateSkins) return;
+        sdk::write_memory(w + ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_bInitialized, true);
         if (!sdk::write_memory(w + OFF_FALLBACK_PAINT, paint) ||
             !sdk::write_memory(w + OFF_FALLBACK_SEED, seed) ||
             !sdk::write_memory(w + OFF_FALLBACK_WEAR, wear) ||

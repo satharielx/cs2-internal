@@ -3699,10 +3699,18 @@
     <None Include="ui\style.css" />
     <None Include="ui\app.js" />
     <ClInclude Include="core\loadout_web.h" />
+    <ClInclude Include="core\skin_images.h" />
+    <ClInclude Include="core\aim_profiler.h" />
+    <ClInclude Include="core\entity_events.h" />
+    <ClInclude Include="core\engine_trace.h" />
   </ItemGroup>
   <Target Name="CopyWebEditor" AfterTargets="Build">
     <ItemGroup><WebEditorFiles Include="$(ProjectDir)ui\*" /></ItemGroup>
     <Copy SourceFiles="@(WebEditorFiles)" DestinationFolder="$(OutDir)ui" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopySkinImages" AfterTargets="Build">
+    <ItemGroup><SkinImageFiles Include="$(ProjectDir)core\skins_images\**\*.jsonl;$(ProjectDir)core\skins_images\**\*.png" /></ItemGroup>
+    <Copy SourceFiles="@(SkinImageFiles)" DestinationFiles="@(SkinImageFiles->'$(OutDir)skins_images\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

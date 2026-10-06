@@ -8,6 +8,13 @@
 using namespace sdk;
 
 namespace features {
+    // Present-thread diagnostics; config::mutex protects rendering and the menu.
+    struct EspDiagnostics {
+        const char* status = "No render call yet";
+        unsigned controllers = 0, pawns = 0, alive = 0, team_pass = 0;
+        unsigned range_pass = 0, awake = 0, projected = 0, drawn = 0;
+    };
+    inline EspDiagnostics esp_diagnostics;
     inline std::atomic<const char*> normal_aim_status{"Not evaluated"};
     inline std::atomic<const char*> silent_aim_status{"No callback received"};
     inline std::atomic<unsigned> silent_callbacks{0}, normal_aim_writes{0}, silent_aim_writes{0};
@@ -52,6 +59,7 @@ namespace features {
     void DrawHealthBar(const sdk::Vector2& top, const sdk::Vector2& bottom, int health, int max_health);
     void DrawSkeleton(sdk::C_CSPlayerPawn* player, const sdk::ViewMatrix& view_matrix, int screen_width, int screen_height, const float color[4]);
     void RenderESP();
+    void RenderOverlays();
 	void RunSilentAim(CUserCmd* cmd);
     void RunSilentAimSubTick(DWORD* a1, C_CSPlayerPawn* localPawn);
 

@@ -20,9 +20,13 @@ namespace lighting {
         explicit ScopedColor(uintptr_t object) {
             if (!object || object > UINTPTR_MAX - alpha_offset - sizeof(float)) return;
             sdk::Vector3 color;
+            bool useOriginal = false;
+            float night = 1;
             {
                 std::unique_lock<std::recursive_mutex> lock(config::mutex, std::try_to_lock);
-                if (!lock.owns_lock() || !config::lighting::enabled) return;
+                if (!lock.owns_lock() || (!config::lighting::enabled && !config::lighting::night_mode)) return;
+                useOriginal = !config::lighting::enabled;
+                if (config::lighting::night_mode && std::isfinite(config::lighting::night_brightness)) night = std::clamp(config::lighting::night_brightness, .02f, 1.0f);
                 color = {config::lighting::color[0], config::lighting::color[1], config::lighting::color[2]};
                 if (!sdk::finite(color) || !std::isfinite(config::lighting::brightness)) return;
                 const float brightness = std::clamp(config::lighting::brightness, 0.0f, 5.0f);
@@ -31,6 +35,7 @@ namespace lighting {
             }
             if (!sdk::read_memory(object + color_offset, original_) || !sdk::finite(original_) ||
                 !sdk::read_memory(object + alpha_offset, alpha_) || !std::isfinite(alpha_)) return;
+            color = (useOriginal ? original_ : color) * night;
             if (!sdk::write_memory(object + color_offset, color)) return;
             if (!sdk::write_memory(object + alpha_offset, 1.0f)) {
                 sdk::write_memory(object + color_offset, original_);

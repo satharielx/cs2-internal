@@ -1,9 +1,29 @@
 #pragma once
+#include "../core/aim_profiler.h"
 #include <cstdint>  // for std::uint8_t
 #include <cstddef>  // for std::size_t
 #include <windows.h> // for Windows API types and functions
 
 namespace sdk {
+    inline SIZE_T ProfileQuery(LPCVOID address, PMEMORY_BASIC_INFORMATION info, SIZE_T size) {
+        aim_profiler::Scope scope(aim_profiler::RegionQuery);
+        const auto result=VirtualQuery(address,info,size);
+        if(!result) aim_profiler::Mark(aim_profiler::MemoryFail);
+        return result;
+    }
+    inline BOOL ProfileRead(HANDLE process,LPCVOID address,LPVOID data,SIZE_T size,SIZE_T* count) {
+        aim_profiler::Scope scope(aim_profiler::ProcessRead);
+        const auto result=ReadProcessMemory(process,address,data,size,count);
+        if(!result) aim_profiler::Mark(aim_profiler::MemoryFail);
+        return result;
+    }
+    inline BOOL ProfileWrite(HANDLE process,LPVOID address,LPCVOID data,SIZE_T size,SIZE_T* count) {
+        aim_profiler::Scope scope(aim_profiler::ProcessWrite);
+        const auto result=WriteProcessMemory(process,address,data,size,count);
+        if(!result) aim_profiler::Mark(aim_profiler::MemoryFail);
+        return result;
+    }
+
     // Padding template for struct alignment
     template <std::size_t Size>
     class padding {
@@ -18,7 +38,7 @@ namespace sdk {
         const uintptr_t end = ptr + size;
         while (ptr < end) {
             MEMORY_BASIC_INFORMATION info{};
-            if (!VirtualQuery(reinterpret_cast<const void*>(ptr), &info, sizeof(info))) return false;
+            if (!ProfileQuery(reinterpret_cast<const void*>(ptr), &info, sizeof(info))) return false;
             constexpr DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
                 PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
             if (info.State != MEM_COMMIT || (info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) ||

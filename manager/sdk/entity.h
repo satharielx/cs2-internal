@@ -68,7 +68,7 @@ namespace sdk {
     public:
         Vector3 GetOrigin() {
             uintptr_t scene_node = read_value<uintptr_t>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
-            if (!scene_node || !is_valid_ptr(scene_node)) return Vector3();
+            if (!scene_node) return Vector3();
             return read_value<Vector3>(scene_node + off::CGameSceneNode::m_vecAbsOrigin);
         }
 
@@ -100,11 +100,11 @@ namespace sdk {
         Vector3 GetBonePosition(int bone_index) {
             if (bone_index < 0 || bone_index >= 256) return {};
             uintptr_t game_scene_node = read_value<uintptr_t>((uintptr_t)this + off::C_BaseEntity::m_pGameSceneNode);
-            if (!game_scene_node || !is_valid_ptr(game_scene_node)) return Vector3();
+            if (!game_scene_node) return Vector3();
 
             // CSkeletonInstance::m_modelState + 0x80 (bone array pointer inside CModelState)
             uintptr_t bone_array = read_value<uintptr_t>(game_scene_node + off::CSkeletonInstance::m_modelState + 0x80);
-            if (!bone_array || !is_valid_ptr(bone_array)) return Vector3();
+            if (!bone_array) return Vector3();
 
             const auto result = read_value<Vector3>(bone_array + bone_index * 32);
             return finite(result) ? result : Vector3{};

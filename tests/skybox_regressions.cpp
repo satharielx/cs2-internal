@@ -64,6 +64,14 @@ int main() {
         assert((sdk::read_value<std::array<float, 3>>(color_address) == original));
     }
     config::skybox::color_enabled = false;
+    config::lighting::night_mode = true; config::lighting::night_brightness = .5f;
+    {
+        skybox::ScopedColor night(reinterpret_cast<uintptr_t>(draw.data()), 1);
+        const auto actual = sdk::read_value<std::array<float, 3>>(color_address);
+        assert((actual == std::array<float, 3>{.2f,.25f,.3f}));
+    }
+    assert((sdk::read_value<std::array<float, 3>>(color_address) == original));
+    config::lighting::night_mode = false;
     std::array<unsigned char, 0x10 + 64 * 8> system{};
     std::array<unsigned char, 512 * 0x70> chunk{};
     std::array<unsigned char, sdk::off::C_EnvSky::m_hSkyMaterial + 8> entity{};

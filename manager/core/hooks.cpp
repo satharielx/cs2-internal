@@ -1,3 +1,5 @@
+#include "entity_events.h"
+#include "aim_profiler.h"
 #include "hooks.h"
 #include "features.h"
 #include "game_state.h"
@@ -99,40 +101,59 @@ void __fastcall hkSkyboxDrawArray(uintptr_t a1, uintptr_t a2, uintptr_t data, in
 using CreateMoveFn = bool(__fastcall*)(void*, uint32_t, char);
 inline CreateMoveFn oCreateMove = nullptr;
 
-using fnSubTickAngle = __int64(__fastcall*)(DWORD* a1, void* a2, char a3, float a4, float a5, sdk::C_CSPlayerPawn* localPawn);
+// Installed client RVA 0xCFA130: RCX/RDX/R8B/XMM3, then float at
+// entry RSP+0x28 and pawn at +0x30. No defined return value.
+// See docs/subtick-client-validation.md for the verified field accesses.
+using fnSubTickAngle = void(__fastcall*)(DWORD* a1, void* a2, char a3, float a4, float a5, sdk::C_CSPlayerPawn* localPawn);
 inline fnSubTickAngle oSubTickAngle = nullptr;
 
 bool __fastcall hkCreateMove(void* input, uint32_t split_screen_index, char active) {
     CallbackScope callback;
     return oCreateMove(input, split_screen_index, active);
 }
-__int64 __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float frameFraction, float playerFraction, sdk::C_CSPlayerPawn* target) {
+void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float frameFraction, float playerFraction, sdk::C_CSPlayerPawn* target) {
     CallbackScope callback;
+    aim_profiler::Scope callbackProfile(aim_profiler::Callback);
     ++features::silent_callbacks;
     sdk::Vector3 requested{};
+    sdk::Vector3 originalAngles{};
     bool applied = false;
     bool verify_history = false;
     {
         // Present holds this mutex while drawing ESP and menus. Never make the
         // game's subtick serializer wait for a render-thread pass.
-        std::unique_lock<std::recursive_mutex> settings_lock(config::mutex, std::try_to_lock);
+        std::unique_lock<std::recursive_mutex> settings_lock(config::mutex, std::defer_lock);
+        { aim_profiler::Scope profile(aim_profiler::Settings); (void)settings_lock.try_lock(); }
         if (!settings_lock.owns_lock()) {
+            aim_profiler::Mark(aim_profiler::SkipBusy);
             ++features::silent_settings_skips;
         } else if (!s_stopping && !globals::menu_open && !globals::console_open &&
             config::aimbot::enabled && config::aimbot::silent_aim) {
+            aim_profiler::Mark(aim_profiler::Evaluated);
             const auto before = features::silent_aim_writes.load();
             // The serializer consumes source floats at +0x10/+0x14/+0x18.
-            // Keep the source edit for later consumers; leave its tick fields alone.
-            features::RunSilentAimSubTick(source, game_state::GetLocalPawn());
+            // The source can be reused by prediction and later history entries.
+            // Limit the angle substitution to this serialization call.
+            if (source && sdk::read_memory(reinterpret_cast<uintptr_t>(source + 4), originalAngles))
+                features::RunSilentAimSubTick(source, game_state::GetLocalPawn());
             applied = features::silent_aim_writes.load() != before;
+            aim_profiler::Mark(applied ? aim_profiler::Applied : aim_profiler::NoWrite);
             static thread_local ULONGLONG next_verification = 0;
             const auto now = GetTickCount64();
             verify_history = applied && now >= next_verification && source &&
                 sdk::read_memory(reinterpret_cast<uintptr_t>(source + 4), requested);
             if (verify_history) next_verification = now + 250;
-        } else features::silent_aim_status = "Disabled or menu/console open";
+        } else {
+            aim_profiler::Mark(s_stopping ? aim_profiler::SkipStopping :
+                globals::menu_open || globals::console_open ? aim_profiler::SkipMenu : aim_profiler::SkipDisabled);
+            features::silent_aim_status = "Disabled or menu/console open";
+        }
     }
-    const auto result = oSubTickAngle(source, history, mode, frameFraction, playerFraction, target);
+    {
+        aim_profiler::Scope profile(applied ? aim_profiler::EngineAimed : aim_profiler::EngineUnchanged);
+        oSubTickAngle(source, history, mode, frameFraction, playerFraction, target);
+    }
+    if (applied) sdk::write_memory(reinterpret_cast<uintptr_t>(source + 4), originalAngles);
     if (verify_history) {
         const auto entry = reinterpret_cast<uintptr_t>(history);
         const auto message = entry ? sdk::read_value<uintptr_t>(entry + 0x18) : 0;
@@ -145,7 +166,6 @@ __int64 __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float
             features::silent_aim_status = "Source angles copied into history; flags verified";
         } else features::silent_aim_status = "Source written, but history copy not verified";
     }
-    return result;
 }
 static void __fastcall hkFrameStageNotify(CSource2Client* client, int stage) {
     CallbackScope callback;
@@ -223,6 +243,7 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
                 catch (...) {}
             }
 
+            try { features::RenderOverlays(); } catch (...) {}
             // Aimbot runs on its own thread ? see features::StartAimbotThread()
 
             // Misc features ? run every frame
@@ -417,6 +438,27 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 }
             }
 
+            // The Win32 backend returns zero for mouse/key events even after
+            // queueing them. Its return value is not an input-capture flag.
+            // Keep captured input out of the game after processing our hotkeys.
+            if (globals::imgui_initialized && (globals::menu_open || globals::console_open)) {
+                const auto& io = ImGui::GetIO();
+                const bool mouse = msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST;
+                const bool keyboard = msg >= WM_KEYFIRST && msg <= WM_KEYLAST;
+                if (mouse && io.WantCaptureMouse)
+                    return (msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP || msg == WM_XBUTTONDBLCLK) ? TRUE : 0;
+                if (keyboard && io.WantCaptureKeyboard) return 0;
+                if (msg == WM_INPUT && (io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                    RAWINPUTHEADER header{};
+                    UINT size = sizeof(header);
+                    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_HEADER,
+                        &header, &size, sizeof(header)) != UINT(-1) &&
+                        ((header.dwType == RIM_TYPEMOUSE && io.WantCaptureMouse) ||
+                         (header.dwType == RIM_TYPEKEYBOARD && io.WantCaptureKeyboard)))
+                        return DefWindowProcA(hwnd, msg, wparam, lparam); // Required raw-input cleanup.
+                }
+            }
+
             // Also handle WM_DESTROY or WM_CLOSE to clean up
             if (msg == WM_DESTROY || msg == WM_CLOSE) {
                 if (globals::imgui_initialized) {
@@ -593,6 +635,40 @@ namespace {
     }
 }
 namespace hooks {
+    void* __fastcall Hook_OnAddEntity(void* system, void* entity, uint32_t handle) {
+        CallbackScope callback;
+        const auto result=OnAddEntity_o(system, entity, handle);
+        if(!s_stopping) entity_events::Added(reinterpret_cast<uintptr_t>(system),reinterpret_cast<uintptr_t>(entity),handle);
+        return result;
+    }
+
+    void* __fastcall Hook_OnRemoveEntity(void* system, void* entity, uint32_t handle) {
+        CallbackScope callback;
+        if(!s_stopping) entity_events::Removed(reinterpret_cast<uintptr_t>(system),reinterpret_cast<uintptr_t>(entity),handle);
+        return OnRemoveEntity_o(system, entity, handle);
+    }
+
+    static void CreateEntityLifecycleHooks() {
+        struct Entry { const char* name; const char* signature; EntityLifecycleFn callback; EntityLifecycleFn* original; };
+        const Entry entries[]={
+            {"OnAddEntity", "48 89 74 24 ? 57 48 83 EC ? 41 B9 ? ? ? ? 41 8B C0 41 23 C1 48 8B F2 41 83 F8 ? 48 8B F9 44 0F 45 C8 41 81 F9 ? ? ? ? 73 ? FF 81", &Hook_OnAddEntity, &OnAddEntity_o},
+            {"OnRemoveEntity", "48 89 74 24 ? 57 48 83 EC ? 41 B9 ? ? ? ? 41 8B C0 41 23 C1 48 8B F2 41 83 F8 ? 48 8B F9 44 0F 45 C8 41 81 F9 ? ? ? ? 73 ? FF 89", &Hook_OnRemoveEntity, &OnRemoveEntity_o}
+        };
+        for(const auto& entry:entries) {
+            const auto target=sdk::find_pattern("client.dll",entry.signature);
+            if(!target) {
+                error_logger::ErrorLogger::Get().Log(entry.name,"Optional entity hook signature not found",1);
+                continue;
+            }
+            const auto status=MH_CreateHook(target,reinterpret_cast<void*>(entry.callback),reinterpret_cast<void**>(entry.original));
+            if(status!=MH_OK) {
+                error_logger::ErrorLogger::Get().Log(entry.name,"Failed to create entity hook",static_cast<int>(status));
+                continue;
+            }
+            error_logger::ErrorLogger::Get().Log(entry.name,"Entity hook created",0);
+        }
+    }
+
     // ==================== HOOK SYSTEM INITIALIZATION ====================
     // 
     // create() - Initialize all MinHook hooks and ImGui rendering pipeline
@@ -672,6 +748,8 @@ namespace hooks {
             if (status != MH_OK)
                 throw std::runtime_error("Hook CreateSwapChain failed");
             error_logger::ErrorLogger::Get().Log("MinHook", "CreateSwapChain hook created successfully", 0);
+
+            CreateEntityLifecycleHooks();
 
             // FrameStageNotify hook - offset-based address resolution from client.dll
 
@@ -779,6 +857,7 @@ namespace hooks {
                 error_logger::ErrorLogger::Get().Log("MinHook", "Failed to enable hooks", static_cast<int>(status));
                 throw std::runtime_error("EnableHook failed");
             }
+            entity_events::enabled = OnAddEntity_o && OnRemoveEntity_o;
             error_logger::ErrorLogger::Get().Log("MinHook", "All hooks enabled successfully", 0);
 
 
@@ -820,6 +899,9 @@ namespace hooks {
         }
         MH_RemoveHook(MH_ALL_HOOKS);
         MH_Uninitialize();
+        entity_events::Reset();
+        OnAddEntity_o = nullptr;
+        OnRemoveEntity_o = nullptr;
         error_logger::ErrorLogger::Get().Log("hooks::destroy", "Cleanup completed", 0);
     }
 }

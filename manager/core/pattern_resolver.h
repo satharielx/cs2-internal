@@ -8,7 +8,7 @@ namespace pattern_resolver {
     inline uintptr_t* entity_list = nullptr;           // CEntitySystem*
     inline uintptr_t* local_controller = nullptr;      // CCSPlayerController*
     inline void** global_vars = nullptr;           // CGlobalVarsBase*
-    inline uintptr_t* view_matrix = nullptr;           // VMatrix*
+    inline sdk::ViewMatrix* view_matrix = nullptr;    // Direct matrix address (LEA), not a pointer slot.
     inline uintptr_t* planted_c4 = nullptr;            // CPlantedC4*
     inline uintptr_t* csgo_input = nullptr;            // CCSGOInput*
     inline uintptr_t* network_game_client = nullptr;   // INetworkGameClient*

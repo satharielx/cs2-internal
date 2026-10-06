@@ -1,4 +1,5 @@
 #include "interfaces.h"
+#include "engine_trace.h"
 #include "error_logger.h"
 #include "debug_console.h"
 #include "../sdk/mem.h"
@@ -142,6 +143,7 @@ namespace interfaces {
     }
 
     void create() {
+        engine_trace::Initialize();
         error_logger::ErrorLogger::Get().Log("Interfaces", "Starting interface creation...", 0);
 
         sdk::entity_lookup = reinterpret_cast<sdk::EntityLookup>(sdk::find_pattern("client.dll",

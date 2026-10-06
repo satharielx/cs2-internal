@@ -1,3 +1,7 @@
+#include "engine_trace.h"
+#include "pattern_resolver.h"
+#include "entity_events.h"
+#include "aim_profiler.h"
 #include "menu_advanced.h"
 #include "config.h"
 #include "skybox.h"
@@ -19,6 +23,7 @@
 #include <cmath>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
+#include "skin_images.h"
 
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "Shlwapi.lib")
@@ -118,6 +123,7 @@ namespace menu_advanced {
     static bool g_logo_load_attempted = false;
 
     void ResetRendererResources() {
+        skin_images::Reset();
         // The font atlas owns these fonts; clearing the pointers avoids reuse
         // after the ImGui context is destroyed and a new atlas is created.
         g_icon_font = nullptr;
@@ -268,9 +274,51 @@ namespace menu_advanced {
     static bool db_loaded = false;
     static bool db_loading = false;
 
+    static void RenderEspPreview() {
+        if (!config::esp::preview) return;
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const float areaWidth = (std::max)(160.0f,ImGui::GetContentRegionAvail().x);
+        ImGui::Dummy({areaWidth,250});
+        const auto draw = ImGui::GetWindowDrawList();
+        const float alpha = std::isfinite(config::esp::alpha) ? std::clamp(config::esp::alpha,0.0f,1.0f) : 1.0f;
+        const float scale = std::isfinite(config::esp::scale) ? std::clamp(config::esp::scale,.5f,2.0f) : 1.0f;
+        const auto c = config::esp::box_color;
+        const auto color = ImGui::ColorConvertFloat4ToU32({c[0],c[1],c[2],c[3]*alpha});
+        const ImVec2 top(origin.x+areaWidth*.5f-40,origin.y+38), bottom(top.x+80,top.y+150);
+        draw->AddRectFilled(origin,{origin.x+areaWidth,origin.y+250},IM_COL32(12,15,22,255),8);
+        if (config::esp::box) draw->AddRect(top,bottom,color);
+        if (config::esp::health_bar) { draw->AddRectFilled({top.x-8,top.y},{top.x-4,bottom.y},IM_COL32(25,25,25,static_cast<int>(alpha*255))); draw->AddRectFilled({top.x-8,top.y+30},{top.x-4,bottom.y},IM_COL32(60,210,80,static_cast<int>(alpha*255))); }
+        if (config::esp::armor_bar) draw->AddRectFilled({top.x,bottom.y+3},{bottom.x,bottom.y+6},IM_COL32(60,150,255,static_cast<int>(alpha*255)));
+        auto text = [&](ImVec2 position,const char* label) { draw->AddText(ImGui::GetFont(),ImGui::GetFontSize()*scale,position,color,label); };
+        if (config::esp::name) text({top.x,top.y-22},"Player preview");
+        if (config::esp::distance) text({top.x,bottom.y+12},"25m");
+        float y=top.y;
+        auto flag=[&](bool enabled,const char* label){ if(enabled){text({bottom.x+5,y},label);y+=15*scale;} };
+        flag(config::esp::weapon_text,"AK-47"); flag(config::esp::bomb,"BOMB"); flag(config::esp::defuse_kit,"KIT");
+        flag(config::esp::flashed,"FLASHED"); flag(config::esp::scoped,"SCOPED"); flag(config::esp::planting,"PLANTING");
+        flag(config::esp::defusing,"DEFUSING"); flag(config::esp::hostage,"HOSTAGE"); flag(config::misc::show_money,"$4200");
+        if(config::esp::snaplines) draw->AddLine({origin.x+areaWidth*.5f,origin.y+245},{top.x+40,bottom.y},color);
+        if(config::esp::skeleton){
+            const auto sc=config::esp::skeleton_color;
+            const auto skeleton=ImGui::ColorConvertFloat4ToU32({sc[0],sc[1],sc[2],sc[3]*alpha});
+            const float x=top.x+40;
+            draw->AddCircle({x,top.y+14},8,skeleton);
+            draw->AddLine({x,top.y+22},{x,top.y+90},skeleton);
+            draw->AddLine({x,top.y+38},{x-28,top.y+75},skeleton); draw->AddLine({x,top.y+38},{x+28,top.y+75},skeleton);
+            draw->AddLine({x,top.y+90},{x-20,bottom.y-4},skeleton); draw->AddLine({x,top.y+90},{x+20,bottom.y-4},skeleton);
+        }
+    }
+
     // ==================== RENDER ESP TAB (Players) ====================
     void RenderESPTab() {
         SectionHeader("ESP Settings", ICON_FA_EYE);
+        if (config::esp::enabled) {
+            const auto& d = features::esp_diagnostics;
+            ImGui::TextWrapped("ESP: %s", d.status);
+            ImGui::Text("Matrix source: %s", pattern_resolver::view_matrix ? "runtime signature" : "fallback offset (signature missing)");
+            ImGui::TextWrapped("Controllers %u / pawns %u / alive %u / team %u / range %u / awake %u / projected %u / draw %u",
+                d.controllers, d.pawns, d.alive, d.team_pass, d.range_pass, d.awake, d.projected, d.drawn);
+        }
 
         // Master toggle
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.12f, 0.18f, 0.9f));
@@ -298,6 +346,19 @@ namespace menu_advanced {
         ImGui::SameLine(200); ImGui::TextDisabled("Player bounding boxes");
         ImGui::Checkbox("Skeleton", &config::esp::skeleton);
         ImGui::SameLine(200); ImGui::TextDisabled("Bone structure");
+        ImGui::Checkbox("Glow", &config::esp::glow);
+        ImGui::ColorEdit4("Glow color", config::esp::glow_color, ImGuiColorEditFlags_NoInputs);
+        ImGui::Checkbox("Armor Bar", &config::esp::armor_bar);
+        ImGui::Checkbox("Weapon Text", &config::esp::weapon_text);
+        ImGui::Checkbox("Bomb carrier", &config::esp::bomb);
+        ImGui::Checkbox("Defuse Kit", &config::esp::defuse_kit);
+        ImGui::Checkbox("Flashed", &config::esp::flashed);
+        ImGui::Checkbox("Scoped", &config::esp::scoped);
+        ImGui::Checkbox("Planting", &config::esp::planting);
+        ImGui::Checkbox("Defusing", &config::esp::defusing);
+        ImGui::Checkbox("Hostage", &config::esp::hostage);
+        ImGui::Checkbox("Out of FOV Arrows", &config::esp::out_of_fov_arrows);
+        ImGui::Checkbox("Show player money", &config::misc::show_money);
         ImGui::Checkbox("Health Bar", &config::esp::health_bar);
         ImGui::SameLine(200); ImGui::TextDisabled("HP indicator");
         ImGui::Checkbox("Player Name", &config::esp::name);
@@ -318,6 +379,8 @@ namespace menu_advanced {
         ImGui::Checkbox("Team Check", &config::esp::team_check);
         ImGui::SameLine(200); ImGui::TextDisabled("Ignore teammates");
         ImGui::Dummy(ImVec2(0, 10));
+        ImGui::SliderFloat("Scale", &config::esp::scale, .5f, 2.0f, "%.2fx");
+        ImGui::SliderFloat("Alpha", &config::esp::alpha, 0.0f, 1.0f, "%.2f");
         ImGui::Text("Max Distance:");
         ImGui::PushItemWidth(280);
         ImGui::SliderFloat("##MaxDistESP", &config::esp::max_distance, 50.0f, 500.0f, "%.0f m");
@@ -327,6 +390,8 @@ namespace menu_advanced {
 
         ImGui::NextColumn();
 
+        ImGui::Checkbox("Preview", &config::esp::preview);
+        RenderEspPreview();
         // Right column - Colors
         BeginAnimatedCard("##ColorsCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.8f, 1.0f), "COLOR CONFIGURATION");
@@ -358,10 +423,38 @@ namespace menu_advanced {
         ImGui::Separator();
         ImGui::Indent(10);
         ImGui::Checkbox("Enable Aimbot", &config::aimbot::enabled);
-        ImGui::Checkbox("Auto Shoot", &config::aimbot::auto_shoot);
+        ImGui::Checkbox("Force shoot", &config::aimbot::auto_shoot);
+        ImGui::Checkbox("Autoscope", &config::aimbot::autoscope);
         ImGui::Checkbox("Team Check", &config::aimbot::team_check);
-        ImGui::Checkbox("Spotted Check", &config::aimbot::visible_check);
+        ImGui::Checkbox(config::aimbot::silent_aim ? "Wall Check###AimVisibility" : "Spotted Check###AimVisibility", &config::aimbot::visible_check);
+        if(ImGui::IsItemHovered()) ImGui::SetTooltip(config::aimbot::silent_aim ? "Traces to the selected aim point; failed traces reject the target." : "Uses the local-player spotted bit.");
+        if(config::aimbot::silent_aim && config::aimbot::visible_check)
+            ImGui::TextWrapped("Visibility: %s", engine_trace::status.load());
+        if(config::aimbot::silent_aim && !engine_trace::functions.Ready()) {
+            const auto& trace = engine_trace::functions;
+            ImGui::TextWrapped("Trace signatures: InitTraceData=%s / InitTraceInfo=%s / InitFilter=%s / CreateTrace=%s / GetTraceInfo=%s",
+                trace.init_data ? "found" : "MISSING", trace.init_hit ? "found" : "MISSING",
+                trace.init_filter ? "found" : "MISSING", trace.create ? "found" : "MISSING", trace.get_hit ? "found" : "MISSING");
+        }
         ImGui::Checkbox("Silent Aim", &config::aimbot::silent_aim);
+        ImGui::Checkbox("Lock target", &config::aimbot::lock_target);
+        ImGui::Checkbox("Draw FOV", &config::aimbot::draw_fov);
+        ImGui::ColorEdit4("FOV color", config::aimbot::fov_color, ImGuiColorEditFlags_NoInputs);
+        ImGui::TextUnformatted("Hitboxes");
+        ImGui::Checkbox("Head", &config::aimbot::hitboxes[0]); ImGui::SameLine();
+        ImGui::Checkbox("Neck", &config::aimbot::hitboxes[1]);
+        ImGui::Checkbox("Chest", &config::aimbot::hitboxes[2]); ImGui::SameLine();
+        ImGui::Checkbox("Pelvis", &config::aimbot::hitboxes[3]);
+        ImGui::Checkbox("Hitscan (selected bones)", &config::aimbot::hitscan);
+        ImGui::BeginDisabled(config::aimbot::silent_aim);
+        ImGui::SliderFloat("Shot delay", &config::aimbot::shot_delay, 0.0f, 1.0f, "%.2f s");
+        ImGui::SliderFloat("Kill delay", &config::aimbot::kill_delay, 0.0f, 2.0f, "%.2f s");
+        ImGui::EndDisabled();
+        if(config::aimbot::silent_aim) ImGui::TextDisabled("Silent aim has no shot/kill delay.");
+        ImGui::TextUnformatted("Disable when");
+        ImGui::Checkbox("Flashed##aim", &config::aimbot::disable_flashed);
+        ImGui::Checkbox("Airborne##aim", &config::aimbot::disable_airborne);
+        ImGui::Checkbox("Scoped##aim", &config::aimbot::disable_scoped);
         ImGui::Dummy(ImVec2(0, 10));
         ImGui::Text("FOV (degrees):");
         ImGui::SliderFloat("##FOV", &config::aimbot::fov, 1.0f, 30.0f, "%.1f");
@@ -389,20 +482,39 @@ namespace menu_advanced {
         ImGui::Dummy(ImVec2(0, 8));
         BeginAnimatedCard("##AimDiagnostics", ImVec4(.07f,.10f,.14f,1), ImVec4(.09f,.14f,.19f,1));
         ImGui::TextUnformatted("Last aim evaluation");
+        ImGui::TextWrapped("Entity events: %s | controller cache hits %llu / rebuilds %llu",entity_events::enabled.load()?"active":"scan fallback",entity_events::hits.load(),entity_events::rebuilds.load());
         ImGui::TextWrapped("Normal: %s", features::normal_aim_status.load());
         ImGui::TextWrapped("Silent: %s", features::silent_aim_status.load());
         ImGui::TextWrapped("Normal writes %u, verified history samples %u | Engine calls (total): %u",
             features::normal_aim_writes.load(), features::silent_history_writes.load(), features::silent_callbacks.load());
-        ImGui::TextWrapped("Target scans: %u | Cached evaluations: %u",
-            features::silent_target_scans.load(), features::silent_cache_hits.load());
+        ImGui::TextWrapped("Live target evaluations: %u (no timed cache)",
+            features::silent_target_scans.load());
         ImGui::TextWrapped("Geometry updates: %u | Busy-settings skips: %u",
             features::silent_geometry_updates.load(), features::silent_settings_skips.load());
+        if (ImGui::CollapsingHeader("Performance profiler")) {
+            ImGui::TextWrapped("Start capture, close the menu within 3 seconds, then play for 10 seconds. Reopen to read or copy the results. Compare silent aim or the skin changer ON and OFF with the same bots. Knife and skin timings are included.");
+            if(ImGui::Button("Capture 10 seconds")) {
+                std::ostringstream settings;
+                settings<<"aim="<<config::aimbot::enabled<<" silent="<<config::aimbot::silent_aim
+                    <<" team="<<config::aimbot::team_check<<" visibility="<<config::aimbot::visible_check
+                    <<" FOV="<<config::aimbot::fov<<" skins="<<config::skin_changer::enabled
+                    <<" resolved pawns="<<features::aim_resolved_pawns.load();
+                aim_profiler::Start(settings.str());
+            }
+            if(auto capture=aim_profiler::current.load()) {
+                const auto now=aim_profiler::Clock::now();
+                ImGui::TextUnformatted(now<capture->begin ? "Starting in 3 seconds..." : now<capture->end ? "Recording..." : capture->pending.load() ? "Finishing in-flight calls..." : "Capture complete");
+                const auto report=aim_profiler::Report(*capture);
+                if(ImGui::Button("Copy profile")) ImGui::SetClipboardText(report.c_str());
+                ImGui::TextWrapped("%s",report.c_str());
+            }
+        }
         if (ImGui::CollapsingHeader("Subtick angle debug")) {
             const auto debug = features::GetSilentAimDebug();
             ImGui::TextDisabled("Last sample, 4 Hz; angles are pitch/yaw/roll.");
             ImGui::Text("a1: %p", reinterpret_cast<void*>(debug.source));
             ImGui::TextWrapped("%s", debug.status);
-            ImGui::TextWrapped("Passing filters: alive %u / team %u / spotted %u / bones %u / range %u / FOV %u",
+            ImGui::TextWrapped("Passing filters: alive %u / team %u / candidates %u / bones %u / range %u / FOV %u",
                 debug.alive, debug.enemies, debug.spotted, debug.bones, debug.in_range, debug.in_fov);
             ImGui::Text("DWORDs: %08X %08X %08X", debug.raw_angles[0], debug.raw_angles[1], debug.raw_angles[2]);
             if (debug.input_valid) ImGui::Text("Input: %.3f / %.3f / %.3f", debug.input.x, debug.input.y, debug.input.z);
@@ -443,8 +555,10 @@ namespace menu_advanced {
         SectionHeader("Item ESP & World", ICON_FA_CUBE);
         BeginAnimatedCard("##ItemsCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::Indent(10);
-        ImGui::Text("Weapon/Grenade ESP is not yet implemented.");
-        ImGui::Text("Future: display dropped weapons, grenades, bomb.");
+        ImGui::Checkbox("Items on Ground", &config::world::items);
+        ImGui::Checkbox("Planted Bomb", &config::world::bomb);
+        ImGui::Checkbox("Grenade Warning", &config::world::grenade_warning);
+        ImGui::TextWrapped("Labels mark active projectile positions and distance. Damage and detonation prediction require engine traces.");
         ImGui::Unindent(10);
         EndAnimatedCard();
     }
@@ -454,12 +568,22 @@ namespace menu_advanced {
         SectionHeader("View & Visuals", ICON_FA_EYE);
         BeginAnimatedCard("##ViewCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::Indent(10);
+        ImGui::Checkbox("FOV changer", &config::viewmodel::camera_fov_enabled);
+        ImGui::BeginDisabled(!config::viewmodel::camera_fov_enabled);
+        ImGui::SliderFloat("Camera FOV", &config::viewmodel::camera_fov, 40.0f, 140.0f, "%.0f deg");
+        ImGui::EndDisabled();
+        ImGui::Checkbox("View Model Editor", &config::viewmodel::offsets_enabled);
+        ImGui::BeginDisabled(!config::viewmodel::offsets_enabled);
+        ImGui::SliderFloat3("Viewmodel offset X/Y/Z", config::viewmodel::offset, -20.0f, 20.0f);
+        ImGui::EndDisabled();
         ImGui::Checkbox("Custom viewmodel FOV", &config::viewmodel::fov_enabled);
         ImGui::BeginDisabled(!config::viewmodel::fov_enabled);
         ImGui::SliderFloat("Viewmodel FOV", &config::viewmodel::fov, 40.0f, 120.0f, "%.0f deg");
         ImGui::EndDisabled();
         ImGui::Checkbox("No visual aim punch", &config::viewmodel::no_aim_punch);
         ImGui::Separator();
+        ImGui::Checkbox("Night Mode", &config::lighting::night_mode);
+        ImGui::SliderFloat("Night brightness", &config::lighting::night_brightness, .02f, 1.0f, "%.2f");
         ImGui::Checkbox("Custom light color", &config::lighting::enabled);
         ImGui::BeginDisabled(!config::lighting::enabled);
         ImGui::ColorEdit3("Light color", config::lighting::color);
@@ -497,7 +621,15 @@ namespace menu_advanced {
         SectionHeader("HUD Customization", ICON_FA_SLIDERS_H);
         BeginAnimatedCard("##HudCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::Indent(10);
-        ImGui::Text("HUD customization options (spectator list, watermark) coming soon.");
+        ImGui::Checkbox("Spectator list", &config::misc::spectator_list);
+        ImGui::Checkbox("Hit marker", &config::misc::hit_marker);
+        ImGui::Checkbox("Hit effect", &config::misc::hit_effect);
+        ImGui::Checkbox("Kill effect", &config::misc::kill_effect);
+        ImGui::Checkbox("Knife range", &config::misc::knife_range);
+        ImGui::Checkbox("Taser range", &config::misc::taser_range);
+        ImGui::Checkbox("External radar overlay", &config::misc::external_radar);
+        ImGui::SliderFloat("Radar scale", &config::misc::radar_scale, .25f, 4.0f, "%.2fx");
+        ImGui::SliderFloat("Radar alpha", &config::misc::radar_alpha, 0.0f, 1.0f, "%.2f");
         ImGui::Unindent(10);
         EndAnimatedCard();
     }
@@ -548,7 +680,10 @@ namespace menu_advanced {
         SectionHeader("Grenade Helper", ICON_FA_BOMB);
         BeginAnimatedCard("##GrenadeCard", ImVec4(0.12f, 0.12f, 0.15f, 0.8f), ImVec4(0.18f, 0.18f, 0.22f, 0.9f));
         ImGui::Indent(10);
-        ImGui::Text("Grenade trajectory prediction and lineups coming soon.");
+        ImGui::Checkbox("Grenade Warning", &config::world::grenade_warning);
+        ImGui::Checkbox("Smoke Color", &config::world::smoke_color_enabled);
+        ImGui::ColorEdit3("Smoke tint", config::world::smoke_color);
+        ImGui::TextWrapped("Trajectory prediction needs a verified collision trace interface. Smoke tint is applied to smoke projectile entities.");
         ImGui::Unindent(10);
         EndAnimatedCard();
     }
@@ -629,12 +764,12 @@ namespace menu_advanced {
                 db_loaded = skins::IsDatabaseLoaded();
                 db_loading = false;
             }
-            return;
         }
 
-        ImGui::Columns(3, id, true);
-        ImGui::SetColumnWidth(0, 140);
-        ImGui::SetColumnWidth(1, 220);
+        const float browserWidth=ImGui::GetContentRegionAvail().x;
+        ImGui::Columns(3, id, false);
+        ImGui::SetColumnWidth(0, 135);
+        ImGui::SetColumnWidth(1, (std::max)(180.f, browserWidth - 395.f));
 
         // Weapon list
         ImGui::BeginChild((std::string("WeaponList##") + id).c_str(), ImVec2(0, 0), true);
@@ -646,6 +781,7 @@ namespace menu_advanced {
                 state.selected_weapon_idx = i;
                 state.selected_skin_idx = -1;
                 state.search[0] = '\0';
+                if(skins::IsKnife(weapon_ids[i])) skins::selected_knife_id=weapon_ids[i];
             }
             if (has_skin) ImGui::PopStyleColor();
         }
@@ -657,9 +793,14 @@ namespace menu_advanced {
         ImGui::BeginChild((std::string("SkinList##") + id).c_str(), ImVec2(0, 0), true);
         ImGui::Text("Skins for %s", skins::GetWeaponName(sel_wep));
         ImGui::Separator();
-        ImGui::InputText((std::string("Search##") + id).c_str(), state.search, sizeof(state.search));
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint((std::string("##Search") + id).c_str(), "Search finishes...", state.search, sizeof(state.search));
         ImGui::Separator();
 
+        if(ImGui::Selectable("Default finish", skins::user_skins.count(sel_wep) && skins::user_skins.at(sel_wep).paint_kit==0)) {
+            auto& cfg=skins::user_skins[sel_wep]; cfg.weapon_id=sel_wep; cfg.paint_kit=0;
+            if(skins::IsKnife(sel_wep)) skins::selected_knife_id=sel_wep;
+        }
         std::vector<skins::SkinInfo> available;
         std::set<int> seen;
         for (const auto& s : skins::skin_database) {
@@ -676,29 +817,38 @@ namespace menu_advanced {
             available.push_back(s);
         }
 
-        for (size_t i = 0; i < available.size(); i++) {
-            const auto& s = available[i];
-            const float* col = skins::GetRarityColor(s.rarity);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(col[0], col[1], col[2], col[3]));
-            char lbl[256];
-            sprintf_s(lbl, "%s##%s_%d", s.name.c_str(), id, s.paint_kit);
-            if (ImGui::Selectable(lbl, state.selected_skin_idx == (int)i)) {
-                state.selected_skin_idx = (int)i;
-                auto it = skins::user_skins.find(sel_wep);
-                if (it == skins::user_skins.end()) {
-                    skins::PlayerSkinConfig cfg;
-                    cfg.weapon_id = sel_wep;
-                    cfg.paint_kit = s.paint_kit;
-                    cfg.wear = 0.01f;
-                    skins::user_skins[sel_wep] = cfg;
+        const float gap = 10.f;
+        const int columns = (std::max)(1, int((ImGui::GetContentRegionAvail().x + gap) / 160.f));
+        const float cardWidth = (ImGui::GetContentRegionAvail().x - gap * (columns - 1)) / columns;
+        ImGuiListClipper clipper;
+        clipper.Begin((int(available.size()) + columns - 1) / columns, 140.f + ImGui::GetStyle().ItemSpacing.y);
+        while (clipper.Step()) for (int row=clipper.DisplayStart; row<clipper.DisplayEnd; ++row) {
+            for (int column=0; column<columns; ++column) {
+                const int index=row*columns+column;
+                if (index>=int(available.size())) break;
+                if(column) ImGui::SameLine(0,gap);
+                const auto& skin=available[index];
+                ImGui::PushID(skin.paint_kit);
+                const auto configured=skins::user_skins.find(sel_wep);
+                const bool selected=configured!=skins::user_skins.end() && configured->second.paint_kit==skin.paint_kit;
+                const ImVec2 pos=ImGui::GetCursorScreenPos(), size(cardWidth,140);
+                if(ImGui::InvisibleButton("finish",size)) {
+                    auto& cfg=skins::user_skins[sel_wep];
+                    cfg.weapon_id=sel_wep; cfg.paint_kit=skin.paint_kit;
+                    if(!skin.stattrak_available) cfg.stattrak=false;
+                    if(skins::IsKnife(sel_wep)) skins::selected_knife_id=sel_wep;
                 }
-                else {
-                    it->second.paint_kit = s.paint_kit;
-                }
+                const bool hovered=ImGui::IsItemHovered();
+                auto* draw=ImGui::GetWindowDrawList();
+                draw->AddRectFilled(pos,pos+size,selected?IM_COL32(30,62,75,255):hovered?IM_COL32(35,43,56,255):IM_COL32(24,30,41,255),8);
+                draw->AddRect(pos,pos+size,selected?IM_COL32(82,214,204,255):IM_COL32(51,62,78,255),8);
+                skin_images::Draw(sel_wep,skin.name,pos+ImVec2(8,5),ImVec2(cardWidth-16,100));
+                draw->PushClipRect(pos+ImVec2(10,105),pos+size-ImVec2(8,5),true);
+                draw->AddText(pos+ImVec2(10,109),IM_COL32(230,237,246,255),skin.name.c_str());
+                draw->PopClipRect();
+                if(hovered) ImGui::SetTooltip("%s | %s%s",skins::GetWeaponName(sel_wep),skin.name.c_str(),selected?" (selected)":"");
+                ImGui::PopID();
             }
-            ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", skins::GetRarityName(s.rarity));
         }
         if (available.empty()) ImGui::TextDisabled("No skins found");
         ImGui::EndChild();
@@ -709,7 +859,11 @@ namespace menu_advanced {
         auto cfg_it = skins::user_skins.find(sel_wep);
         if (cfg_it != skins::user_skins.end()) {
             skins::PlayerSkinConfig& cfg = cfg_it->second;
-            ImGui::Text("Configuration");
+            ImGui::Text("Selected finish");
+            for(const auto& skin: skins::skin_database) if(skin.weapon_id==sel_wep && skin.paint_kit==cfg.paint_kit) {
+                skin_images::Draw(sel_wep,skin.name,ImGui::GetCursorScreenPos(),ImVec2(ImGui::GetContentRegionAvail().x,120));
+                ImGui::Dummy(ImVec2(0,120)); break;
+            }
             ImGui::Separator();
             for (const auto& s : skins::skin_database) {
                 if (s.weapon_id == sel_wep && s.paint_kit == cfg.paint_kit) {
@@ -718,15 +872,23 @@ namespace menu_advanced {
                     break;
                 }
             }
-            ImGui::SliderInt("Seed", &cfg.seed, 0, 1000);
-            ImGui::SliderFloat("Wear", &cfg.wear, 0.0f, 1.0f, "%.4f");
+            ImGui::PushItemWidth(-1);
+            ImGui::TextDisabled("Paint kit ID");
+            if(ImGui::InputInt("##paint", &cfg.paint_kit)) cfg.paint_kit=(std::max)(0,cfg.paint_kit);
+            ImGui::TextDisabled("Pattern seed");
+            ImGui::SliderInt("##seed", &cfg.seed, 0, 1000);
+            ImGui::TextDisabled("Wear");
+            ImGui::SliderFloat("##wear", &cfg.wear, 0.0f, 1.0f, "%.4f");
+            ImGui::PopItemWidth();
             if (ImGui::SmallButton("FN")) cfg.wear = 0.01f;
             ImGui::SameLine(); if (ImGui::SmallButton("MW")) cfg.wear = 0.08f;
             ImGui::SameLine(); if (ImGui::SmallButton("FT")) cfg.wear = 0.38f;
             ImGui::Checkbox("StatTrak", &cfg.stattrak);
             if (cfg.stattrak) ImGui::SliderInt("Kills", &cfg.stattrak_count, 0, 99999);
-            if (ImGui::Button("Apply Now", ImVec2(-1, 30)))
+            if (ImGui::Button("Apply Now", ImVec2(-1, 30))) {
                 config::skin_changer::enabled = true;
+                if(skins::IsKnife(sel_wep)) ApplySelectedKnife(sel_wep);
+            }
             if (ImGui::Button("Remove Skin", ImVec2(-1, 0)))
                 skins::user_skins.erase(sel_wep);
         }
@@ -738,41 +900,27 @@ namespace menu_advanced {
     }
 
     void RenderSkinTab() {
-        SectionHeader("Inventory Changer", ICON_FA_PAINT_BRUSH);
-
-        if (ImGui::Button("Open Web Editor")) loadout_web::OpenEditor();
+        skin_images::Tick(GetDllDirectory());
+        ImGui::TextColored(ImVec4(.32f,.84f,.80f,1), "FINISH LIBRARY");
+        ImGui::SameLine(); ImGui::TextDisabled("Choose a finish, then tune your loadout.");
+        ImGui::Checkbox("Enable", &config::skin_changer::enabled);
         ImGui::SameLine();
-        if (ImGui::Button("Export Catalog")) loadout_web::ExportCatalog();
-        ImGui::SameLine();
-        if (ImGui::Button("Import Loadout")) loadout_web::ImportLoadout();
-        if (!loadout_web::status.empty()) ImGui::TextWrapped("%s", loadout_web::status.c_str());
-
-        ImGui::Checkbox("Enable Skin Changer", &config::skin_changer::enabled);
-        ImGui::SameLine();
-        if (!db_loaded && !db_loading) {
-            if (ImGui::Button("Load Database")) {
-                db_loading = true;
-                skins::LoadSkinsFromAPI();
-                db_loaded = skins::IsDatabaseLoaded();
-                db_loading = false;
+        if (!skins::IsDatabaseLoaded()) {
+            if(ImGui::Button("Load Database")) {
+                skins::LoadSkinsFromAPI(); db_loaded=skins::IsDatabaseLoaded();
             }
+        } else ImGui::TextDisabled("%zu finishes",skins::skin_database.size());
+        ImGui::SameLine();
+        if(ImGui::Button("Loadout tools")) ImGui::OpenPopup("loadout_tools");
+        if(ImGui::BeginPopup("loadout_tools")) {
+            if(ImGui::MenuItem("Open web editor")) loadout_web::OpenEditor();
+            if(ImGui::MenuItem("Export catalog")) loadout_web::ExportCatalog();
+            if(ImGui::MenuItem("Import loadout")) loadout_web::ImportLoadout();
+            ImGui::EndPopup();
         }
-        else if (db_loading) {
-            ImGui::Dummy(ImVec2(0, 5));
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 50) * 0.5f);
-            static float angle = 0.0f;
-            angle += ImGui::GetIO().DeltaTime * 360.0f;
-            if (angle > 360.0f) angle -= 360.0f;
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            ImVec2 center = ImGui::GetCursorScreenPos() + ImVec2(25, 25);
-            dl->AddCircle(center, 20.0f, IM_COL32(200, 200, 200, 255), 12, 2.0f);
-            dl->PathArcTo(center, 18.0f, angle * (IM_PI / 180.0f), (angle + 300.0f) * (IM_PI / 180.0f), 12);
-            dl->PathStroke(IM_COL32(100, 200, 255, 255), false, 3.0f);
-            ImGui::Dummy(ImVec2(50, 50));
-        }
-        else {
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), " (%zu skins)", skins::skin_database.size());
-        }
+        if (!loadout_web::status.empty()) ImGui::TextWrapped("%s", loadout_web::status.c_str());
+        if(!skin_images::catalogJob.valid() && skin_images::catalog.images.empty())
+            ImGui::TextWrapped("Preview library unavailable. Place skins_images beside the DLL.");
         ImGui::Separator();
 
         if (ImGui::BeginTabBar("SkinTabs")) {
@@ -789,59 +937,11 @@ namespace menu_advanced {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Knives")) {
-                selected_knife = skins::selected_knife_id;
-                ImGui::Columns(2, "KnifeCols", true);
-                ImGui::BeginChild("KnifeList", ImVec2(0, 250), true);
-                for (const auto& k : knives) {
-                    bool sel = (selected_knife == k.id);
-                    if (ImGui::Selectable(k.name, sel)) {
-                        selected_knife = k.id;
-                        skins::selected_knife_id = k.id;
-                    }
-                }
-                ImGui::EndChild();
-                ImGui::NextColumn();
-                ImGui::BeginChild("KnifeCfg", ImVec2(0, 250), true);
-                ImGui::Text("Selected: %s", GetKnifeName(selected_knife));
-                auto it = skins::user_skins.find(selected_knife);
-                if (it == skins::user_skins.end()) {
-                    skins::PlayerSkinConfig cfg;
-                    cfg.weapon_id = selected_knife;
-                    cfg.wear = 0.01f;
-                    skins::user_skins[selected_knife] = cfg;
-                    it = skins::user_skins.find(selected_knife);
-                }
-                auto& cfg = it->second;
-                const char* finish = cfg.paint_kit == 0 ? "Default finish" : "Custom paintkit";
-                for (const auto& skin : skins::skin_database)
-                    if (skin.weapon_id == selected_knife && skin.paint_kit == cfg.paint_kit) finish = skin.name.c_str();
-                if (ImGui::BeginCombo("Paintkit", finish)) {
-                    if (ImGui::Selectable("Default finish", cfg.paint_kit == 0)) { cfg.paint_kit = 0; cfg.stattrak = false; }
-                    std::set<int> seen;
-                    for (const auto& skin : skins::skin_database) {
-                        if (skin.weapon_id != selected_knife || skin.name.empty() || !seen.insert(skin.paint_kit).second) continue;
-                        ImGui::PushID(skin.paint_kit);
-                        if (ImGui::Selectable(skin.name.c_str(), cfg.paint_kit == skin.paint_kit)) {
-                            cfg.paint_kit = skin.paint_kit;
-                            if (!skin.stattrak_available) cfg.stattrak = false;
-                        }
-                        ImGui::PopID();
-                    }
-                    ImGui::EndCombo();
-                }
-                bool supports_stat = false;
-                for (const auto& skin : skins::skin_database)
-                    if (skin.weapon_id == selected_knife && skin.paint_kit == cfg.paint_kit) supports_stat = skin.stattrak_available;
-                ImGui::BeginDisabled(!supports_stat);
-                ImGui::Checkbox("StatTrak", &cfg.stattrak);
-                if (cfg.stattrak) ImGui::SliderInt("Kills", &cfg.stattrak_count, 0, 99999);
-                ImGui::EndDisabled();
-                ImGui::SliderInt("Seed", &cfg.seed, 0, 1000);
-                ImGui::SliderFloat("Wear", &cfg.wear, 0.0f, 1.0f);
-                if (ImGui::Button("Apply Knife", ImVec2(-1, 0)))
-                    ApplySelectedKnife(selected_knife);
-                ImGui::EndChild();
-                ImGui::Columns(1);
+                static CategoryState knife_state;
+                static const int knife_ids[]={500,503,505,506,507,508,509,512,514,515,516,517,518,519,520,521,522,523,525,526};
+                for(int i=0;i<IM_ARRAYSIZE(knife_ids);++i)
+                    if(knife_ids[i]==skins::selected_knife_id) knife_state.selected_weapon_idx=i;
+                RenderWeaponCategory("knives",knife_ids,IM_ARRAYSIZE(knife_ids),knife_state);
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Gloves")) {

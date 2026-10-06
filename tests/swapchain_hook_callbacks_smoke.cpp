@@ -224,15 +224,53 @@ static void CheckHookSetup() {
     std::puts("PASS: optional-pattern startup, grouped activation and required-hook rollback");
 }
 
+static unsigned game_input_messages=0;
+static LRESULT CALLBACK OriginalInput(HWND,UINT,WPARAM,LPARAM) { ++game_input_messages; return 456; }
+static void TestMenuInput() {
+    HiddenWindow window;
+    auto previous=hooks::oWndProc; hooks::oWndProc=OriginalInput;
+    test_window_input=true; globals::imgui_initialized=true; globals::menu_open=true; globals::console_open=false;
+    test_input_io.WantCaptureMouse=true; test_input_io.WantCaptureKeyboard=true;
+    for(UINT message:{WM_MOUSEMOVE,WM_LBUTTONDOWN,WM_LBUTTONUP,WM_MOUSEWHEEL,WM_KEYDOWN,WM_KEYUP,WM_CHAR})
+        Check(WndProc(window.handle,message,'A',0)==0,"Captured input must not reach game");
+    Check(game_input_messages==0 && test_input_messages==7,"Backend receives each captured event once even when returning zero");
+    test_input_io.WantCaptureMouse=false;
+    Check(WndProc(window.handle,WM_LBUTTONUP,0,0)==456,"Uncaptured mouse forwards");
+    test_input_io.WantCaptureKeyboard=false;
+    Check(WndProc(window.handle,WM_KEYUP,'A',0)==456,"Uncaptured keyboard forwards");
+    globals::menu_open=false; test_input_io.WantCaptureMouse=true;
+    Check(WndProc(window.handle,WM_LBUTTONDOWN,0,0)==456,"Closed menu ignores stale capture flag");
+    globals::console_open=true;
+    Check(WndProc(window.handle,WM_LBUTTONDOWN,0,0)==0,"Console also captures its clicks");
+    Check(game_input_messages==3,"Only uncaptured events reach original");
+    globals::console_open=false; globals::imgui_initialized=false;
+    hooks::oWndProc=previous; test_window_input=false;
+    std::puts("PASS: captured menu input is not forwarded to game");
+}
 int main() {
     try {
+        TestMenuInput();
+        unsigned entityCalls=0;
+        static unsigned* entityCounter=nullptr; entityCounter=&entityCalls;
+        auto originalEntity=+[](void* system,void* entity,uint32_t handle)->void* {
+            Check(system==reinterpret_cast<void*>(0x1000) && entity==reinterpret_cast<void*>(0x2000) && handle==0xDEADBEEF,
+                "Entity callback preserves system, entity and full serial handle");
+            Check(s_active_callbacks.load()>0,"Entity callback participates in unload drain");
+            ++*entityCounter; return reinterpret_cast<void*>(0x3000);
+        };
+        hooks::OnAddEntity_o=originalEntity; hooks::OnRemoveEntity_o=originalEntity;
+        Check(hooks::Hook_OnAddEntity(reinterpret_cast<void*>(0x1000),reinterpret_cast<void*>(0x2000),0xDEADBEEF)==reinterpret_cast<void*>(0x3000),"Add entity return forwarded");
+        Check(hooks::Hook_OnRemoveEntity(reinterpret_cast<void*>(0x1000),reinterpret_cast<void*>(0x2000),0xDEADBEEF)==reinterpret_cast<void*>(0x3000),"Remove entity return forwarded");
+        Check(entityCalls==2 && s_active_callbacks==0,"Entity callbacks forward exactly once and release lifetime guard");
+        hooks::OnAddEntity_o=nullptr; hooks::OnRemoveEntity_o=nullptr;
         oCreateMove = [](void* input, uint32_t slot, char active) -> bool {
             Check(input == reinterpret_cast<void*>(0x1234) && slot == 7 && active == 3,
                 "CreateMove forwards all three ABI arguments");
             return true;
         };
         Check(hkCreateMove(reinterpret_cast<void*>(0x1234), 7, 3), "CreateMove forwards return value");
-        oSubTickAngle = [](DWORD*, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 {
+        static unsigned subtickForwarded = 0;
+        oSubTickAngle = [](DWORD*, void*, char, float, float, sdk::C_CSPlayerPawn*) -> void {
             bool unlocked = false;
             std::thread probe([&] {
                 unlocked = config::mutex.try_lock();
@@ -240,26 +278,25 @@ int main() {
             });
             probe.join();
             Check(unlocked, "Subtick original runs without the settings mutex");
-            return 123;
+            ++subtickForwarded;
         };
         s_stopping = true;
-        Check(hkSubTickAngle(nullptr, nullptr, 0, 0, 0, nullptr) == 123,
-            "Subtick forwards while stopping");
+        hkSubTickAngle(nullptr, nullptr, 0, 0, 0, nullptr);
+        Check(subtickForwarded == 1, "Subtick forwards while stopping");
         s_stopping = false;
         test_silent_callback = true;
         globals::console_open = false;
         config::aimbot::enabled = config::aimbot::silent_aim = true;
         // A long ESP/menu render on another thread must not stall serialization.
-        oSubTickAngle = [](DWORD*, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 { return 987; };
+        oSubTickAngle = [](DWORD*, void*, char, float, float, sdk::C_CSPlayerPawn*) -> void { ++subtickForwarded; };
         const auto skippedBefore=features::silent_settings_skips.load();
         const auto writesBefore=features::silent_aim_writes.load();
         std::promise<bool> forwarded;
         auto forwardedResult=forwarded.get_future();
         std::unique_lock<std::recursive_mutex> renderLock(config::mutex);
         std::thread serializer([&] {
-            bool correct=true;
-            for (int i=0;i<1000;++i) correct &= hkSubTickAngle(nullptr,nullptr,0,0,0,nullptr)==987;
-            forwarded.set_value(correct);
+            for (int i=0;i<1000;++i) hkSubTickAngle(nullptr,nullptr,0,0,0,nullptr);
+            forwarded.set_value(subtickForwarded == 1001);
         });
         const bool nonblocking=forwardedResult.wait_for(std::chrono::seconds(1))==std::future_status::ready;
         renderLock.unlock();
@@ -272,8 +309,9 @@ int main() {
         sdk::write_memory(reinterpret_cast<uintptr_t>(entry)+0x18,reinterpret_cast<uintptr_t>(angleMessage));
         sdk::write_memory<uint32_t>(reinterpret_cast<uintptr_t>(entry)+0x10,0x200);
         sdk::write_memory<uint32_t>(reinterpret_cast<uintptr_t>(angleMessage)+0x10,0x80);
-        oSubTickAngle = [](DWORD* input, void* output, char, float a, float b, sdk::C_CSPlayerPawn* target) -> __int64 {
-            Check(!target && a == 1.25f && b == 2.5f, "Optional target and float arguments forwarded");
+        oSubTickAngle = [](DWORD* input, void* output, char mode, float a, float b, sdk::C_CSPlayerPawn* target) -> void {
+            Check(target == reinterpret_cast<sdk::C_CSPlayerPawn*>(0x1234) && mode == 7 && a == 1.25f && b == 2.5f,
+                "Mode, optional pawn, register float and stack float forwarded");
             const auto angles = sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(input + 4));
             Check(angles.x == 4 && angles.y == 5 && input[6]==0, "Original receives all three source angles");
             Check(input[0]==123 && input[1]==456 && input[2]==789 && input[3]==1011, "Tick counts and fractions unchanged");
@@ -281,10 +319,11 @@ int main() {
             sdk::write_memory(message+0x18,sdk::Vector3{angles.x,angles.y,0});
             sdk::write_memory<uint32_t>(message+0x10,0x87);
             sdk::write_memory<uint32_t>(reinterpret_cast<uintptr_t>(output)+0x10,0x201);
-            return 456;
+            ++subtickForwarded;
         };
-        Check(hkSubTickAngle(history, entry, 0, 1.25f, 2.5f, nullptr) == 456, "Silent callback return forwarded");
-        Check(sdk::read_value<float>(reinterpret_cast<uintptr_t>(history+4))==4, "Source edits remain for later consumers");
+        hkSubTickAngle(history, entry, 7, 1.25f, 2.5f, reinterpret_cast<sdk::C_CSPlayerPawn*>(0x1234));
+        Check(subtickForwarded == 1002, "Silent callback forwarded exactly once");
+        Check(sdk::read_value<float>(reinterpret_cast<uintptr_t>(history+4))==0, "Source angles are restored after serialization");
         const auto committed=sdk::read_value<sdk::Vector3>(reinterpret_cast<uintptr_t>(angleMessage)+0x18);
         Check(committed.x==4 && committed.y==5 && committed.z==0, "Output history receives angles after original");
         Check(features::silent_history_writes==1, "Only verified history writes count as commits");
@@ -295,9 +334,8 @@ int main() {
         Check(!sdk::WriteHistoryAngles(reinterpret_cast<uintptr_t>(entry),{4,5}), "Missing angle message rejected");
         test_silent_callback = false;
         config::aimbot::enabled = config::aimbot::silent_aim = false;
-        oSubTickAngle = [](DWORD* input, void*, char, float, float, sdk::C_CSPlayerPawn*) -> __int64 {
+        oSubTickAngle = [](DWORD* input, void*, char, float, float, sdk::C_CSPlayerPawn*) -> void {
             input[4] = 42;
-            return 0;
         };
         hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
         Check(history[4] == 42, "Disabled aim preserves original input mutations");

@@ -11,6 +11,10 @@ inline unsigned test_enables = 0;
 inline unsigned test_uninitializes = 0;
 inline unsigned test_removes = 0;
 inline bool test_silent_callback = false;
+inline bool test_window_input = false;
+inline unsigned test_input_messages = 0;
+ImGuiIO::ImGuiIO() {}
+inline ImGuiIO test_input_io;
 
 // hooks.cpp shares its translation unit with unrelated game and ImGui setup
 // hooks. MSVC requires their symbols even though /OPT:REF discards them. Abort
@@ -28,6 +32,7 @@ namespace features {
 void SetInputBlocked(bool) {}
 void ReleaseInputs() {}
 void RenderESP() { std::abort(); }
+void RenderOverlays() { std::abort(); }
 void RunSilentAimSubTick(DWORD* input, sdk::C_CSPlayerPawn* pawn) {
     if (!test_silent_callback || pawn != reinterpret_cast<sdk::C_CSPlayerPawn*>(0x1234)) std::abort();
     sdk::write_memory(reinterpret_cast<uintptr_t>(input + 4), sdk::Vector3{4, 5, 0});
@@ -70,7 +75,8 @@ namespace ImGui {
 void SetCurrentContext(ImGuiContext* context) { test_current_context = context; }
 ImGuiContext* CreateContext(ImFontAtlas*) { std::abort(); }
 void DestroyContext(ImGuiContext*) { std::abort(); }
-ImGuiIO& GetIO() { std::abort(); }
+ImGuiIO& GetIO() { if(!test_window_input) std::abort(); return test_input_io; }
+void MemFree(void* pointer) { std::free(pointer); }
 void NewFrame() { std::abort(); }
 void EndFrame() { std::abort(); }
 void Render() { std::abort(); }
@@ -82,7 +88,9 @@ ImFont* ImFontAtlas::AddFontFromFileTTF(const char*, float, const ImFontConfig*,
 bool ImGui_ImplWin32_Init(void*) { std::abort(); }
 void ImGui_ImplWin32_Shutdown() { std::abort(); }
 void ImGui_ImplWin32_NewFrame() { std::abort(); }
-LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM) { std::abort(); }
+LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM) {
+    if(!test_window_input) std::abort(); ++test_input_messages; return 0;
+}
 bool ImGui_ImplDX11_Init(ID3D11Device*, ID3D11DeviceContext*) { std::abort(); }
 void ImGui_ImplDX11_Shutdown() { std::abort(); }
 void ImGui_ImplDX11_NewFrame() { std::abort(); }
@@ -101,4 +109,16 @@ MH_STATUS WINAPI MH_EnableHook(LPVOID target) {
     return MH_OK;
 }
 MH_STATUS WINAPI MH_DisableHook(LPVOID) { return MH_OK; }
+}
+namespace game_state {
+Snapshot GetSnapshot() { return {}; }
+bool IsInGame() { return false; }
+uintptr_t GetLocalPawnRaw() { return 0; }
+}
+namespace skybox {
+ScopedColor::ScopedColor(uintptr_t,int) { std::abort(); }
+ScopedColor::~ScopedColor() { std::abort(); }
+bool Initialize() { return false; }
+void OnFrameStage(int) { std::abort(); }
+void RestoreBeforeUnload() {}
 }

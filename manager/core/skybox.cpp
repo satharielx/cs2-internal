@@ -9,9 +9,13 @@ namespace skybox {
 ScopedColor::ScopedColor(uintptr_t draw_data, int count) {
     if (!draw_data || count <= 0) return;
     float tint[3]{};
+    bool useOriginal = false;
+    float night = 1;
     {
         std::unique_lock<std::recursive_mutex> lock(config::mutex, std::try_to_lock);
-        if (!lock.owns_lock() || !config::skybox::color_enabled) return;
+        if (!lock.owns_lock() || (!config::skybox::color_enabled && !config::lighting::night_mode)) return;
+        useOriginal = !config::skybox::color_enabled;
+        if (config::lighting::night_mode && std::isfinite(config::lighting::night_brightness)) night = std::clamp(config::lighting::night_brightness, .02f, 1.0f);
         for (int i = 0; i < 3; ++i)
             tint[i] = config::skybox::color[i] * config::skybox::brightness;
     }
@@ -20,8 +24,12 @@ ScopedColor::ScopedColor(uintptr_t draw_data, int count) {
     const auto object = sdk::read_value<uintptr_t>(draw_data + 0x18);
     if (!object) return;
     const auto address = object + 0xE8;
-    if (sdk::read_memory(address, original_) && sdk::write_memory(address, tint))
-        address_ = address;
+    if (!sdk::read_memory(address, original_)) return;
+    for (int i = 0; i < 3; ++i) {
+        tint[i] = (useOriginal ? original_[i] : tint[i]) * night;
+        if (!std::isfinite(tint[i])) return;
+    }
+    if (sdk::write_memory(address, tint)) address_ = address;
 }
 ScopedColor::~ScopedColor() {
     if (address_) sdk::write_memory(address_, original_);

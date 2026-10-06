@@ -7,11 +7,69 @@
 #include <type_traits>
 
 namespace sdk {
+    // Opt-in for synchronous in-process snapshots. Cache readable mappings only
+    // for the scope lifetime; SEH still handles memory unmapped after validation.
+    struct LocalReadCache {
+        struct Region { uintptr_t begin, end; } regions[32]{};
+        unsigned count=0;
+    };
+    inline thread_local LocalReadCache* local_read_cache=nullptr;
+    struct ScopedLocalReads {
+        LocalReadCache cache{};
+        LocalReadCache* previous=local_read_cache;
+        ScopedLocalReads() { local_read_cache=&cache; }
+        ~ScopedLocalReads() { local_read_cache=previous; }
+        ScopedLocalReads(const ScopedLocalReads&)=delete;
+        ScopedLocalReads& operator=(const ScopedLocalReads&)=delete;
+    };
+    inline bool CopyLocalMemory(uintptr_t address,void* destination,size_t size) {
+        __try {
+            std::memcpy(destination,reinterpret_cast<const void*>(address),size);
+            return true;
+        } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION ||
+                   GetExceptionCode()==EXCEPTION_IN_PAGE_ERROR ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+            return false;
+        }
+    }
+    inline bool ReadLocalMemory(uintptr_t address,void* destination,size_t size) {
+        aim_profiler::Scope profile(aim_profiler::LocalRead);
+        if(!address || size>UINTPTR_MAX-address) return false;
+        auto& cache=*local_read_cache;
+        for(unsigned i=0;i<cache.count;++i)
+            if(address>=cache.regions[i].begin && address+size<=cache.regions[i].end)
+            {
+                aim_profiler::Mark(aim_profiler::RegionHit);
+                const bool ok=CopyLocalMemory(address,destination,size);
+                if(!ok) aim_profiler::Mark(aim_profiler::MemoryFail);
+                return ok;
+            }
+        aim_profiler::Mark(aim_profiler::RegionMiss);
+        MEMORY_BASIC_INFORMATION info{};
+        constexpr DWORD readable=PAGE_READONLY|PAGE_READWRITE|PAGE_WRITECOPY|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY;
+        if(!ProfileQuery(reinterpret_cast<const void*>(address),&info,sizeof(info)) ||
+           info.State!=MEM_COMMIT || (info.Protect&(PAGE_GUARD|PAGE_NOACCESS)) || !(info.Protect&readable)) return false;
+        const auto begin=reinterpret_cast<uintptr_t>(info.BaseAddress);
+        if(info.RegionSize>UINTPTR_MAX-begin) return false;
+        const auto end=begin+info.RegionSize;
+        if(address+size>end) {
+            SIZE_T transferred=0;
+            return ProfileRead(GetCurrentProcess(),reinterpret_cast<const void*>(address),destination,size,&transferred) && transferred==size;
+        }
+        if(cache.count<32) cache.regions[cache.count++]={begin,end};
+        else aim_profiler::Mark(aim_profiler::RegionFull);
+        return CopyLocalMemory(address,destination,size);
+    }
+
     template<class T> bool read_memory(uintptr_t address, T& value) {
         static_assert(std::is_trivially_copyable_v<T>);
         T copy{};
+        if(local_read_cache) {
+            if(!ReadLocalMemory(address,&copy,sizeof(copy))) return false;
+            std::memcpy(&value,&copy,sizeof(value));
+            return true;
+        }
         SIZE_T transferred = 0;
-        if (!address || !ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(address),
+        if (!address || !ProfileRead(GetCurrentProcess(), reinterpret_cast<const void*>(address),
             &copy, sizeof(copy), &transferred) || transferred != sizeof(copy)) return false;
         std::memcpy(&value, &copy, sizeof(value));
         return true;
@@ -24,13 +82,13 @@ namespace sdk {
     template<class T> bool write_memory(uintptr_t address, const T& value) {
         static_assert(std::is_trivially_copyable_v<T>);
         MEMORY_BASIC_INFORMATION info{};
-        if (!VirtualQuery(reinterpret_cast<void*>(address), &info, sizeof(info)) ||
+        if (!ProfileQuery(reinterpret_cast<void*>(address), &info, sizeof(info)) ||
             info.State != MEM_COMMIT || (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) ||
             !(info.Protect & (PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) return false;
         const uintptr_t end = reinterpret_cast<uintptr_t>(info.BaseAddress) + info.RegionSize;
         if (address > end || sizeof(value) > end - address) return false;
         SIZE_T transferred = 0;
-        return WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(address), &value,
+        return ProfileWrite(GetCurrentProcess(), reinterpret_cast<void*>(address), &value,
             sizeof(value), &transferred) && transferred == sizeof(value);
     }
 
@@ -49,13 +107,17 @@ namespace sdk {
     using EntityLookup = void* (__fastcall*)(void*, int);
     inline std::atomic<EntityLookup> entity_lookup{nullptr};
     inline uintptr_t entity_at(uintptr_t system, int index) {
+        aim_profiler::Scope profile(aim_profiler::EntityLookup);
         if (!system || index < 0 || index >= 0x7FFF) return 0;
-        if (auto lookup = entity_lookup.load())
+        if (auto lookup = entity_lookup.load()) {
+            aim_profiler::Scope engine(aim_profiler::EngineLookup);
             return reinterpret_cast<uintptr_t>(lookup(reinterpret_cast<void*>(system), index));
+        }
         const auto chunk = read_value<uintptr_t>(system + 0x10 + sizeof(uintptr_t) * (index >> 9));
         return chunk ? read_value<uintptr_t>(chunk + 0x70 * (index & 0x1FF)) : 0;
     }
     inline uintptr_t entity_from_handle(uintptr_t system, uint32_t handle) {
+        aim_profiler::Scope profile(aim_profiler::HandleValidation);
         if (!system || handle == UINT32_MAX) return 0;
         const uintptr_t entity = entity_at(system, handle & 0x7FFF);
         const uintptr_t identity = entity ? read_value<uintptr_t>(entity + 0x10) : 0;
