@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <Windows.h>
 #include <string>
-#include "entity.h" // your existing QAngle, Vector definitions
+#include "entity.h" // Vector and angle types.
 
 namespace sdk {
     // Verified serializer layout in the installed client: entry +0x18 is

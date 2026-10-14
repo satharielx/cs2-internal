@@ -1,3 +1,4 @@
+#include "skins/catalog_sources.h"
 #include "skins_downloader.h"
 #include "debug_console.h"
 #include <Windows.h>
@@ -129,8 +130,8 @@ namespace skins_downloader {
         try {
             // Download from multiple sources for reliability
             std::vector<std::string> urls = {
-                "https://raw.githubusercontent.com/Jinnify/GameSense.github.io/master/data/cs2_skins.json",
-                "https://api.steampowered.com/ISteamEcon/GetAssetClassInfo/v1/?appid=730&class_count=100000"
+                skin_catalog_sources::alternate_catalog,
+                skin_catalog_sources::steam_assets
             };
 
             std::string response;
@@ -156,7 +157,7 @@ namespace skins_downloader {
             ParseSkinsJSON(response);
 
             // Save to local file
-            SaveToFile("cs2_skins_cache.json");
+            SaveToFile(skin_catalog_sources::cache_filename);
 
             initialized = true;
             is_downloading = false;

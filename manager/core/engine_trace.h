@@ -1,4 +1,5 @@
 #pragma once
+#include "constants/engine_trace_signatures.h"
 #include "../sdk/entity.h"
 #include <cstddef>
 
@@ -56,11 +57,11 @@ namespace engine_trace {
     }
     inline void Initialize() {
         functions = {
-            reinterpret_cast<InitData>(sdk::find_pattern("client.dll", "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC ? 48 8D 79 ? 33 F6 C7 47")),
-            reinterpret_cast<InitHit>(sdk::find_pattern("client.dll", "40 55 41 55 41 57 48 83 EC")),
-            reinterpret_cast<InitFilter>(sdk::find_pattern("client.dll", "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC ? 0F B6 41 ? 33 FF 24")),
-            reinterpret_cast<Create>(sdk::find_pattern("client.dll", "48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 41 56 41 57 48 83 EC 40 F2 0F 10 02 4D 8D 71 08 F2 0F 11 81 F8 1C 00 00")),
-            reinterpret_cast<GetHit>(sdk::find_pattern("client.dll", "48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 48 81 EC 80 00 00 00 48 8B E9 0F 29 74 24 70 48 8B CA 49 8B F9 0F 28 F2 48 8B DA"))
+            reinterpret_cast<InitData>(sdk::find_pattern("client.dll", runtime_patterns::engine_trace::init_data)),
+            reinterpret_cast<InitHit>(sdk::find_pattern("client.dll", runtime_patterns::engine_trace::init_hit)),
+            reinterpret_cast<InitFilter>(sdk::find_pattern("client.dll", runtime_patterns::engine_trace::init_filter)),
+            reinterpret_cast<Create>(sdk::find_pattern("client.dll", runtime_patterns::engine_trace::create_trace)),
+            reinterpret_cast<GetHit>(sdk::find_pattern("client.dll", runtime_patterns::engine_trace::get_hit))
         };
         faulted = false;
         status = functions.Ready() ? "Ready; awaiting trace" : MissingStatus();
@@ -90,7 +91,7 @@ namespace engine_trace {
         return reinterpret_cast<uintptr_t>(hit.entity) == target || hit.fraction == 1.f
             ? Result::Visible : Result::Blocked;
     }
-    // Keep SEH outside the implementation containing local C++ objects.
+    // Keep SEH separate from code that owns C++ objects.
     inline Result GuardedTrace(const sdk::Vector3& start, const sdk::Vector3& end,
         uintptr_t skip, uintptr_t target) {
         __try { return Trace(functions, start, end, skip, target, visibility_mask); }

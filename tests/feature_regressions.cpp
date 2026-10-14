@@ -34,6 +34,8 @@ static void TestMouse(DWORD flags, DWORD, DWORD, DWORD, ULONG_PTR) {
 #undef GetModuleHandleA
 #undef ReadProcessMemory
 #include "../manager/core/skins.cpp"
+#include "../manager/core/skins/catalog.cpp"
+#include "../manager/core/skins/names.cpp"
 #include "../manager/core/menu_advanced.h"
 struct RecordedCheckbox { ImVec2 center; ImGuiID id; };
 static std::map<bool*,RecordedCheckbox> checkboxLocations;
@@ -46,6 +48,8 @@ static bool RecordedAimCheckbox(const char* label,bool* value) {
 }
 #define Checkbox RecordedAimCheckbox
 #include "../manager/core/menu_advanced.cpp"
+#include "../manager/core/ui/widgets.cpp"
+#include "../manager/core/ui/settings_pages.cpp"
 #undef Checkbox
 #include "imgui_preview.h"
 #include "skin_browser_preview.h"
@@ -319,6 +323,7 @@ static void TestFeatureExpansion() {
     smoke.put(C_SmokeGrenadeProjectile::m_vSmokeColor,sdk::Vector3(50,60,70));
     config::world::smoke_color_enabled=true;
     config::world::smoke_color[0]=1; config::world::smoke_color[1]=0; config::world::smoke_color[2]=0;
+    test_time += 100; // Allow the shared projectile/entity scan to discover the new smoke.
     features::UpdateWorldVisuals(game_state::test_state);
     const auto tint=sdk::read_value<sdk::Vector3>(smoke.addr()+C_SmokeGrenadeProjectile::m_vSmokeColor);
     assert(tint.x==255 && tint.y==0 && tint.z==0);
@@ -538,11 +543,14 @@ int main() {
     skins::glove_database.emplace_back(10018,"Superconductor",5030);
     skins::selected_glove_kit=10018;
     unsigned before=attributes;
+    const auto gloveHudRevision = skin_hud::revision.load();
     skins::SetCurrentFrameStage(6); skins::ApplyGloves(); assert(attributes==before);
     skins::SetCurrentFrameStage(7); skins::ApplyGloves(); assert(attributes==before+3);
+    assert(skin_hud::revision.load()==gloveHudRevision+1);
     auto glove=pawn.addr()+cs2_dumper::schemas::client_dll::C_CSPlayerPawn::m_EconGloves;
     assert(sdk::read_value<uint16_t>(glove+C_EconItemView::m_iItemDefinitionIndex)==5030);
     skins::ApplyGloves(); assert(attributes==before+3);
+    assert(skin_hud::revision.load()==gloveHudRevision+1);
     pawn.put(cs2_dumper::schemas::client_dll::C_CSPlayerPawnBase::m_flLastSpawnTimeIndex, 1.0f);
     skins::ApplyGloves(); assert(attributes==before+6);
     pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum, 3);
@@ -616,6 +624,7 @@ int main() {
     scene.put(CSkeletonInstance::m_modelState+0x80,bones.addr());
     bones.put(6*32,sdk::Vector3(100,100,64));
     config::aimbot::enabled=true; config::aimbot::silent_aim=false;
+    config::aimbot::hitboxes[0]=true;
     config::aimbot::visible_check=false; config::aimbot::team_check=true;
     config::aimbot::fov=90; config::aimbot::max_distance=10000; config::aimbot::smoothing=0;
     config::aimbot::auto_shoot=false; config::rcs::enabled=false;
@@ -816,13 +825,21 @@ int main() {
     const auto beforeHudRefresh=refreshes;
     skins::RefreshWeaponMaterials(first.addr());
     assert(refreshes==beforeHudRefresh+2); // World weapon plus its matching HUD child.
-    assert(mesh_calls==2 && last_mesh_mask==2 && mesh_node==hudScene.addr());
+    assert(mesh_calls==2 && last_mesh_mask==1 && mesh_node==hudScene.addr());
+    assert(skin_models::Mask(7, 282) == 1); // AK-47 Redline uses the legacy model.
+    assert(skin_models::Mask(7, 1207) == 2); // AK-47 Searing Rage uses the new model.
+    assert(skin_models::Mask(7, 0) == 2);
+    assert(skin_models::Mask(7, 999999) == 0);
+    first.put<int>(skins::OFF_FALLBACK_PAINT,1207);
+    skins::RefreshWeaponMaterials(first.addr());
+    assert(last_mesh_mask==2 && mesh_node==hudScene.addr());
+    first.put<int>(skins::OFF_FALLBACK_PAINT,282);
     hudWeapon.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity,handle2);
     skins::RefreshWeaponMaterials(first.addr());
-    assert(refreshes==beforeHudRefresh+3); // Unrelated child must not be refreshed.
+    assert(refreshes==beforeHudRefresh+5); // Unrelated child must not be refreshed.
     hudNode.put(CGameSceneNode::m_pNextSibling,hudNode.addr());
     skins::RefreshWeaponMaterials(first.addr()); // Corrupt cyclic lists are bounded.
-    assert(refreshes==beforeHudRefresh+4);
+    assert(refreshes==beforeHudRefresh+6);
     handsScene.put<uintptr_t>(CGameSceneNode::m_pChild,0);
     first.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,scene.addr());
     first.put<int>(skins::OFF_FALLBACK_PAINT,0);
@@ -842,11 +859,14 @@ int main() {
     // Knife paint uses the material builder and remains idle once applied.
     skins::user_skins[500]=cfg;
     const auto knifeRefreshes=refreshes;
+    const auto paintHudRevision = skin_hud::revision.load();
     skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
     assert(refreshes==knifeRefreshes+1);
+    assert(skin_hud::revision.load()==paintHudRevision+1);
     assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_PAINT)==282);
     skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
     assert(refreshes==knifeRefreshes+1);
+    assert(skin_hud::revision.load()==paintHudRevision+1);
     services.put(CPlayer_WeaponServices::m_hActiveWeapon,handle1);
     for(int i=0;i<100;++i) skins::ApplyKnifeSkins();
     assert(model_calls==1);
@@ -856,6 +876,7 @@ int main() {
     skins::user_skins.erase(500);
     skins::ApplySkin(reinterpret_cast<void*>(first.addr()),500);
     assert(refreshes==knifeRefreshes+3);
+    assert(skin_hud::revision.load()==paintHudRevision+3);
     assert(sdk::read_value<int>(first.addr()+skins::OFF_FALLBACK_PAINT)==0);
     {
         Buffer eventSystem(0x40), eventChunk(0x70*512), eventController(0x1000), eventPawn(0x100), controllerIdentity(0x30), pawnIdentity(0x30);
@@ -897,7 +918,10 @@ int main() {
     for(int page=0;page<12;++page) {
         menu_advanced::selected_tab=page;
         for(int frame=0;frame<3;++frame) {
+            const auto previousStyle = ImGui::GetStyle();
             ImGui::NewFrame(); menu_advanced::RenderMainMenu(); ImGui::Render();
+            assert(ImGui::GetStyle().WindowPadding.x == previousStyle.WindowPadding.x);
+            assert(ImGui::GetStyle().Colors[ImGuiCol_WindowBg].x == previousStyle.Colors[ImGuiCol_WindowBg].x);
             assert(ImGui::GetDrawData()->TotalVtxCount>0);
             if(frame==2 && (page==11 || page==0)) SaveMenuPreview(page==11 ? "dashboard.bmp" : "aim-page.bmp",pixels,atlasWidth,atlasHeight);
         }

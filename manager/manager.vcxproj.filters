@@ -87,9 +87,6 @@
     <ClInclude Include="core\config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="core\skin_menu.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="core\skins.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -10586,16 +10583,13 @@
     <ClCompile Include="core\interfaces.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="sdk\interfaces\input_system.h">
+    <ClInclude Include="sdk\interfaces\input_system.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="sdk\interfaces\swap_chain_dx11.h">
+    </ClInclude>
+    <ClInclude Include="sdk\interfaces\swap_chain_dx11.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
+    </ClInclude>
     <ClCompile Include="sdk\mem.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="core\skins_meun.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="core\features.cpp">
@@ -10611,6 +10605,18 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="core\hooks.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\ui\widgets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\ui\settings_pages.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\skins\catalog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\skins\names.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="core\menu_advanced.cpp">

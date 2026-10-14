@@ -1,5 +1,10 @@
 #include "aim_profiler.h"
 #include "skins.h"
+#include "skins/signatures.h"
+#include "skins/offsets.h"
+#include "skins/knife_data.h"
+#include "skin_models.h"
+#include "skin_hud.h"
 #include "interfaces.h"
 #include "game_state.h"
 #include "../sdk/mem.h"
@@ -7,7 +12,6 @@
 #include <cmath>
 #include "pattern_resolver.h"
 #include <Windows.h>
-#include <wininet.h>
 #include <sstream>
 #include <algorithm>
 #include <chrono>
@@ -19,70 +23,9 @@
 #include "../sdk/source2sdk_offsets.h"
 #include "debug_console.h"
 
-enum ScanType {
-    NORMAL_SCAN,
-    CALL_SCAN
-};
-
-enum Module {
-    CLIENT,
-    TIER0,
-    ENGINEDLL
-};
-
-// DO NOT CHANGE THESE MACROS MANUALLY UPDATED
-
-// C_BaseModelEntity_SetModel(C_BaseModelEntity* entity, const char* modelSzName);
-#define SET_MODEL_SIGNATURE "40 53 48 83 EC ? 48 8B D9 4C 8B C2 48 8B 0D ? ? ? ? 48 8D 54 24 40"
-#define SEARCH_TYPE_SET_MODEL NORMAL_SCAN
-#define LOCATION_SET_MODEL CLIENT
-
-#define SET_MESH_GROUP_MASK_SIGNATURE "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC ? 48 8D 99"
-#define SEARCH_TYPE_SET_MESH_GROUP_MASK NORMAL_SCAN
-#define LOCATION_SET_MESH_GROUP_MASK CLIENT
-
-// C_CSWeaponBase_UpdateSubclass(C_CSWeaponBase* weapon);
-#define UPDATE_SUBCLASS_SIGNATURE "4C 8B DC 53 48 81 EC ? ? ? ? 48 8B 41 10 48 8B D9 8B 50 30 C1 EA 04"
-#define SEARCH_TYPE_UPDATE_SUBCLASS NORMAL_SCAN
-#define LOCATION_UPDATE_SUBCLASS CLIENT
-
-// C_CSWeaponBase_UpdateCompositeMaterial(C_CSWeaponBase* weapon);
-#define UPDATE_COMPOSITE_MATERIAL_SIGNATURE "E8 ? ? ? ? 48 8D 8B ? ? ? ? 48 89 BC 24"
-#define SEARCH_TYPE_UPDATE_COMPOSITE_MATERIAL CALL_SCAN
-#define LOCATION_UPDATE_COMPOSITE_MATERIAL CLIENT
-
-// C_CSWeaponBase_UpdateSkin(C_CSWeaponBase* weapon);
-#define UPDATE_SKIN_SIGNATURE "48 89 5C 24 08 57 48 83 EC 20 8B DA 48 8B F9 E8 ? ? ? ? 48 8D 8F A0 1B 00 00 48 8B D7 E8 ? ? ? ? F6 C3 01 74 0A 33 D2 48 8B CF E8 ? ? ? ? 48 8D 8F 50 1C 00 00 48 8B D7 E8 ? ? ? ? 45 33 C0 BA 02 00 00 00 48 8B CF E8 ? ? ? ? 48 8B CF 48 8B 5C 24 30 48 83 C4 20 5F E9"
-#define SEARCH_TYPE_UPDATE_SKIN NORMAL_SCAN
-#define LOCATION_UPDATE_SKIN CLIENT
-
-// CCSGO_HudWeaponSelection_ClearHudWeaponIcon(CHudWeaponSelection* thisptr);
-#define CLEAR_HUD_WEAPON_ICON_SIGNATURE "E8 ? ? ? ? 8B F8 C6 84 24 ? ? ? ? ?"
-#define SEARCH_TYPE_CLEAR_HUD_WEAPON_ICON CALL_SCAN
-#define LOCATION_CLEAR_HUD_WEAPON_ICON CLIENT
-
-// C_EconItemView_GetCustomPaintKitIndex(C_EconItemView* thisptr);
-#define GET_CUSTOM_PAINTKIT_INDEX "48 89 5C 24 ? 57 48 83 EC ? 8B 15 ? ? ? ? 48 8B F9 65 48 8B 04 25 ? ? ? ? B9 ? ? ? ? 48 8B 04 D0 8B 04 01 39 05 ? ? ? ? 0F 8F ? ? ? ? E8 ? ? ? ? 8B 58 ? 39 1D ? ? ? ? 74 ? E8 ? ? ? ? 48 8B 15 ? ? ? ? 48 8B C8 E8 ? ? ? ? 48 89 05 ? ? ? ? 89 1D ? ? ? ? EB ? 48 8B 05 ? ? ? ? 48 85 C0 74"
-#define SEARCH_TYPE_GET_CUSTOM_PAINTKIT_INDEX NORMAL_SCAN
-#define LOCATION_GET_CUSTOM_PAINTKIT_INDEX CLIENT
-
-#define EQUIP_ITEM_IN_LOADOUT_SIGNATURE "48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 89 54 24 ? 57 41 54 41 55 41 56 41 57 48 83 EC ? 0F B7 FA"
-#define SEARCH_TYPE_EQUIP_ITEM_IN_LOADOUT NORMAL_SCAN
-#define LOCATION_EQUIP_ITEM_IN_LOADOUT CLIENT
-
-#define REGEN_WEAPON_SKINS_SIGNATURE "40 55 53 41 57 48 8D AC 24 ? ? ? ? 48 81 EC ? ? ? ? 44 0F B6 FA 48 8B D9 BA ? ? ? ? 48 8D 0D ? ? ? ? E8 ? ? ? ?"
-#define SEARCH_TYPE_REGEN_WEAPON_SKINS NORMAL_SCAN
-#define LOCATION_REGEN_WEAPON_SKINS CLIENT
-
-#define UPDATE_BODY_GROUP_CHOICE "E8 ? ? ? ? 4C 8B AC 24 ? ? ? ? 48 8B BC 24"
-#define SEARCH_TYPE_UPDATE_BODY_GROUP_CHOICE CALL_SCAN
-#define LOCATION_UPDATE_BODY_GROUP_CHOICE CLIENT
-
-#pragma comment(lib, "wininet.lib")
-
 namespace skins {
 
-    // ==================== SAFE POINTER CHECK ====================
+    // Safe pointer check.
     static bool IsReadablePtr(uintptr_t ptr) {
         if (ptr == 0 || ptr < 0x10000 || ptr == 0xFFFFFFFFFFFFFFFFull) return false;
         MEMORY_BASIC_INFORMATION mbi{};
@@ -98,79 +41,16 @@ namespace skins {
         return true;
     }
 
-    // ==================== OFFSET CHAIN ====================
-    static constexpr std::ptrdiff_t ECON_ITEM_VIEW_BASE =
-        cs2_dumper::schemas::client_dll::C_EconEntity::m_AttributeManager +
-        cs2_dumper::schemas::client_dll::C_AttributeContainer::m_Item;
+    using namespace offsets;
 
-    static constexpr std::ptrdiff_t OFF_ITEM_DEF_INDEX = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemDefinitionIndex;
-    static constexpr std::ptrdiff_t OFF_ENTITY_QUALITY = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_iEntityQuality;
-    static constexpr std::ptrdiff_t OFF_ITEM_ID_HIGH = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDHigh;
-    static constexpr std::ptrdiff_t OFF_ITEM_ID_LOW = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemIDLow;
-    static constexpr std::ptrdiff_t OFF_ITEM_ID = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_iItemID;
-    static constexpr std::ptrdiff_t OFF_ACCOUNT_ID = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_iAccountID;
-    static constexpr std::ptrdiff_t OFF_DISALLOW_SOC = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_bDisallowSOC;
-    static constexpr std::ptrdiff_t OFF_RESTORE_MATERIAL = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_bRestoreCustomMaterialAfterPrecache;
-    static constexpr std::ptrdiff_t OFF_CUSTOM_NAME = ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_szCustomName;
+    using detail::GetKnifeData;
 
-    static constexpr std::ptrdiff_t OFF_FALLBACK_PAINT = cs2_dumper::schemas::client_dll::C_EconEntity::m_nFallbackPaintKit;
-    static constexpr std::ptrdiff_t OFF_FALLBACK_SEED = cs2_dumper::schemas::client_dll::C_EconEntity::m_nFallbackSeed;
-    static constexpr std::ptrdiff_t OFF_FALLBACK_WEAR = cs2_dumper::schemas::client_dll::C_EconEntity::m_flFallbackWear;
-    static constexpr std::ptrdiff_t OFF_FALLBACK_STATTRAK = cs2_dumper::schemas::client_dll::C_EconEntity::m_nFallbackStatTrak;
-    static constexpr std::ptrdiff_t OFF_OWNER_XUID_LOW = cs2_dumper::schemas::client_dll::C_EconEntity::m_OriginalOwnerXuidLow;
-
-    static constexpr std::ptrdiff_t OFF_GAME_SCENE_NODE = cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode;
-    static constexpr std::ptrdiff_t OFF_SUBCLASS_ID = cs2_dumper::schemas::client_dll::C_BaseEntity::m_nSubclassID;
-    static constexpr std::ptrdiff_t OFF_OWNER_ENTITY = cs2_dumper::schemas::client_dll::C_BaseEntity::m_hOwnerEntity;
-    static constexpr std::ptrdiff_t OFF_TEAM_NUM = cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum;
-    static constexpr std::ptrdiff_t OFF_HEALTH = cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth;
-
-    static constexpr std::ptrdiff_t OFF_MODEL_STATE = cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState;
-    static constexpr std::ptrdiff_t OFF_MESH_GROUP_MASK = cs2_dumper::schemas::client_dll::CModelState::m_MeshGroupMask;
-
-    static constexpr std::ptrdiff_t OFF_INV_SERVICES =
-        cs2_dumper::schemas::client_dll::CCSPlayerController::m_pInventoryServices;
-    static constexpr std::ptrdiff_t OFF_LOADOUT_VEC =
-        cs2_dumper::schemas::client_dll::CCSPlayerController_InventoryServices::m_vecNetworkableLoadout;
-
-    // ==================== KNIFE DATA ====================
-    struct KnifeData { int weapon_id; uint32_t subclass_hash; const char* model_path; };
-
-    static const KnifeData g_knife_data[] = {
-        { WEAPON_KNIFE_BAYONET,         3933374535, "weapons/models/knife/knife_bayonet/weapon_knife_bayonet.vmdl" },
-        { WEAPON_KNIFE_CLASSIC,         3787235507, "weapons/models/knife/knife_css/weapon_knife_css.vmdl" },
-        { WEAPON_KNIFE_FLIP,            4046390180, "weapons/models/knife/knife_flip/weapon_knife_flip.vmdl" },
-        { WEAPON_KNIFE_GUT,             2047704618, "weapons/models/knife/knife_gut/weapon_knife_gut.vmdl" },
-        { WEAPON_KNIFE_KARAMBIT,        1731408398, "weapons/models/knife/knife_karambit/weapon_knife_karambit.vmdl" },
-        { WEAPON_KNIFE_M9_BAYONET,      1638561588, "weapons/models/knife/knife_m9/weapon_knife_m9.vmdl" },
-        { WEAPON_KNIFE_TACTICAL,        2282479884, "weapons/models/knife/knife_tactical/weapon_knife_tactical.vmdl" },
-        { WEAPON_KNIFE_FALCHION,        3412259219, "weapons/models/knife/knife_falchion/weapon_knife_falchion.vmdl" },
-        { WEAPON_KNIFE_SURVIVAL_BOWIE,  2511498851, "weapons/models/knife/knife_bowie/weapon_knife_bowie.vmdl" },
-        { WEAPON_KNIFE_BUTTERFLY,       1353709123, "weapons/models/knife/knife_butterfly/weapon_knife_butterfly.vmdl" },
-        { WEAPON_KNIFE_PUSH,            4269888884, "weapons/models/knife/knife_push/weapon_knife_push.vmdl" },
-        { WEAPON_KNIFE_CORD,            1105782941, "weapons/models/knife/knife_cord/weapon_knife_cord.vmdl" },
-        { WEAPON_KNIFE_CANIS,           275962944,  "weapons/models/knife/knife_canis/weapon_knife_canis.vmdl" },
-        { WEAPON_KNIFE_URSUS,           1338637359, "weapons/models/knife/knife_ursus/weapon_knife_ursus.vmdl" },
-        { WEAPON_KNIFE_GYPSY_JACKKNIFE, 3230445913, "weapons/models/knife/knife_navaja/weapon_knife_navaja.vmdl" },
-        { WEAPON_KNIFE_OUTDOOR,         3206681373, "weapons/models/knife/knife_outdoor/weapon_knife_outdoor.vmdl" },
-        { WEAPON_KNIFE_STILETTO,        2595277776, "weapons/models/knife/knife_stiletto/weapon_knife_stiletto.vmdl" },
-        { WEAPON_KNIFE_WIDOWMAKER,      4029975521, "weapons/models/knife/knife_talon/weapon_knife_talon.vmdl" },
-        { WEAPON_KNIFE_SKELETON,        365028728,  "weapons/models/knife/knife_skeleton/weapon_knife_skeleton.vmdl" },
-        { WEAPON_KNIFE_KUKRI,           3845286452, "weapons/models/knife/knife_kukri/weapon_knife_kukri.vmdl" },
-    };
-
-    static const KnifeData* GetKnifeData(int weapon_id) {
-        for (const auto& kd : g_knife_data)
-            if (kd.weapon_id == weapon_id) return &kd;
-        return nullptr;
-    }
-
-    // ==================== ENGINE FUNCTION POINTERS ====================
+    // Engine function pointers.
 
     using fnSetModel = void(__fastcall*)(void*, const char*);
     using fnUpdateSubClass = void(__fastcall*)(void*);
     using fnUpdateComposite = void(__fastcall*)(void*, bool);
-    using fnClearHudWeaponIcon = void(__fastcall*)(void*, int, int64_t);
+    using fnClearHudWeaponIcon = skin_hud::Clear;
     using fnEquipItemInLoadout = bool(__fastcall*)(void*, int, int, uint64_t);
     using fnSetMeshGroupMask = void(__fastcall*)(void*, uint64_t);
     using fnUpdateCompositeSec = void(__fastcall*)(void*, bool);
@@ -200,7 +80,7 @@ namespace skins {
 
     static void ResolveFindHudElement() {
         if (g_fnFindHudElement) return;
-        uint8_t* pattern = sdk::find_pattern("client.dll", "4C 8B DC 53 48 83 EC ? 48 8B 05");
+        uint8_t* pattern = sdk::find_pattern("client.dll", signatures::find_hud_element);
         if (pattern) {
             g_fnFindHudElement = reinterpret_cast<void* (*)(const char*)>(pattern);
             debug_console::Console::Get().Success("[SKINS] FindHudElement at 0x%llX", (uintptr_t)pattern);
@@ -220,21 +100,21 @@ namespace skins {
         g_engine_funcs_resolved = true;
         auto& con = debug_console::Console::Get();
 
-        auto fnSetModelResolved = sdk::find_pattern("client.dll", SET_MODEL_SIGNATURE);
+        auto fnSetModelResolved = sdk::find_pattern("client.dll", signatures::SET_MODEL_SIGNATURE);
         if (fnSetModelResolved) {
             g_fnSetModel = reinterpret_cast<fnSetModel>(fnSetModelResolved);
             con.Success("[SKINS] SetModel at 0x%llX", reinterpret_cast<uintptr_t>(fnSetModelResolved));
         }
         else con.Warning("[SKINS] SetModel NOT found");
 
-        auto fnUpdateSubClassResolved = sdk::find_pattern("client.dll", UPDATE_SUBCLASS_SIGNATURE);
+        auto fnUpdateSubClassResolved = sdk::find_pattern("client.dll", signatures::UPDATE_SUBCLASS_SIGNATURE);
         if (fnUpdateSubClassResolved) {
             g_fnUpdateSubClass = reinterpret_cast<fnUpdateSubClass>(fnUpdateSubClassResolved);
             con.Success("[SKINS] UpdateSubclass at 0x%llX", reinterpret_cast<uintptr_t>(fnUpdateSubClassResolved));
         }
         else con.Warning("[SKINS] UpdateSubclass NOT found");
 
-        auto fnUpdateCompositeResolved = sdk::find_pattern("client.dll", UPDATE_COMPOSITE_MATERIAL_SIGNATURE);
+        auto fnUpdateCompositeResolved = sdk::find_pattern("client.dll", signatures::UPDATE_COMPOSITE_MATERIAL_SIGNATURE);
         if (fnUpdateCompositeResolved) {
             // The call site adds the embedded material owner before calling.
             const auto call = reinterpret_cast<uintptr_t>(fnUpdateCompositeResolved);
@@ -250,17 +130,17 @@ namespace skins {
         else con.Warning("[SKINS] UpdateComposite NOT found");
 
         g_fnUpdateCompositeSec = reinterpret_cast<fnUpdateCompositeSec>(
-            sdk::find_pattern("client.dll", REGEN_WEAPON_SKINS_SIGNATURE));
+            sdk::find_pattern("client.dll", signatures::REGEN_WEAPON_SKINS_SIGNATURE));
         if (!g_compositeOwnerOffset) con.Warning("[SKINS] Material owner layout unavailable; refresh disabled");
 
-        auto fnClearHudWeaponIconResolved = sdk::find_pattern("client.dll", CLEAR_HUD_WEAPON_ICON_SIGNATURE);
+        auto fnClearHudWeaponIconResolved = sdk::find_pattern("client.dll", signatures::CLEAR_HUD_WEAPON_ICON_SIGNATURE);
         if (fnClearHudWeaponIconResolved) {
             g_fnClearHudWeaponIcon = reinterpret_cast<fnClearHudWeaponIcon>(sdk::GetCA(reinterpret_cast<uintptr_t>(fnClearHudWeaponIconResolved)));
             con.Success("[SKINS] ClearHudWeaponIcon at 0x%llX", reinterpret_cast<uintptr_t>(g_fnClearHudWeaponIcon));
         }
         else con.Warning("[SKINS] ClearHudWeaponIcon NOT found");
 
-        auto fnEquipItemInLoadoutResolved = sdk::find_pattern("client.dll", EQUIP_ITEM_IN_LOADOUT_SIGNATURE);
+        auto fnEquipItemInLoadoutResolved = sdk::find_pattern("client.dll", signatures::EQUIP_ITEM_IN_LOADOUT_SIGNATURE);
         if (fnEquipItemInLoadoutResolved) {
             g_fnEquipItemInLoadout = reinterpret_cast<fnEquipItemInLoadout>(fnEquipItemInLoadoutResolved);
             con.Success("[SKINS] EquipItemInLoadout at 0x%llX", reinterpret_cast<uintptr_t>(fnEquipItemInLoadoutResolved));
@@ -268,20 +148,20 @@ namespace skins {
         else con.Warning("[SKINS] EquipItemInLoadout NOT found");
 
         // Native material entry points used by the reference implementation.
-        g_fnBuildSkin = reinterpret_cast<fnBuildSkin>(TryPattern("client.dll", "48 85 C9 0F 84 ? ? ? ? 48 8B C4 48 89 50 10"));
-        g_fnCreatePaintKit = reinterpret_cast<fnCreatePaintKit>(TryPattern("client.dll", "48 89 5C 24 ? 56 48 83 EC ? 48 8B 01 FF 50"));
-        if (auto call = TryPattern("client.dll", "E8 ? ? ? ? EB 0C 48 8B CF"))
+        g_fnBuildSkin = reinterpret_cast<fnBuildSkin>(TryPattern("client.dll", signatures::build_skin));
+        g_fnCreatePaintKit = reinterpret_cast<fnCreatePaintKit>(TryPattern("client.dll", signatures::create_paint_kit));
+        if (auto call = TryPattern("client.dll", signatures::set_body_group_call))
             g_fnSetBodyGroup = reinterpret_cast<fnSetBodyGroup>(sdk::GetCA(reinterpret_cast<uintptr_t>(call)));
-        g_fnRegenerateSkins = reinterpret_cast<decltype(g_fnRegenerateSkins)>(TryPattern("client.dll", "48 83 EC ? E8 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 48 8B 10"));
+        g_fnRegenerateSkins = reinterpret_cast<decltype(g_fnRegenerateSkins)>(TryPattern("client.dll", signatures::regenerate_skins));
         if (!g_fnBuildSkin || !g_fnCreatePaintKit || !g_fnSetBodyGroup || !g_fnRegenerateSkins)
             con.Warning("[SKINS] Native material functions missing: weapon=%d glove=%d body=%d regen=%d",
                 !!g_fnBuildSkin, !!g_fnCreatePaintKit, !!g_fnSetBodyGroup, !!g_fnRegenerateSkins);
-        g_fnSetMeshGroupMask = reinterpret_cast<fnSetMeshGroupMask>(sdk::find_pattern("client.dll", SET_MESH_GROUP_MASK_SIGNATURE));
-        if (auto call = sdk::find_pattern("client.dll", "E8 ? ? ? ? 66 41 0F 6E D4"))
+        g_fnSetMeshGroupMask = reinterpret_cast<fnSetMeshGroupMask>(sdk::find_pattern("client.dll", signatures::SET_MESH_GROUP_MASK_SIGNATURE));
+        if (auto call = sdk::find_pattern("client.dll", signatures::set_attribute_call))
             g_fnSetAttribute = reinterpret_cast<fnSetAttribute>(sdk::GetCA(reinterpret_cast<uintptr_t>(call)));
     }
 
-    // ==================== ENTITY FLAGS ====================
+    // Entity flags.
     enum e_entity_flags : uint32_t {
         ef_is_invalid_ehandle = 0x1,
         ef_spawn_in_progress = 0x2,
@@ -310,7 +190,7 @@ namespace skins {
         return identity && (identity->flags() & ef_in_staging_list);
     }
 
-    // ==================== SAFE CALLERS ====================
+    // Safe callers.
     static void CallSetModel(uintptr_t ent, const char* model) {
         if (!ent || !IsReadablePtr(ent) || !model) return;
         if (!g_fnSetModel || reinterpret_cast<uintptr_t>(g_fnSetModel) <= 0x10000) return;
@@ -341,7 +221,7 @@ namespace skins {
         return false;
     }
 
-    // ==================== SCENE NODE ====================
+    // Scene node.
     static uintptr_t GetSceneNode(uintptr_t ent) {
         if (!ent || !IsReadablePtr(ent)) return 0;
         uintptr_t n = sdk::read_value<uintptr_t>(ent + OFF_GAME_SCENE_NODE);
@@ -367,7 +247,7 @@ namespace skins {
         return (fn && IsReadablePtr(fn));
     }
 
-    // ==================== ENTITY HELPERS ====================
+    // Entity helpers.
     uintptr_t GetLocalPawn() {
         return game_state::GetLocalPawnRaw();
     }
@@ -496,9 +376,12 @@ namespace skins {
         // Knives also need their world and HUD paint materials rebuilt.
         if (!g_fnBuildSkin || !g_fnRegenerateSkins) return false;
         const int paint = sdk::read_value<int>(weapon + OFF_FALLBACK_PAINT);
-        const auto kit = paint > 0 ? FindPaintKit(paint) : 0;
-        if (paint > 0 && !kit) return false;
-        const uint64_t mask = kit && sdk::read_value<bool>(kit + 0xAE) ? 2ULL : 1ULL;
+        uint64_t mask = skin_models::Mask(GetDefIndex(weapon), paint);
+        if (!mask) {
+            const auto kit = paint > 0 ? FindPaintKit(paint) : 0;
+            if (paint > 0 && !kit) return false;
+            mask = kit && sdk::read_value<bool>(kit + 0xAE) ? 2ULL : 1ULL;
+        }
         auto* item = reinterpret_cast<void*>(weapon + ECON_ITEM_VIEW_BASE);
         SetMeshGroupMask(GetSceneNode(weapon), mask);
         g_fnBuildSkin(item, reinterpret_cast<void*>(weapon), 0, 2048, 0, 0, nullptr);
@@ -519,7 +402,7 @@ namespace skins {
         return p ? sdk::read_value<uint8_t>(p + OFF_TEAM_NUM) : 0;
     }
 
-    // ==================== INVENTORY BACKING ====================
+    // Inventory backing.
     struct AddedItemInfo {
         uint64_t id;
         float    paintKit;
@@ -553,7 +436,7 @@ namespace skins {
         return (modelName && IsReadablePtr((uintptr_t)modelName)) ? modelName : nullptr;
     }
 
-    // ==================== LOADOUT READING ====================
+    // Loadout reading.
     struct LoadoutItem {
         uintptr_t item_view;
         uint16_t  def_index;
@@ -610,7 +493,7 @@ namespace skins {
         return nullptr;
     }
 
-    // ==================== UPDATESUBCLASS QUEUE ====================
+    // Updatesubclass queue.
     static std::mutex             s_subclass_mutex;
     static std::vector<uintptr_t> s_subclass_queue;
 
@@ -635,14 +518,14 @@ namespace skins {
         }
     }
 
-    // ==================== APPLY WEAPON SKINS ====================
+    // Apply weapon skins.
     void ApplyWeaponSkins() {
         if (!game_state::IsInGame() || GetCurrentFrameStage() != 6) return;
         for (const auto weapon : GetAllWeapons())
             ApplySkin(reinterpret_cast<void*>(weapon), GetDefIndex(weapon));
     }
 
-    // ==================== FRAME STAGE TRACKING ====================
+    // Frame stage tracking.
     thread_local static int t_currentFrameStage = -1;
 
     int GetCurrentFrameStage() {
@@ -653,7 +536,7 @@ namespace skins {
         t_currentFrameStage = stage;
     }
 
-    // ==================== APPLY KNIFE SKINS ====================
+    // Apply knife skins.
     static uint16_t  s_lastKnifeDefIndex = 0;
     static uintptr_t s_lastWeaponPtr = 0;
     static int       s_subclassRefreshFrames = 0;
@@ -750,7 +633,7 @@ namespace skins {
         else
             return;
 
-        const KnifeData* kd = GetKnifeData(knifeDefIndex);
+        const detail::KnifeData* kd = GetKnifeData(knifeDefIndex);
         if (!kd) return;
 
         // Avoid VirtualQuery/WriteProcessMemory on unchanged knife fields.
@@ -801,7 +684,10 @@ namespace skins {
             // Step 2: Mesh group masks
             try {
                 uintptr_t node = GetSceneNode(weapon);
-                if (node) SetMeshGroupMask(node, 2);
+                const auto cfg = user_skins.find(selected_knife_id);
+                const int paint = cfg != user_skins.end() ? cfg->second.paint_kit : 0;
+                const auto mask = skin_models::Mask(selected_knife_id, paint);
+                if (node) SetMeshGroupMask(node, mask ? mask : 2);
             }
             catch (...) {}
 
@@ -827,10 +713,11 @@ namespace skins {
 
             // Prevent this block from running again until next knife change
             s_subclassRefreshFrames = -1;
+            skin_hud::Request();
         }
     }
 
-    // ==================== APPLY GLOVES ====================
+    // Apply gloves.
     static uintptr_t s_glovePawn = 0;
     static int s_glovePaint = 0;
     static float s_gloveSpawnTime = -1.0f;
@@ -880,11 +767,12 @@ namespace skins {
         s_glovePawn = pawn; s_glovePaint = selected_glove_kit;
         s_gloveSpawnTime = spawnTime; s_gloveTeam = team;
         s_customGlovesApplied = custom;
+        skin_hud::Request();
     }
 
 
 
-    // ==================== MAIN TICK ====================
+    // Main tick.
     void ApplyAllSkins() {
         aim_profiler::Scope profile(aim_profiler::Skins);
         const int stage = GetCurrentFrameStage();
@@ -912,119 +800,7 @@ namespace skins {
         debug_console::Console::Get().Success("[KNIFE] Selection changed, refreshing next frame");
     }
 
-    // ==================== HTTP ====================
-    static std::string HTTPGet(const std::string& url) {
-        std::string r;
-        HINTERNET h = InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
-        if (!h) return r;
-        DWORD timeout = 5000;
-        InternetSetOptionA(h, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-        InternetSetOptionA(h, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-        DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_PRAGMA_NOCACHE;
-        if (url.find("https://") == 0) flags |= INTERNET_FLAG_SECURE;
-        HINTERNET hu = InternetOpenUrlA(h, url.c_str(), NULL, 0, flags, 0);
-        if (hu) {
-            char buf[8192]; DWORD rd = 0;
-            while (r.size() < 16 * 1024 * 1024 && InternetReadFile(hu, buf, sizeof(buf) - 1, &rd) && rd > 0) r.append(buf, rd);
-            InternetCloseHandle(hu);
-        }
-        InternetCloseHandle(h);
-        return r;
-    }
-
-    static int ExtractInt(const std::string& obj, const std::string& key) {
-        auto s = "\"" + key + "\":";
-        auto p = obj.find(s); if (p == std::string::npos) return 0;
-        p += s.size();
-        while (p < obj.size() && !std::isdigit(obj[p]) && obj[p] != '-') p++;
-        if (p < obj.size() && obj[p] == '"') p++;
-        auto e = p;
-        while (e < obj.size() && std::isdigit(obj[e])) e++;
-        if (e > p) { try { return std::stoi(obj.substr(p, e - p)); } catch (...) {} }
-        return 0;
-    }
-
-    static std::string ExtractStr(const std::string& obj, const std::string& key) {
-        auto s = "\"" + key + "\":";
-        auto p = obj.find(s); if (p == std::string::npos) return "";
-        p += s.size();
-        while (p < obj.size() && obj[p] != '"') p++;
-        if (p >= obj.size()) return "";
-        p++;
-        auto e = obj.find('"', p);
-        return (e != std::string::npos) ? obj.substr(p, e - p) : "";
-    }
-
-    // ==================== SKIN DATABASE ====================
-    void LoadSkinsFromAPI() {
-        skin_database.clear(); skins_by_weapon.clear(); glove_database.clear();
-        debug_console::Console::Get().Success("[SKINS] Fetching skin database...");
-        try {
-            auto data = HTTPGet("https://raw.githubusercontent.com/Nereziel/cs2-WeaponPaints/main/website/data/skins_en.json");
-            size_t pos = 0;
-            while ((pos = data.find('{', pos)) != std::string::npos) {
-                auto end = data.find('}', pos); if (end == std::string::npos) break;
-                auto obj = data.substr(pos, end - pos + 1);
-                int  wid = ExtractInt(obj, "weapon_defindex");
-                int  pk = ExtractInt(obj, "paint");
-                auto pn = ExtractStr(obj, "paint_name");
-                if (wid > 0 && pk > 0 && !pn.empty()) {
-                    auto sn = pn;
-                    auto wd = GetWeaponName(wid);
-                    auto sep = pn.find(" | ");
-                    if (sep != std::string::npos) sn = pn.substr(sep + 3);
-                    SkinInfo sk(pk, sn, wd, wid, RARITY_COMMON, true);
-                    skin_database.push_back(sk);
-                    skins_by_weapon[wd].push_back(sk);
-                }
-                pos = end + 1;
-            }
-            debug_console::Console::Get().Success("[SKINS] Loaded %zu weapon skins", skin_database.size());
-
-            auto gdata = HTTPGet("https://raw.githubusercontent.com/Nereziel/cs2-WeaponPaints/main/website/data/gloves_en.json");
-            pos = 0;
-            while ((pos = gdata.find('{', pos)) != std::string::npos) {
-                auto end = gdata.find('}', pos); if (end == std::string::npos) break;
-                auto obj = gdata.substr(pos, end - pos + 1);
-                int  pk = ExtractInt(obj, "paint");
-                auto pn = ExtractStr(obj, "paint_name");
-                if (pk > 0 && !pn.empty()) {
-                    auto gn = pn;
-                    auto sep = pn.find(" | ");
-                    if (sep != std::string::npos) gn = pn.substr(sep + 3);
-                    glove_database.push_back(GloveInfo(pk, gn, ExtractInt(obj, "weapon_defindex")));
-                }
-                pos = end + 1;
-            }
-            debug_console::Console::Get().Success("[SKINS] Loaded %zu glove skins", glove_database.size());
-            if (skin_database.empty() && glove_database.empty()) InitializeSkinDatabase();
-        }
-        catch (...) {
-            debug_console::Console::Get().Error("[SKINS] API failed, using fallback");
-            InitializeSkinDatabase();
-        }
-    }
-
-    void InitializeSkinDatabase() {
-        skin_database.clear(); skins_by_weapon.clear(); glove_database.clear();
-        skin_database.push_back(SkinInfo(282, "Redline", "AK-47", WEAPON_AK47, RARITY_LEGENDARY, true));
-        skin_database.push_back(SkinInfo(180, "Vulcan", "AK-47", WEAPON_AK47, RARITY_ANCIENT, true));
-        skin_database.push_back(SkinInfo(344, "Dragon Lore", "AWP", WEAPON_AWP, RARITY_CONTRABAND, true));
-        skin_database.push_back(SkinInfo(279, "Asiimov", "AWP", WEAPON_AWP, RARITY_ANCIENT, true));
-        skin_database.push_back(SkinInfo(309, "Howl", "M4A4", WEAPON_M4A1, RARITY_CONTRABAND, true));
-        skin_database.push_back(SkinInfo(360, "Cyrex", "M4A1-S", WEAPON_M4A1_SILENCER, RARITY_LEGENDARY, true));
-        skin_database.push_back(SkinInfo(37, "Blaze", "Desert Eagle", WEAPON_DEAGLE, RARITY_ANCIENT, false));
-        skin_database.push_back(SkinInfo(277, "Orion", "USP-S", WEAPON_USP_SILENCER, RARITY_LEGENDARY, true));
-        skin_database.push_back(SkinInfo(38, "Fade", "Glock-18", WEAPON_GLOCK, RARITY_ANCIENT, false));
-        for (const auto& s : skin_database) skins_by_weapon[s.weapon_name].push_back(s);
-        glove_database.push_back(GloveInfo(10018, "Sport Gloves | Superconductor", 5030));
-        glove_database.push_back(GloveInfo(10037, "Sport Gloves | Pandora's Box", 5030));
-        glove_database.push_back(GloveInfo(10048, "Sport Gloves | Vice", 5030));
-    }
-
-    bool IsDatabaseLoaded() { return !skin_database.empty() || !glove_database.empty(); }
-
-    // ==================== BATCH OPS ====================
+    // Batch ops.
     void ClearAllSkins() {
         user_skins.clear();
         g_vecAddedItemsIDs.clear();
@@ -1046,93 +822,7 @@ namespace skins {
     void ApplyFactoryNewAll() { for (auto& p : user_skins) p.second.wear = 0.f; }
     void ApplyRandomSeeds() { for (auto& p : user_skins) p.second.seed = rand() % 1000; }
 
-    // ==================== NAMES / RARITIES ====================
-    const char* GetWeaponName(int id) {
-        switch (id) {
-        case WEAPON_AK47:                  return "AK-47";
-        case WEAPON_M4A1:                  return "M4A4";
-        case WEAPON_M4A1_SILENCER:         return "M4A1-S";
-        case WEAPON_AWP:                   return "AWP";
-        case WEAPON_DEAGLE:                return "Desert Eagle";
-        case WEAPON_GLOCK:                 return "Glock-18";
-        case WEAPON_USP_SILENCER:          return "USP-S";
-        case WEAPON_P250:                  return "P250";
-        case WEAPON_FIVESEVEN:             return "Five-SeveN";
-        case WEAPON_TEC9:                  return "Tec-9";
-        case WEAPON_CZ75A:                 return "CZ75-Auto";
-        case WEAPON_REVOLVER:              return "R8 Revolver";
-        case WEAPON_ELITE:                 return "Dual Berettas";
-        case WEAPON_HKP2000:               return "P2000";
-        case WEAPON_NOVA:                  return "Nova";
-        case WEAPON_XM1014:                return "XM1014";
-        case WEAPON_SAWEDOFF:              return "Sawed-Off";
-        case WEAPON_MAG7:                  return "MAG-7";
-        case WEAPON_M249:                  return "M249";
-        case WEAPON_NEGEV:                 return "Negev";
-        case WEAPON_MAC10:                 return "MAC-10";
-        case WEAPON_MP9:                   return "MP9";
-        case WEAPON_MP7:                   return "MP7";
-        case WEAPON_MP5SD:                 return "MP5-SD";
-        case WEAPON_UMP45:                 return "UMP-45";
-        case WEAPON_P90:                   return "P90";
-        case WEAPON_BIZON:                 return "PP-Bizon";
-        case WEAPON_FAMAS:                 return "FAMAS";
-        case WEAPON_GALILAR:               return "Galil AR";
-        case WEAPON_AUG:                   return "AUG";
-        case WEAPON_SG556:                 return "SG 553";
-        case WEAPON_SSG08:                 return "SSG 08";
-        case WEAPON_SCAR20:                return "SCAR-20";
-        case WEAPON_G3SG1:                 return "G3SG1";
-        case WEAPON_KNIFE_BAYONET:         return "Bayonet";
-        case WEAPON_KNIFE_CLASSIC:         return "Classic Knife";
-        case WEAPON_KNIFE_FLIP:            return "Flip Knife";
-        case WEAPON_KNIFE_GUT:             return "Gut Knife";
-        case WEAPON_KNIFE_KARAMBIT:        return "Karambit";
-        case WEAPON_KNIFE_M9_BAYONET:      return "M9 Bayonet";
-        case WEAPON_KNIFE_TACTICAL:        return "Huntsman Knife";
-        case WEAPON_KNIFE_FALCHION:        return "Falchion Knife";
-        case WEAPON_KNIFE_SURVIVAL_BOWIE:  return "Bowie Knife";
-        case WEAPON_KNIFE_BUTTERFLY:       return "Butterfly Knife";
-        case WEAPON_KNIFE_PUSH:            return "Shadow Daggers";
-        case WEAPON_KNIFE_CORD:            return "Paracord Knife";
-        case WEAPON_KNIFE_CANIS:           return "Survival Knife";
-        case WEAPON_KNIFE_URSUS:           return "Ursus Knife";
-        case WEAPON_KNIFE_GYPSY_JACKKNIFE: return "Navaja Knife";
-        case WEAPON_KNIFE_OUTDOOR:         return "Nomad Knife";
-        case WEAPON_KNIFE_STILETTO:        return "Stiletto Knife";
-        case WEAPON_KNIFE_WIDOWMAKER:      return "Talon Knife";
-        case WEAPON_KNIFE_SKELETON:        return "Skeleton Knife";
-        case WEAPON_KNIFE_KUKRI:           return "Kukri Knife";
-        case WEAPON_KNIFE_CT:              return "CT Knife";
-        case WEAPON_KNIFE_T:               return "T Knife";
-        case WEAPON_TASER:                 return "Zeus x27";
-        default:                           return "Unknown";
-        }
-    }
-
-    const char* GetRarityName(SkinRarity r) {
-        switch (r) {
-        case RARITY_COMMON:     return "Consumer Grade";
-        case RARITY_UNCOMMON:   return "Industrial Grade";
-        case RARITY_RARE:       return "Mil-Spec Grade";
-        case RARITY_MYTHICAL:   return "Restricted";
-        case RARITY_LEGENDARY:  return "Classified";
-        case RARITY_ANCIENT:    return "Covert";
-        case RARITY_CONTRABAND: return "Contraband";
-        default:                return "Unknown";
-        }
-    }
-
-    const float* GetRarityColor(SkinRarity r) {
-        static float c[][4] = {
-            {0.7f,0.7f,0.7f,1.f},  {0.4f,0.6f,0.9f,1.f}, {0.3f,0.4f,0.8f,1.f},
-            {0.5f,0.3f,0.8f,1.f},  {0.8f,0.3f,0.6f,1.f}, {0.9f,0.2f,0.2f,1.f},
-            {0.95f,0.8f,0.1f,1.f}
-        };
-        return (r >= 0 && r <= RARITY_CONTRABAND) ? c[r] : c[0];
-    }
-
-    // ==================== DEBUG READBACK ====================
+    // Debug readback.
     std::vector<WeaponDebugInfo> GetCurrentWeaponsDebugInfo() {
         std::vector<WeaponDebugInfo> result;
         if (!game_state::IsInGame()) return result;
@@ -1215,6 +905,7 @@ namespace skins {
             }
             if (!RefreshWeaponMaterials(w)) return;
             saved_skins.erase(saved);
+            skin_hud::Request();
             return;
         }
         if (saved == saved_skins.end()) {
@@ -1263,7 +954,9 @@ namespace skins {
             g_fnSetAttribute(view, "set item texture wear", wear);
             g_fnSetAttribute(view, "set item texture seed", static_cast<float>(seed));
         }
+        const bool refreshNeeded = changed || !state.materialReady || state.hudWeapon != hud;
         state.materialReady = RefreshWeaponMaterials(w);
         state.hudWeapon = hud;
+        if (state.materialReady && refreshNeeded) skin_hud::Request();
     }
 }

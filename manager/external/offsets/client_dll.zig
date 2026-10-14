@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-10-01 00:19:28.480196 UTC
+// 2026-10-11 19:31:11.671150600 UTC
 
 pub const cs2_dumper = struct {
     pub const schemas = struct {
@@ -1730,7 +1730,7 @@ pub const cs2_dumper = struct {
             pub const C_WeaponSG556 = struct {
             };
             // Parent: C_CSPlayerPawnBase
-            // Field count: 104
+            // Field count: 105
             pub const C_CSPlayerPawn = struct {
                 pub const m_pBulletServices: usize = 0x1570; // CCSPlayer_BulletServices*
                 pub const m_pHostageServices: usize = 0x1578; // CCSPlayer_HostageServices*
@@ -1825,17 +1825,18 @@ pub const cs2_dumper = struct {
                 pub const m_fImmuneToGunGameDamageTime: usize = 0x3504; // GameTime_t
                 pub const m_bGunGameImmunity: usize = 0x3508; // bool
                 pub const m_fImmuneToGunGameDamageTimeLast: usize = 0x350C; // GameTime_t
-                pub const m_fMolotovDamageTime: usize = 0x3510; // float32
-                pub const m_nPlayerInfernoBodyFx: usize = 0x357C; // ParticleIndex_t
-                pub const m_angEyeAngles: usize = 0x35F0; // QAngle
-                pub const m_arrOldEyeAnglesTimes: usize = 0x3680; // GameTime_t[4]
-                pub const m_arrOldEyeAngles: usize = 0x3690; // QAngle[4]
-                pub const m_angEyeAnglesVelocity: usize = 0x36C0; // QAngle
-                pub const m_iIDEntIndex: usize = 0x36CC; // CEntityIndex
-                pub const m_delayTargetIDTimer: usize = 0x36D0; // CountdownTimer
-                pub const m_iTargetItemEntIdx: usize = 0x36E8; // CEntityIndex
-                pub const m_iOldIDEntIndex: usize = 0x36EC; // CEntityIndex
-                pub const m_holdTargetIDTimer: usize = 0x36F0; // CountdownTimer
+                pub const m_flModifier0: usize = 0x3510; // float32
+                pub const m_fMolotovDamageTime: usize = 0x3514; // float32
+                pub const m_nPlayerInfernoBodyFx: usize = 0x3580; // ParticleIndex_t
+                pub const m_angEyeAngles: usize = 0x3600; // QAngle
+                pub const m_arrOldEyeAnglesTimes: usize = 0x3690; // GameTime_t[4]
+                pub const m_arrOldEyeAngles: usize = 0x36A0; // QAngle[4]
+                pub const m_angEyeAnglesVelocity: usize = 0x36D0; // QAngle
+                pub const m_iIDEntIndex: usize = 0x36DC; // CEntityIndex
+                pub const m_delayTargetIDTimer: usize = 0x36E0; // CountdownTimer
+                pub const m_iTargetItemEntIdx: usize = 0x36F8; // CEntityIndex
+                pub const m_iOldIDEntIndex: usize = 0x36FC; // CEntityIndex
+                pub const m_holdTargetIDTimer: usize = 0x3700; // CountdownTimer
             };
             // Parent: None
             // Field count: 0
@@ -4684,8 +4685,8 @@ pub const cs2_dumper = struct {
             // Parent: C_CSPlayerPawn
             // Field count: 2
             pub const C_CSGO_PreviewPlayer = struct {
-                pub const m_animgraphCharacterModeString: usize = 0x3710; // CGlobalSymbol
-                pub const m_flInitialModelScale: usize = 0x3718; // float32
+                pub const m_animgraphCharacterModeString: usize = 0x3720; // CGlobalSymbol
+                pub const m_flInitialModelScale: usize = 0x3728; // float32
             };
             // Parent: C_BarnLight
             // Field count: 1

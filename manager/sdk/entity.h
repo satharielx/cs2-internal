@@ -6,7 +6,7 @@
 #include <cmath>
 
 namespace sdk {
-    // CS2 Vector3
+    // 3D vector.
     struct Vector3 {
         float x, y, z;
 
@@ -39,7 +39,7 @@ namespace sdk {
         return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
     }
 
-    // CS2 Vector2
+    // 2D vector.
     struct Vector2 {
         float x, y;
 
@@ -53,17 +53,17 @@ namespace sdk {
         }
     };
 
-    // View matrix for world-to-screen
+    // Camera matrix used for screen projection.
     struct ViewMatrix {
         float matrix[4][4];
     };
 
-    // Offset aliases from source2sdk (used below)
+    // Aliases for the generated schema offsets.
     namespace off {
         using namespace cs2_dumper::schemas::client_dll;
     }
 
-    // CS2 Entity base class
+    // Base entity access.
     class C_BaseEntity {
     public:
         Vector3 GetOrigin() {
@@ -94,7 +94,7 @@ namespace sdk {
         }
     };
 
-    // CS2 Player (extends BaseEntity)
+    // Player entity access.
     class C_CSPlayerPawn : public C_BaseEntity {
     public:
         Vector3 GetBonePosition(int bone_index) {
@@ -135,7 +135,7 @@ namespace sdk {
         }
     };
 
-    // Bone IDs for skeleton
+    // Bone indices used by the skeleton renderer.
     enum BoneIndex {
         BONE_HEAD = 6,
         BONE_NECK = 5,

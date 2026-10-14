@@ -1,3 +1,5 @@
+Project layout, configuration ownership and validation commands: [architecture guide](docs/architecture.md).
+
 # ⚔️ NEPHILIMGATE
 
 ### Advanced Internal Counter-Strike 2 Framework

@@ -1,25 +1,25 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-10-01 00:19:28.480196 UTC
+// 2026-10-11 19:31:11.671150600 UTC
 
 pub const cs2_dumper = struct {
     pub const offsets = struct {
         // Module: client.dll
         pub const client_dll = struct {
-            pub const dwCSGOInput: usize = 0x2576160;
-            pub const dwEntityList: usize = 0x2715828;
-            pub const dwGameEntitySystem: usize = 0x2715828;
+            pub const dwCSGOInput: usize = 0x2572460;
+            pub const dwEntityList: usize = 0x2711598;
+            pub const dwGameEntitySystem: usize = 0x2711598;
             pub const dwGameEntitySystem_highestEntityIndex: usize = 0x2120;
-            pub const dwGameRules: usize = 0x255CE50;
-            pub const dwGlobalVars: usize = 0x222BE98;
-            pub const dwGlowManager: usize = 0x255CE60;
-            pub const dwLocalPlayerController: usize = 0x2538008;
-            pub const dwLocalPlayerPawn: usize = 0x2560698;
-            pub const dwPlantedC4: usize = 0x24C88D0;
-            pub const dwPrediction: usize = 0x25605A0;
-            pub const dwViewAngles: usize = 0x25767E8;
-            pub const dwViewMatrix: usize = 0x2566910;
-            pub const dwViewRender: usize = 0x2565D20;
-            pub const dwWeaponC4: usize = 0x24C4A90;
+            pub const dwGameRules: usize = 0x255BE80;
+            pub const dwGlobalVars: usize = 0x2228090;
+            pub const dwGlowManager: usize = 0x2558BA0;
+            pub const dwLocalPlayerController: usize = 0x25338A8;
+            pub const dwLocalPlayerPawn: usize = 0x255C3C8;
+            pub const dwPlantedC4: usize = 0x24C2248;
+            pub const dwPrediction: usize = 0x255C2D0;
+            pub const dwViewAngles: usize = 0x2572AE8;
+            pub const dwViewMatrix: usize = 0x2561CD0;
+            pub const dwViewRender: usize = 0x2562698;
+            pub const dwWeaponC4: usize = 0x24C0800;
         };
         // Module: engine2.dll
         pub const engine2_dll = struct {

@@ -1,3 +1,4 @@
+#include "constants/interfaces_signatures.h"
 #include "interfaces.h"
 #include "engine_trace.h"
 #include "error_logger.h"
@@ -15,7 +16,7 @@ namespace interfaces {
         static ULONGLONG next_scan = 0;
         if (!entity_system_slot && GetTickCount64() >= next_scan) {
             next_scan = GetTickCount64() + 1000;
-            auto* instruction = sdk::find_pattern("client.dll", "48 89 0D ? ? ? ? E9 ? ? ? ? CC");
+            auto* instruction = sdk::find_pattern("client.dll", runtime_patterns::interfaces::entity_system);
             if (instruction)
                 entity_system_slot = reinterpret_cast<uintptr_t>(sdk::resolve_absolute_rip_address(instruction, 3, 7));
         }
@@ -147,13 +148,13 @@ namespace interfaces {
         error_logger::ErrorLogger::Get().Log("Interfaces", "Starting interface creation...", 0);
 
         sdk::entity_lookup = reinterpret_cast<sdk::EntityLookup>(sdk::find_pattern("client.dll",
-            "4C 8D 49 10 81 FA ?? ?? 00 00 77 ?? 8B CA C1 F9 09"));
+            runtime_patterns::interfaces::entity_lookup));
         // These optional interfaces currently have no consumers in this build.
         // Missing game signatures must not prevent the independent overlay hooks.
         cs_io = nullptr;
         input_system = nullptr;
         client = nullptr;
-        auto* input_load = sdk::find_pattern("client.dll", "48 8B 0D ? ? ? ? 4C 8D 8F ? ? ? ? 45 33 F6");
+        auto* input_load = sdk::find_pattern("client.dll", runtime_patterns::interfaces::input_reference);
         if (input_load) {
             auto* slot = sdk::resolve_absolute_rip_address(input_load, 3, 7);
             if (sdk::is_readable_range(reinterpret_cast<uintptr_t>(slot), sizeof(void*))) {
@@ -178,7 +179,7 @@ namespace interfaces {
             error_logger::ErrorLogger::Get().Log("ClientInterface", "Scanning for FrameStageNotify via pattern...", 0);
             // CS2 FrameStageNotify pattern — called with stage index, processes render frames
             std::uint8_t* fsn = sdk::find_pattern("client.dll",
-                "48 89 5C 24 ? 48 89 6C 24 ? 57 48 83 EC ? 48 8B F9 33 ED");
+                runtime_patterns::interfaces::frame_stage_notify);
             if (fsn) {
                 client = reinterpret_cast<void*>(fsn);
                 error_logger::ErrorLogger::Get().Log("ClientInterface", "FrameStageNotify found via pattern", 0);

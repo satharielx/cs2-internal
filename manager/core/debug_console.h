@@ -2,7 +2,10 @@
 #include <string>
 #include <vector>
 #include <ctime>
-#include <queue>
+#include <atomic>
+#include <cstdint>
+
+struct ImGuiInputTextCallbackData;
 #include <mutex>
 #include <cstdarg>
 
@@ -21,6 +24,7 @@ namespace debug_console {
         LogLevel level;
         std::string message;
         time_t timestamp;
+        std::string display;
         
         LogEntry(LogLevel lvl, const std::string& msg) 
             : level(lvl), message(msg), timestamp(time(nullptr)) {}
@@ -40,7 +44,8 @@ namespace debug_console {
         void Network(const char* format, ...);
         
         void Clear();
-        const std::vector<LogEntry>& GetLogs() const { return logs; }
+        std::vector<LogEntry> GetLogs() const { std::lock_guard<std::mutex> lock(log_mutex); return logs; }
+        void ExecuteCommand(const std::string& command);
         
         void Render();
         void ToggleVisibility() { is_visible = !is_visible; }
@@ -50,7 +55,19 @@ namespace debug_console {
         Console() = default;
         
         std::vector<LogEntry> logs;
-        std::mutex log_mutex;
+        mutable std::mutex log_mutex;
+        std::atomic<unsigned long long> revision{0};
+        unsigned long long rendered_revision = ~0ull;
+        std::vector<LogEntry> display_logs;
+        std::vector<int> visible_rows;
+        std::vector<std::string> history;
+        int history_position = -1;
+        std::string history_draft;
+        char command_buffer[512]{};
+        char filter_buffer[256]{};
+        bool filter_dirty = true;
+        int level_filter = 0;
+        static int InputCallback(ImGuiInputTextCallbackData* data);
         static const int MAX_LOGS = 1000;
         bool is_visible = true;
         bool auto_scroll = true;

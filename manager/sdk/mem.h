@@ -24,7 +24,7 @@ namespace sdk {
         return result;
     }
 
-    // Padding template for struct alignment
+    // Padding for engine layouts.
     template <std::size_t Size>
     class padding {
     private:
@@ -80,7 +80,7 @@ namespace sdk {
         return (T)(procedure_array)[index];
     }
 
-    // Get virtual function from VMT (Virtual Method Table)
+    // Read a function from the vtable.
     template <class Function = void*, std::size_t Index>
     Function virtual_function_get(void* vmt) {
         return (*static_cast<Function**>(vmt))[Index];
@@ -93,7 +93,7 @@ namespace sdk {
         return (*static_cast<Fn**>(thisptr))[Index](thisptr, argList...);
     }
 
-    // Find byte pattern in a module
+    // Find a byte pattern in a loaded module.
     // pattern format: "48 8B 0D ?? ?? ?? ??" (IDA style)
     std::uint8_t* find_pattern(const char* module_name, const char* pattern);
     // Missing modules/matches and malformed signatures return nullptr.

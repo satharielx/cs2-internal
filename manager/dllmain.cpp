@@ -13,15 +13,15 @@
 #include "core/features.h"
 
 DWORD WINAPI MainThread(LPVOID instance) {
-// Spawn a native Windows console for early debug output
+// Open a console for startup logs.
 AllocConsole();
 FILE* fp = nullptr;
 freopen_s(&fp, "CONOUT$", "w", stdout);
 freopen_s(&fp, "CONOUT$", "w", stderr);
-freopen_s(&fp, "CONIN$", "r", stdin);  // Also redirect input
+freopen_s(&fp, "CONIN$", "r", stdin);  // Redirect console input too.
 SetConsoleTitleA("CS2 Debug Console - Loading...");
     
-// Make console visible and focused
+// Show the console.
 HWND consoleWnd = GetConsoleWindow();
 if (consoleWnd) {
     ShowWindow(consoleWnd, SW_SHOW);
@@ -35,11 +35,11 @@ printf("[+] Console allocated successfully\n");
 printf("[+] Injection started...\n");
 printf("========================================\n\n");
 
-// Initialize error logger at startup
+// Start file logging.
 error_logger::ErrorLogger::Get().Log("MainThread", "CS2 Cheat injection started", 0);
 printf("[LOG] Error logger initialized\n");
     
-// Show immediate message box to confirm injection
+// Show that the module has loaded.
 MessageBoxA(nullptr, 
     "DLL Injected!\n\n"
     "Debug console is now open.\n"
@@ -48,7 +48,7 @@ MessageBoxA(nullptr,
     "CS2 Cheat - Initializing", 
     MB_ICONINFORMATION);
     
-// Wait for critical CS2 modules with timeout
+// Wait for the required game modules.
 DWORD maxWait = 45000;  // 45 seconds max
 const ULONGLONG waitStarted = GetTickCount64();
 const char* requiredModules[] = {
@@ -95,7 +95,7 @@ printf("[WAIT] Waiting for CS2 modules to load...\n");
     // Start game state monitor thread
     game_state::Start();
 
-    // Extra buffer for module initialization
+    // Allow the game modules to finish starting.
     error_logger::ErrorLogger::Get().Log("Initialization", "Waiting 10 seconds for module initialization...", 0);
     Sleep(10000);
 
@@ -143,7 +143,7 @@ printf("[WAIT] Waiting for CS2 modules to load...\n");
         Sleep(100);
     }
 
-    // Cleanup
+    // Release resources before unloading.
     error_logger::ErrorLogger::Get().Log("Cleanup", "Starting cleanup...", 0);
     try {
         hooks::destroy();

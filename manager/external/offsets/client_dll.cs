@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-10-01 00:19:28.480196 UTC
+// 2026-10-11 19:31:11.671150600 UTC
 
 namespace CS2Dumper.Schemas {
     // Module: client.dll
@@ -1729,7 +1729,7 @@ namespace CS2Dumper.Schemas {
         public static class C_WeaponSG556 {
         }
         // Parent: C_CSPlayerPawnBase
-        // Field count: 104
+        // Field count: 105
         public static class C_CSPlayerPawn {
             public const nint m_pBulletServices = 0x1570; // CCSPlayer_BulletServices*
             public const nint m_pHostageServices = 0x1578; // CCSPlayer_HostageServices*
@@ -1824,17 +1824,18 @@ namespace CS2Dumper.Schemas {
             public const nint m_fImmuneToGunGameDamageTime = 0x3504; // GameTime_t
             public const nint m_bGunGameImmunity = 0x3508; // bool
             public const nint m_fImmuneToGunGameDamageTimeLast = 0x350C; // GameTime_t
-            public const nint m_fMolotovDamageTime = 0x3510; // float32
-            public const nint m_nPlayerInfernoBodyFx = 0x357C; // ParticleIndex_t
-            public const nint m_angEyeAngles = 0x35F0; // QAngle
-            public const nint m_arrOldEyeAnglesTimes = 0x3680; // GameTime_t[4]
-            public const nint m_arrOldEyeAngles = 0x3690; // QAngle[4]
-            public const nint m_angEyeAnglesVelocity = 0x36C0; // QAngle
-            public const nint m_iIDEntIndex = 0x36CC; // CEntityIndex
-            public const nint m_delayTargetIDTimer = 0x36D0; // CountdownTimer
-            public const nint m_iTargetItemEntIdx = 0x36E8; // CEntityIndex
-            public const nint m_iOldIDEntIndex = 0x36EC; // CEntityIndex
-            public const nint m_holdTargetIDTimer = 0x36F0; // CountdownTimer
+            public const nint m_flModifier0 = 0x3510; // float32
+            public const nint m_fMolotovDamageTime = 0x3514; // float32
+            public const nint m_nPlayerInfernoBodyFx = 0x3580; // ParticleIndex_t
+            public const nint m_angEyeAngles = 0x3600; // QAngle
+            public const nint m_arrOldEyeAnglesTimes = 0x3690; // GameTime_t[4]
+            public const nint m_arrOldEyeAngles = 0x36A0; // QAngle[4]
+            public const nint m_angEyeAnglesVelocity = 0x36D0; // QAngle
+            public const nint m_iIDEntIndex = 0x36DC; // CEntityIndex
+            public const nint m_delayTargetIDTimer = 0x36E0; // CountdownTimer
+            public const nint m_iTargetItemEntIdx = 0x36F8; // CEntityIndex
+            public const nint m_iOldIDEntIndex = 0x36FC; // CEntityIndex
+            public const nint m_holdTargetIDTimer = 0x3700; // CountdownTimer
         }
         // Parent: None
         // Field count: 0
@@ -4683,8 +4684,8 @@ namespace CS2Dumper.Schemas {
         // Parent: C_CSPlayerPawn
         // Field count: 2
         public static class C_CSGO_PreviewPlayer {
-            public const nint m_animgraphCharacterModeString = 0x3710; // CGlobalSymbol
-            public const nint m_flInitialModelScale = 0x3718; // float32
+            public const nint m_animgraphCharacterModeString = 0x3720; // CGlobalSymbol
+            public const nint m_flInitialModelScale = 0x3728; // float32
         }
         // Parent: C_BarnLight
         // Field count: 1

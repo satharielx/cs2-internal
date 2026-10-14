@@ -22,7 +22,6 @@ namespace viewmodel {
         Field<float> fov_;
         Field<float> x_, y_, z_;
         Field<uint32_t> camera_fov_;
-        Field<sdk::Vector3> punch_, velocity_, unpredictable_, camera_;
     public:
         explicit ScopedOverride(uintptr_t pawn) {
             if (!pawn || sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) <= 0)
@@ -41,15 +40,6 @@ namespace viewmodel {
                 if (camera) camera_fov_.Apply(camera + sdk::off::CCSPlayerBase_CameraServices::m_iFOV,
                     static_cast<uint32_t>(std::clamp(config::viewmodel::camera_fov, 40.0f, 140.0f)));
             }
-            if (!config::viewmodel::no_aim_punch) return;
-            const auto punch = sdk::read_value<uintptr_t>(pawn + sdk::off::C_CSPlayerPawn::m_pAimPunchServices);
-            if (punch) {
-                punch_.Apply(punch + sdk::off::CCSPlayer_AimPunchServices::m_predictableBaseAngle, {});
-                velocity_.Apply(punch + sdk::off::CCSPlayer_AimPunchServices::m_predictableBaseAngleVel, {});
-                unpredictable_.Apply(punch + sdk::off::CCSPlayer_AimPunchServices::m_unpredictableBaseAngle, {});
-            }
-            const auto camera = sdk::read_value<uintptr_t>(pawn + sdk::off::C_BasePlayerPawn::m_pCameraServices);
-            if (camera) camera_.Apply(camera + sdk::off::CPlayer_CameraServices::m_vecCsViewPunchAngle, {});
         }
         ScopedOverride(const ScopedOverride&) = delete;
         ScopedOverride& operator=(const ScopedOverride&) = delete;

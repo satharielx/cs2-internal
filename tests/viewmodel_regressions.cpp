@@ -1,10 +1,47 @@
+#include <Windows.h>
+static unsigned cameraReads=0, cameraWrites=0;
+static BOOL CameraRead(HANDLE p,LPCVOID a,LPVOID d,SIZE_T n,SIZE_T* done) { ++cameraReads; return ReadProcessMemory(p,a,d,n,done); }
+static BOOL CameraWrite(HANDLE p,LPVOID a,LPCVOID d,SIZE_T n,SIZE_T* done) { ++cameraWrites; return WriteProcessMemory(p,a,d,n,done); }
+#define ReadProcessMemory CameraRead
+#define WriteProcessMemory CameraWrite
 #include "../manager/core/viewmodel.h"
+#include "../manager/core/camera_view.h"
+#undef ReadProcessMemory
+#undef WriteProcessMemory
 #include <array>
 #include <cassert>
 #include <limits>
 #include <iostream>
 
 int main() {
+    std::array<unsigned char, 0x600> setup{};
+    setup.fill(0xA5);
+    static sdk::Vector3 inputAngles{10, 20, 3};
+    const auto beforeSetup = setup;
+    auto getter = +[](void* input, int slot)->const sdk::Vector3* {
+        assert(input == &inputAngles && slot == 0);
+        return &inputAngles;
+    };
+    assert(camera_view::Apply(reinterpret_cast<uintptr_t>(setup.data()), reinterpret_cast<uintptr_t>(&inputAngles), getter));
+    assert(cameraReads == 0 && cameraWrites == 0); // Camera override uses guarded local access.
+    for (size_t i = 0; i < setup.size(); ++i)
+        if (i < camera_view::angle_offset || i >= camera_view::angle_offset + sizeof(inputAngles))
+            assert(setup[i] == beforeSetup[i]);
+    const auto rendered = sdk::read_value<sdk::Vector3>(reinterpret_cast<uintptr_t>(setup.data()) + camera_view::angle_offset);
+    assert(rendered.x == 10 && rendered.y == 20 && rendered.z == 3 && inputAngles.x == 10);
+    const auto validSetup = setup;
+    assert(camera_view::Apply(reinterpret_cast<uintptr_t>(setup.data()), reinterpret_cast<uintptr_t>(&inputAngles), getter));
+    assert(setup == validSetup);
+    auto* protectedSetup = VirtualAlloc(nullptr, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    assert(protectedSetup); std::memset(protectedSetup, 0, 4096);
+    DWORD oldProtection=0; assert(VirtualProtect(protectedSetup,4096,PAGE_READONLY,&oldProtection));
+    assert(!camera_view::Apply(reinterpret_cast<uintptr_t>(protectedSetup),reinterpret_cast<uintptr_t>(&inputAngles),getter));
+    VirtualFree(protectedSetup,0,MEM_RELEASE);
+
+    inputAngles.x = std::numeric_limits<float>::quiet_NaN();
+    assert(!camera_view::Apply(reinterpret_cast<uintptr_t>(setup.data()), reinterpret_cast<uintptr_t>(&inputAngles), getter));
+    assert(setup == validSetup);
+    assert(!camera_view::Apply(0, 0, nullptr));
     std::array<unsigned char, 0x3000> pawn{};
     std::array<unsigned char, 0x100> punch{}, camera{};
     const auto p = reinterpret_cast<uintptr_t>(pawn.data());
@@ -28,7 +65,7 @@ int main() {
         viewmodel::ScopedOverride active(p);
         assert(sdk::read_value<float>(fov) == 95);
         for (auto field : {angle, velocity, unpredictable, view})
-            assert(sdk::read_value<sdk::Vector3>(field).Length() == 0);
+            assert(sdk::read_value<sdk::Vector3>(field).x == 2); // FOV override leaves recoil state untouched.
         throw 1;
     } catch (int) {}
     assert(sdk::read_value<float>(fov) == 68);

@@ -134,7 +134,28 @@
   <ItemGroup>
     <ClInclude Include="api\hook\hook.hpp" />
     <ClInclude Include="api\module\module.hpp" />
+    <ClInclude Include="core\ui\widgets.h" />
+    <ClInclude Include="core\ui\theme.h" />
     <ClInclude Include="core\config.h" />
+    <ClInclude Include="core\constants\engine_trace_signatures.h" />
+    <ClInclude Include="core\constants\features.h" />
+    <ClInclude Include="core\constants\game_state_signatures.h" />
+    <ClInclude Include="core\constants\hooks_signatures.h" />
+    <ClInclude Include="core\constants\interfaces_signatures.h" />
+    <ClInclude Include="core\constants\pattern_resolver_signatures.h" />
+    <ClInclude Include="core\ui\icons.h" />
+    <ClInclude Include="core\ui\catalog.h" />
+
+    <ClInclude Include="core\config_schema.inc" />
+    <ClInclude Include="core\config_registry.inc" />
+    <ClInclude Include="core\config_store.h" />
+    <ClInclude Include="core\config\value_codec.h" />
+    <ClInclude Include="core\grenade_trails.h" />
+    <ClInclude Include="sdk\world_entities.h" />
+    <ClInclude Include="sdk\projection.h" />
+    <ClInclude Include="core\menu_mouse.h" />
+    <ClInclude Include="core\camera_view.h" />
+    <ClInclude Include="core\skin_hud.h" />
     <ClInclude Include="core\debug_console.h" />
     <ClInclude Include="core\error_logger.h" />
     <ClInclude Include="core\features.h" />
@@ -147,9 +168,13 @@
     <ClInclude Include="core\interfaces.h" />
     <ClInclude Include="core\menu_advanced.h" />
     <ClInclude Include="core\pattern_resolver.h" />
+    <ClInclude Include="core\skins\catalog_sources.h" />
     <ClInclude Include="core\skins.h" />
+    <ClInclude Include="core\skins\signatures.h" />
+    <ClInclude Include="core\skins\offsets.h" />
+    <ClInclude Include="core\skins\knife_data.h" />
+
     <ClInclude Include="core\skins_downloader.h" />
-    <ClInclude Include="core\skin_menu.h" />
     <ClInclude Include="external\imgui\imconfig.h" />
     <ClInclude Include="external\imgui\imgui.h" />
     <ClInclude Include="external\imgui\imgui_impl_dx11.h" />
@@ -3654,10 +3679,14 @@
     <ClCompile Include="core\Hook_FrameStageNotify.cpp" />
     <ClCompile Include="core\interfaces.cpp" />
     <ClCompile Include="core\menu_advanced.cpp" />
+    <ClCompile Include="core\ui\widgets.cpp" />
+    <ClCompile Include="core\ui\settings_pages.cpp" />
+    <ClCompile Include="core\skins\catalog.cpp" />
+    <ClCompile Include="core\skins\names.cpp" />
+
     <ClCompile Include="core\pattern_resolver.cpp" />
     <ClCompile Include="core\skins.cpp" />
     <ClCompile Include="core\skins_downloader.cpp" />
-    <ClCompile Include="core\skins_meun.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="external\imgui\imgui.cpp" />
     <ClCompile Include="external\imgui\imgui_demo.cpp" />
@@ -3671,8 +3700,8 @@
     <ClCompile Include="external\minhook\hde\hde64.c" />
     <ClCompile Include="external\minhook\hook.c" />
     <ClCompile Include="external\minhook\trampoline.c" />
-    <ClCompile Include="sdk\interfaces\input_system.h" />
-    <ClCompile Include="sdk\interfaces\swap_chain_dx11.h" />
+    <ClInclude Include="sdk\interfaces\input_system.h" />
+    <ClInclude Include="sdk\interfaces\swap_chain_dx11.h" />
     <ClCompile Include="sdk\mem.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -3704,6 +3733,9 @@
     <ClInclude Include="core\entity_events.h" />
     <ClInclude Include="core\engine_trace.h" />
   </ItemGroup>
+  <Target Name="CopyIconFont" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)core\fonts\fa-solid-900.ttf" DestinationFolder="$(OutDir)fonts" SkipUnchangedFiles="true" />
+  </Target>
   <Target Name="CopyWebEditor" AfterTargets="Build">
     <ItemGroup><WebEditorFiles Include="$(ProjectDir)ui\*" /></ItemGroup>
     <Copy SourceFiles="@(WebEditorFiles)" DestinationFolder="$(OutDir)ui" SkipUnchangedFiles="true" />

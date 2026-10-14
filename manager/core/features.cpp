@@ -2,6 +2,7 @@
 #include "engine_trace.h"
 #include "aim_profiler.h"
 #include "features.h"
+#include "constants/features.h"
 #include "config.h"
 #include "interfaces.h"
 #include "debug_console.h"
@@ -13,6 +14,9 @@
 #include "../sdk/usercmd.h"
 #include "pattern_resolver.h"
 #include "skins.h"
+#include "grenade_trails.h"
+#include "../sdk/world_entities.h"
+#include "../sdk/projection.h"
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -25,7 +29,7 @@
 #include "../external/offsets/buttons.hpp"
 
 namespace features {
-    // Per-frame cached values from the game-state monitor
+    // State used by the render frame.
     static sdk::C_CSPlayerPawn* g_local_player = nullptr;
     static sdk::ViewMatrix g_view_matrix = {};
     static int g_screen_width = 1920;
@@ -52,7 +56,7 @@ namespace features {
     static std::thread s_aimbot_thread;
     static std::mutex s_aimbot_lifecycle;
 
-    // Get screen dimensions from multiple sources with fallback priority
+    // Try ImGui, then the swap chain, then the game window.
     static void UpdateScreenDimensions() {
         if (ImGui::GetCurrentContext()) {
             const auto size = ImGui::GetIO().DisplaySize;
@@ -99,7 +103,7 @@ namespace features {
         }
     }
 
-    // ======================== MATH / ANGLE HELPERS ========================
+    // Math / angle helpers.
     void ClampAnglesA(sdk::QAngle& ang) {
         ang.x = sdk::clamp_pitch(ang.x);
         ang.y = sdk::normalize_yaw(ang.y);
@@ -116,7 +120,7 @@ namespace features {
     sdk::Vector2 CalcAngle(const sdk::Vector3& src, const sdk::Vector3& dst) {
         const auto delta = dst - src;
         if (!sdk::finite(delta) || delta.Length() == 0.0f) return {};
-        constexpr float degrees = 180.0f / 3.14159265358979323846f;
+        constexpr float degrees = constants::radians_to_degrees;
         return {-std::atan2(delta.z, std::hypot(delta.x, delta.y)) * degrees,
             std::atan2(delta.y, delta.x) * degrees};
     }
@@ -132,7 +136,7 @@ namespace features {
         height = g_screen_height;
     }
 
-    // ======================== BONE / EYE HELPERS (raw pointers) ========================
+    // Bone / eye helpers (raw pointers).
     static sdk::Vector3 GetBonePositionRaw(uintptr_t pawn, int bone_index) {
         aim_profiler::Scope profile(aim_profiler::BoneRead);
         return pawn ? reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn)->GetBonePosition(bone_index) : sdk::Vector3{};
@@ -154,7 +158,7 @@ namespace features {
             (config::aimbot::disable_scoped && sdk::read_value<bool>(local + sdk::off::C_CSPlayerPawn::m_bIsScoped));
     }
     static sdk::Vector3 AimPoint(uintptr_t pawn, const sdk::Vector3& eye, const sdk::Vector2& view) {
-        constexpr int bones[] = {sdk::BONE_HEAD, sdk::BONE_NECK, sdk::BONE_CHEST, sdk::BONE_PELVIS};
+        const auto& bones = constants::aim_bones;
         sdk::Vector3 best{}; float bestFov = INFINITY;
         for (int i = 0; i < 4; ++i) {
             if (!config::aimbot::hitboxes[i]) continue;
@@ -199,7 +203,7 @@ namespace features {
         return sdk::finite(angle) ? angle : sdk::Vector3{};
     }
 
-    // ======================== SILENT AIM (CreateMove) -- unchanged but relies on SubTick pattern ========================
+    // Silent aim in createmove.
     void RunSilentAim(CUserCmd* cmd) {
         if (!cmd || !cmd->csgoUserCmd.pBaseCmd || !cmd->csgoUserCmd.pBaseCmd->pViewAngles || !cmd->csgoUserCmd.pBaseCmd->pInButtonState) return;
         if (!config::aimbot::enabled || !config::aimbot::silent_aim) return;
@@ -358,7 +362,7 @@ namespace features {
             cache.active_indices[cache.active_count++] = i;
             item.handle = players.handles[i];
             item.team = sdk::read_value<uint8_t>(item.pawn + sdk::off::C_BaseEntity::m_iTeamNum);
-            constexpr int bones[] = {sdk::BONE_HEAD, sdk::BONE_NECK, sdk::BONE_CHEST, sdk::BONE_PELVIS};
+            const auto& bones = constants::aim_bones;
             for (int b = 0; b < 4; ++b) if(pointMask & (1u<<b)) item.points[b] = GetBonePositionRaw(item.pawn, bones[b]);
             item.head = item.points[0];
         }
@@ -620,32 +624,55 @@ namespace features {
         int localIndex = -1;
         static sdk::Vector2 old_punch = { 0.0f, 0.0f };
         static AimSession session;
+        static uintptr_t recoilPawn = 0;
 
         do {
 
             std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
-            if (s_input_blocked || (!config::aimbot::enabled && !config::rcs::enabled) || !game_state::IsInGame()) {
+            const auto state = game_state::GetSnapshot();
+            if (!config::rcs::enabled) old_punch = {};
+            if (s_input_blocked || (!config::aimbot::enabled && !config::rcs::enabled) || !state.in_game) {
                 normal_aim_status = s_input_blocked ? "Menu/console blocks input" : "Aim/RCS disabled or local pawn unavailable";
                 old_punch = { 0.0f, 0.0f };
 
                 continue;
             }
             if (GetAsyncKeyState(config::aimbot::pause_key) & 0x8000) { normal_aim_status = "Pause key held"; old_punch = {}; continue; }
-            if (config::aimbot::enabled && config::aimbot::silent_aim) { normal_aim_status = "Silent mode selected"; continue; }
+            if (config::aimbot::enabled && config::aimbot::silent_aim) { normal_aim_status = "Silent mode selected"; old_punch = {}; continue; }
 
             try {
+                sdk::ScopedLocalReads reads;
                 uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-                if (!client) { normal_aim_status = "client.dll unavailable"; continue; }
+                if (!client) { normal_aim_status = "client.dll unavailable"; old_punch = {}; continue; }
 
-                uintptr_t localPawn = game_state::GetLocalPawnRaw();
-                if (!localPawn || !sdk::is_valid_ptr(localPawn)) { normal_aim_status = "Local pawn unavailable"; continue; }
-                if (sdk::read_value<int>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) <= 0) { continue; }
+                uintptr_t localPawn = state.pawn;
+                if (!localPawn || !sdk::is_valid_ptr(localPawn)) { normal_aim_status = "Local pawn unavailable"; old_punch = {}; continue; }
+                if (sdk::read_value<int>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth) <= 0) { old_punch = {}; continue; }
+                if (recoilPawn != localPawn) { recoilPawn = localPawn; old_punch = {}; }
 
-                if (AimDisabled(localPawn)) { session = {}; normal_aim_status = "Disabled by condition"; continue; }
+                if (AimDisabled(localPawn)) { session = {}; old_punch = {}; normal_aim_status = "Disabled by condition"; continue; }
+                // RCS needs only the local pawn. Do not scan targets when aim is off.
+                if (!config::aimbot::enabled) {
+                    session = {}; PublishFireTarget(0);
+                    const auto shots = sdk::read_value<int>(localPawn + rcs_m_iShotsFired);
+                    if (shots <= 0) { old_punch = {}; normal_aim_status = "RCS ready"; continue; }
+                    const auto punch = ReadAimPunch(localPawn);
+                    const float strength = std::isfinite(config::rcs::strength) ? std::clamp(config::rcs::strength, 0.0f, 1.0f) : 0;
+                    const sdk::Vector2 delta{(punch.x - old_punch.x) * 2 * strength, (punch.y - old_punch.y) * 2 * strength};
+                    old_punch = {punch.x, punch.y};
+                    if (delta.x == 0 && delta.y == 0) continue;
+                    const auto address = client + cs2_dumper::offsets::client_dll::dwViewAngles;
+                    sdk::Vector2 angles{};
+                    if (!sdk::read_memory(address, angles) || !std::isfinite(angles.x) || !std::isfinite(angles.y)) continue;
+                    angles.x = sdk::clamp_pitch(angles.x - delta.x);
+                    angles.y = sdk::normalize_yaw(angles.y - delta.y);
+                    normal_aim_status = sdk::write_memory(address, angles) ? "RCS applied" : "View-angle write failed";
+                    continue;
+                }
                 int local_team = sdk::read_value<uint8_t>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
                 sdk::Vector3 local_eye = GetEyePositionRaw(localPawn);
 
-				uintptr_t entity_list = game_state::GetEntityList();
+				uintptr_t entity_list = state.entity_list;
                 if (!entity_list || !sdk::is_valid_ptr(entity_list)) { normal_aim_status = "Entity list unavailable"; continue; }
 
                 session.Begin(localPawn, entity_list);
@@ -697,11 +724,12 @@ namespace features {
                 const bool ready = session.Ready(closest_pawn, closest_handle);
                 PublishFireTarget(ready ? closest_pawn : 0);
                 bool aim_adjusted = false;
+                const auto recoilPunch = config::rcs::enabled ? ReadAimPunch(localPawn) : sdk::Vector3{};
                 if (config::aimbot::enabled && ready && closest_pawn && active_weapon && ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || config::aimbot::auto_shoot) && !skins::IsKnife(skins::GetDefIndex(active_weapon))) {
                     sdk::Vector3 head_pos = closest_point;
                     sdk::Vector2 target_angles = CalcAngle(local_eye, head_pos);
                     if (config::rcs::enabled) {
-                        const auto punch = ReadAimPunch(localPawn);
+                        const auto& punch = recoilPunch;
                         target_angles.x -= punch.x * 2.0f * config::rcs::strength;
                         target_angles.y -= punch.y * 2.0f * config::rcs::strength;
                     }
@@ -726,18 +754,18 @@ namespace features {
                 if (config::rcs::enabled) {
                     int shots_fired = sdk::read_value<int>(localPawn + rcs_m_iShotsFired);
                     if (shots_fired > 0) {
-                        sdk::Vector3 punch = ReadAimPunch(localPawn);
+                        const auto& punch = recoilPunch;
                         sdk::Vector2 cur_punch = { punch.x, punch.y };
                         sdk::Vector2 delta;
                         delta.x = (cur_punch.x - old_punch.x) * 2.0f * config::rcs::strength;
                         delta.y = (cur_punch.y - old_punch.y) * 2.0f * config::rcs::strength;
-                        sdk::Vector2 angles = sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(va));
+                        sdk::Vector2 angles = current_angles;
                         angles.x -= delta.x;
                         angles.y -= delta.y;
                         angles.x = sdk::clamp_pitch(angles.x);
                         angles.y = sdk::normalize_yaw(angles.y);
 
-                        if (!aim_adjusted) sdk::write_memory(reinterpret_cast<uintptr_t>(va), angles);
+                        if (!aim_adjusted && (delta.x != 0 || delta.y != 0)) sdk::write_memory(reinterpret_cast<uintptr_t>(va), angles);
                         old_punch = cur_punch;
                     }
                     else {
@@ -772,19 +800,9 @@ namespace features {
         debug_console::Console::Get().Info("[Aimbot] Normal aim thread joined");
     }
 
-    // ======================== ESP & DRAWING FUNCTIONS ========================
+    // Esp & drawing functions.
     bool WorldToScreen(const sdk::Vector3& world, sdk::Vector2& screen, const sdk::ViewMatrix& matrix, int screen_width, int screen_height) {
-        float w = matrix.matrix[3][0] * world.x + matrix.matrix[3][1] * world.y +
-            matrix.matrix[3][2] * world.z + matrix.matrix[3][3];
-        if (!sdk::finite(world) || screen_width <= 0 || screen_height <= 0 || !std::isfinite(w) || w < 0.001f) return false;
-        float x = matrix.matrix[0][0] * world.x + matrix.matrix[0][1] * world.y +
-            matrix.matrix[0][2] * world.z + matrix.matrix[0][3];
-        float y = matrix.matrix[1][0] * world.x + matrix.matrix[1][1] * world.y +
-            matrix.matrix[1][2] * world.z + matrix.matrix[1][3];
-        x /= w; y /= w; if (!std::isfinite(x) || !std::isfinite(y)) return false;
-        screen.x = (screen_width / 2.0f) + (x * screen_width / 2.0f);
-        screen.y = (screen_height / 2.0f) - (y * screen_height / 2.0f);
-        return true;
+        return sdk::ProjectToScreen(world, screen, matrix, screen_width, screen_height);
     }
 
     static float EspAlpha() { return std::isfinite(config::esp::alpha) ? std::clamp(config::esp::alpha, 0.0f, 1.0f) : 1.0f; }
@@ -889,7 +907,7 @@ namespace features {
         if (scene && ReadEspBones(scene,bones)) DrawEspSkeleton(bones,view_matrix,screen_width,screen_height,color);
     }
 
-    // ======================== ENTITY LIST MANAGEMENT ========================
+    // Entity list management.
     std::vector<sdk::C_CSPlayerPawn*> GetPlayerList() {
         playerPawns.clear();
         std::vector<sdk::C_CSPlayerPawn*> players;
@@ -1173,7 +1191,7 @@ namespace features {
         for(int i=0;i<4;++i) channels[i]=std::isfinite(color[i]) ? std::clamp(color[i],0.0f,1.0f) : 1.0f;
         return ImGui::ColorConvertFloat4ToU32(value);
     }
-    struct WorldEntity { uintptr_t entity=0; uint32_t handle=UINT32_MAX; char name[96]{}; };
+    using WorldEntity = sdk::world::Entity;
     static std::vector<WorldEntity> world_entities;
     static uintptr_t world_system=0,world_local=0;
     static ULONGLONG next_world_scan=0;
@@ -1195,23 +1213,14 @@ namespace features {
                     ApplyVisualField(state.entity_list,pawn,players.handles[i],glow+sdk::off::CGlowProperty::m_bEligibleForScreenHighlight,true);
                 }
             }
-            const bool scan=config::world::items || config::world::bomb || config::world::grenade_warning || config::world::smoke_color_enabled;
+            const bool scan=config::world::items || config::world::bomb || config::world::grenade_warning || config::world::smoke_color_enabled || config::grenade::thrown_trail;
             if(world_system!=state.entity_list || world_local!=state.pawn) { world_entities.clear(); next_world_scan=0; world_system=state.entity_list; world_local=state.pawn; }
             if(scan && GetTickCount64()>=next_world_scan) {
                 next_world_scan=GetTickCount64()+100;
                 world_entities.clear();
-                const int highest=std::clamp(sdk::read_value<int>(state.entity_list+cs2_dumper::offsets::client_dll::dwGameEntitySystem_highestEntityIndex),0,0x7FFE);
-                for(int i=65;i<=highest;++i) {
-                    const auto entity=sdk::entity_at(state.entity_list,i);
-                    const auto identity=entity ? sdk::read_value<uintptr_t>(entity+0x10) : 0;
-                    const auto name=identity ? sdk::read_value<uintptr_t>(identity+sdk::off::CEntityIdentity::m_designerName) : 0;
-                    WorldEntity entry; entry.entity=entity;
-                    if(!name || !sdk::read_memory(identity+0x10,entry.handle) ||
-                        !sdk::read_memory(name,entry.name) || sdk::entity_from_handle(state.entity_list,entry.handle)!=entity) continue;
-                    entry.name[95]=0;
-                    if(!std::strncmp(entry.name,"weapon_",7) || std::strstr(entry.name,"projectile") ||
-                        !std::strcmp(entry.name,"planted_c4") || !std::strcmp(entry.name,"item_defuser")) world_entities.push_back(entry);
-                }
+                const auto highest = sdk::read_value<int>(state.entity_list +
+                    cs2_dumper::offsets::client_dll::dwGameEntitySystem_highestEntityIndex);
+                world_entities = sdk::world::Discover(state.entity_list, highest);
             }
             if(!scan) world_entities.clear();
             for(const auto& item:world_entities) {
@@ -1252,12 +1261,305 @@ namespace features {
         }
     }
 
+    static grenade_trails::Cache thrownTrails;
+    static void RenderThrownGrenades(const game_state::Snapshot& state, uintptr_t client) {
+        static uintptr_t lastSystem = 0, lastPawn = 0;
+        if (!config::grenade::thrown_trail || lastSystem != state.entity_list || lastPawn != state.pawn || !state.in_game)
+            thrownTrails.trails.clear();
+        lastSystem = state.entity_list; lastPawn = state.pawn;
+        if (!config::grenade::thrown_trail || !state.in_game) return;
+        const auto now = GetTickCount64();
+        thrownTrails.Prune(now);
+        for (const auto& item : world_entities) {
+            if (!std::strstr(item.name, "grenade_projectile") && std::strcmp(item.name, "molotov_projectile") &&
+                std::strcmp(item.name, "flashbang_projectile") && std::strcmp(item.name, "decoy_projectile")) continue;
+            if (sdk::entity_from_handle(state.entity_list, item.handle) != item.entity) continue;
+            thrownTrails.Sample(item.handle, reinterpret_cast<sdk::C_BaseEntity*>(item.entity)->GetOrigin(), now);
+        }
+        sdk::ViewMatrix matrix{};
+        if (!ReadViewMatrix(client, matrix)) return;
+        const auto color = ImGui::ColorConvertFloat4ToU32({config::grenade::color[0], config::grenade::color[1], config::grenade::color[2], config::grenade::color[3]});
+        for (const auto& [handle, trail] : thrownTrails.trails)
+            for (size_t i = 1; i < trail.points.size(); ++i) {
+                sdk::Vector2 a{}, b{};
+                if (WorldToScreen(trail.points[i-1], a, matrix, g_screen_width, g_screen_height) &&
+                    WorldToScreen(trail.points[i], b, matrix, g_screen_width, g_screen_height))
+                    ImGui::GetBackgroundDrawList()->AddLine({a.x,a.y}, {b.x,b.y}, color, 2.0f);
+            }
+    }
+    static bool IsGrenade(uint16_t id) {
+        return id == skins::WEAPON_FLASHBANG    ||
+               id == skins::WEAPON_HEGRENADE    ||
+               id == skins::WEAPON_SMOKEGRENADE ||
+               id == skins::WEAPON_MOLOTOV      ||
+               id == skins::WEAPON_DECOY        ||
+               id == skins::WEAPON_INCGRENADE;
+    }
+
+    struct CachedTrajectory {
+        sdk::Vector3 lastEyePos{};
+        sdk::Vector3 lastAngles{};
+        sdk::Vector3 lastVelocity{};
+        uintptr_t lastWeapon = 0;
+        uint32_t lastHandle = UINT32_MAX;
+        uintptr_t lastPawn = 0;
+        ULONGLONG updatedAt = 0;
+        float       lastThrowSpeed = 0.f;
+        std::vector<sdk::Vector3>    points;
+        struct BouncePointRecord { sdk::Vector3 pos; sdk::Vector3 normal; float angle; int id; };
+        std::vector<BouncePointRecord> bounces;
+        int bounce_count = 0;
+        bool valid = false;
+    };
+    static CachedTrajectory grenadePrediction;
+
+    static void RenderGrenadePredictionAndSurfaceInfo(const game_state::Snapshot& state, const sdk::Vector3& localOrigin, uintptr_t client) {
+        if (!config::grenade::trajectory) grenadePrediction.valid = false;
+        if (!config::grenade::trajectory && !config::grenade::surface_info) return;
+        if (!state.pawn || !client) { grenadePrediction.valid = false; return; }
+        if (!engine_trace::functions.Ready() || engine_trace::faulted.load()) { grenadePrediction.valid = false; return; }
+
+        const auto services = sdk::read_value<uintptr_t>(state.pawn + sdk::off::C_BasePlayerPawn::m_pWeaponServices);
+        const auto handle = services ? sdk::read_value<uint32_t>(services + sdk::off::CPlayer_WeaponServices::m_hActiveWeapon) : UINT32_MAX;
+        const auto grenadeWeapon = sdk::entity_from_handle(state.entity_list, handle);
+        if (!grenadeWeapon || !IsGrenade(skins::GetDefIndex(grenadeWeapon))) { grenadePrediction.valid = false; return; }
+        const auto viewOffsetAddress = state.pawn + sdk::off::C_BaseModelEntity::m_vecViewOffset;
+        sdk::Vector3 viewOffset{sdk::read_value<float>(viewOffsetAddress + 0x10),
+            sdk::read_value<float>(viewOffsetAddress + 0x18), sdk::read_value<float>(viewOffsetAddress + 0x20)};
+        if (!sdk::finite(viewOffset)) viewOffset = {0, 0, 64};
+        const sdk::Vector3 eyePos = localOrigin + viewOffset;
+        if (!sdk::finite(eyePos)) { grenadePrediction.valid = false; return; }
+
+        sdk::Vector3 viewAngles{};
+        if (!sdk::read_memory(client + cs2_dumper::offsets::client_dll::dwViewAngles, viewAngles) || !sdk::finite(viewAngles)) return;
+
+        float pitch = viewAngles.x * 0.01745329252f;
+        float yaw = viewAngles.y * 0.01745329252f;
+        sdk::Vector3 forward{
+            std::cos(pitch) * std::cos(yaw),
+            std::cos(pitch) * std::sin(yaw),
+            -std::sin(pitch)
+        };
+
+        sdk::ViewMatrix matrix{};
+        if (!ReadViewMatrix(client, matrix)) return;
+
+        auto* draw = ImGui::GetBackgroundDrawList();
+
+        struct SurfaceCache {
+            uintptr_t pawn = 0, weapon = 0;
+            uint32_t handle = UINT32_MAX;
+            ULONGLONG updatedAt = 0;
+            bool sampled = false, hit = false;
+            sdk::Vector3 position{}, normal{};
+            float incident = 0;
+        };
+        static SurfaceCache surface;
+        if (!config::grenade::surface_info) surface.sampled = false;
+        else {
+            const auto now = GetTickCount64();
+            if (!surface.sampled || surface.pawn != state.pawn || surface.weapon != grenadeWeapon || surface.handle != handle || now-surface.updatedAt >= constants::grenade_prediction_interval_ms) {
+                surface = {state.pawn, grenadeWeapon, handle, now, true, false};
+                engine_trace::Data data{};
+                engine_trace::Filter filter{};
+                engine_trace::Hit hit{};
+                engine_trace::functions.init_data(&data);
+                engine_trace::functions.init_filter(&filter, state.pawn, engine_trace::visibility_mask, 4, 7);
+                engine_trace::functions.create(&data, eyePos, forward * 8192.0f, &filter, 4, true);
+                engine_trace::Entry entry{};
+                if (data.entries.size > 0 && sdk::read_memory(reinterpret_cast<uintptr_t>(data.entries.data), entry)) {
+                    const auto index = entry.surface_end & 0x7FFF;
+                    if (index < 128 && std::isfinite(entry.start) && entry.start >= 0 && entry.start <= 1) {
+                        engine_trace::functions.init_hit(&hit);
+                        engine_trace::functions.get_hit(&data, &hit, entry.start, &data.surfaces[index]);
+                        if (std::isfinite(hit.fraction) && hit.fraction >= 0 && hit.fraction < 1 && !hit.all_solid && sdk::finite(hit.normal)) {
+                            surface.position = eyePos + forward * (8192.0f * hit.fraction);
+                            surface.normal = hit.normal.Normalize();
+                            const float dot = forward.x*surface.normal.x + forward.y*surface.normal.y + forward.z*surface.normal.z;
+                            surface.incident = std::acos(std::clamp(-dot,-1.f,1.f)) * 57.2957795f;
+                            surface.hit = surface.normal.Length() > .5f;
+                        }
+                    }
+                }
+            }
+            sdk::Vector2 screen{};
+            if (surface.hit && WorldToScreen(surface.position, screen, matrix, g_screen_width, g_screen_height)) {
+                const auto tint = ImGui::ColorConvertFloat4ToU32({config::grenade::color[0], config::grenade::color[1],config::grenade::color[2],config::grenade::color[3]});
+                draw->AddCircle({screen.x,screen.y},8,tint,24,2);
+                sdk::Vector2 normal{};
+                if (WorldToScreen(surface.position + surface.normal*25,normal,matrix,g_screen_width,g_screen_height))
+                    draw->AddLine({screen.x,screen.y},{normal.x,normal.y},tint,2);
+                char label[160];
+                sprintf_s(label,"Surface  %.1f m  |  %.0f deg\nNormal  %.2f  %.2f  %.2f",(surface.position-eyePos).Length()*.0254f,
+                    surface.incident,surface.normal.x,surface.normal.y,surface.normal.z);
+                const auto size=ImGui::CalcTextSize(label);
+                draw->AddRectFilled({screen.x+12,screen.y-4},{screen.x+28+size.x,screen.y+8+size.y},IM_COL32(15,19,25,230),5);
+                draw->AddText({screen.x+20,screen.y+2},IM_COL32(225,233,242,255),label);
+            }
+        }
+
+        // 2. FULL CS2 SOURCE 2 GRENADE TRAJECTORY SIMULATION & LANDING PREDICTION
+        if (config::grenade::trajectory) {
+            // ---- Cache: only recompute if view/position changed meaningfully ----
+            auto& cache = grenadePrediction;
+
+            float strength = sdk::read_value<float>(grenadeWeapon + cs2_dumper::schemas::client_dll::C_BaseCSGrenade::m_flThrowStrength);
+            strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 1.0f) : 1.0f;
+            const float baseThrowSpeed = 675.0f * (.3f + .7f * strength);
+            auto playerVel = sdk::read_value<sdk::Vector3>(state.pawn + sdk::off::C_BaseEntity::m_vecAbsVelocity);
+            if (!sdk::finite(playerVel)) playerVel = {};
+            const auto now = GetTickCount64();
+
+            const float angleDelta = std::abs(NormalizeAngle(viewAngles.x - cache.lastAngles.x))
+                                   + std::abs(NormalizeAngle(viewAngles.y - cache.lastAngles.y));
+            const auto positionDelta = eyePos - cache.lastEyePos;
+            const auto velocityDelta = playerVel - cache.lastVelocity;
+            const auto squared = [](const sdk::Vector3& v) { return v.x*v.x + v.y*v.y + v.z*v.z; };
+            const bool contextChanged = !cache.valid || cache.lastThrowSpeed != baseThrowSpeed ||
+                cache.lastWeapon != grenadeWeapon || cache.lastHandle != handle || cache.lastPawn != state.pawn;
+            const bool moving = angleDelta > .05f || squared(positionDelta) > 4 || squared(velocityDelta) > 1;
+            // Limit moving previews to 30 Hz; project the cached path every frame.
+            const bool needsUpdate = contextChanged || (moving && now - cache.updatedAt >= constants::grenade_prediction_interval_ms) || now - cache.updatedAt >= constants::grenade_idle_refresh_ms;
+
+            if (needsUpdate && engine_trace::functions.Ready()) {
+                cache.points.clear();
+                cache.bounces.clear();
+                cache.bounce_count = 0;
+                cache.lastEyePos    = eyePos;
+                cache.lastAngles    = viewAngles;
+                cache.lastThrowSpeed = baseThrowSpeed;
+                cache.lastVelocity = playerVel;
+                cache.lastWeapon = grenadeWeapon;
+                cache.lastHandle = handle;
+                cache.lastPawn = state.pawn;
+                cache.updatedAt = now;
+                cache.valid = true;
+
+                // Grenade solid mask: CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_PLAYERCLIP
+                // Excludes sky, water, windows so trajectory passes through glass properly
+                constexpr uint64_t grenade_solid_mask = constants::grenade_solid_mask;
+
+                const float throwPitch = (viewAngles.x - (90.0f - std::abs(viewAngles.x)) * (10.0f / 90.0f)) * .01745329252f;
+                const sdk::Vector3 throwForward{std::cos(throwPitch) * std::cos(yaw),
+                    std::cos(throwPitch) * std::sin(yaw), -std::sin(throwPitch)};
+                sdk::Vector3 throwVel = throwForward * baseThrowSpeed + playerVel * 1.25f;
+                sdk::Vector3 currPos = eyePos + throwForward * 16.0f + sdk::Vector3(0, 0, strength * 12.0f - 12.0f);
+                sdk::Vector3 currVel = throwVel;
+
+                const float gravity  = 320.0f;   // 800.0f * 0.4f — Source 2 grenade gravity scale
+                const float dt       = 0.015625f; // 64-tick step (1/64s)
+                const int   max_steps = 192;      // ~3.0 seconds of flight
+
+                cache.points.reserve(max_steps + 1);
+                cache.bounces.reserve(8);
+                cache.points.push_back(currPos);
+
+                for (int step = 0; step < max_steps; ++step) {
+                    sdk::Vector3 nextPos = currPos + currVel * dt - sdk::Vector3(0, 0, .5f * gravity * dt * dt);
+                    currVel.z -= gravity * dt;
+
+                    sdk::Vector3 delta = nextPos - currPos;
+
+                    engine_trace::Data   data{};
+                    engine_trace::Filter filter{};
+                    engine_trace::Hit    hit{};
+                    engine_trace::functions.init_data(&data);
+                    engine_trace::functions.init_filter(&filter, state.pawn, grenade_solid_mask, 4, 7);
+                    engine_trace::functions.create(&data, currPos, delta, &filter, 4, true);
+
+                    bool bounced = false;
+                    if (data.entries.size > 0) {
+                        engine_trace::Entry entry{};
+                        if (sdk::read_memory(reinterpret_cast<uintptr_t>(data.entries.data), entry)) {
+                            unsigned idx = entry.surface_end & 0x7FFF;
+                            if (idx < 128 && std::isfinite(entry.start) && entry.start >= 0.f && entry.start <= 1.f) {
+                                engine_trace::functions.init_hit(&hit);
+                                engine_trace::functions.get_hit(&data, &hit, entry.start, &data.surfaces[idx]);
+                                if (std::isfinite(hit.fraction) && hit.fraction < 1.0f && !hit.all_solid) {
+                                    sdk::Vector3 hitPos = currPos + delta * hit.fraction;
+                                    sdk::Vector3 normal = hit.normal.Normalize();
+
+                                    // Source 2 tangential + normal restitution bounce (k=0.45)
+                                    float dot = currVel.x * normal.x + currVel.y * normal.y + currVel.z * normal.z;
+                                    sdk::Vector3 vNormal  = normal * dot;
+                                    sdk::Vector3 vTangent = currVel - vNormal;
+                                    currVel = (vTangent * 0.45f) - (vNormal * 0.45f);
+
+                                    cache.bounce_count++;
+                                    float speed     = currVel.Length();
+                                    float inc_angle = std::acos(std::clamp(-dot / (speed + 0.001f), -1.0f, 1.0f)) * 57.2957795f;
+                                    cache.bounces.push_back({ hitPos, normal, inc_angle, cache.bounce_count });
+
+                                    currPos = hitPos + normal * 0.2f;
+                                    cache.points.push_back(currPos);
+                                    bounced = true;
+
+                                    if (speed < 15.0f || cache.bounce_count >= 8) break;
+                                }
+                            }
+                        }
+                    }
+                    if (!bounced) {
+                        currPos = nextPos;
+                        cache.points.push_back(currPos);
+                    }
+                }
+            }
+
+            // ---- Render cached trajectory ----
+            ImU32 trajColor = ImGui::ColorConvertFloat4ToU32({
+                config::grenade::color[0], config::grenade::color[1], config::grenade::color[2], config::grenade::color[3]
+            });
+
+            sdk::Vector2 previous{};
+            bool previousVisible = false;
+            for (const auto& point : cache.points) {
+                sdk::Vector2 screen{};
+                const bool visible = WorldToScreen(point, screen, matrix, g_screen_width, g_screen_height);
+                if (visible && previousVisible) draw->AddLine({previous.x, previous.y}, {screen.x, screen.y}, trajColor, 2.5f);
+                previous = screen; previousVisible = visible;
+            }
+
+            for (const auto& b : cache.bounces) {
+                sdk::Vector2 b_screen{};
+                if (WorldToScreen(b.pos, b_screen, matrix, g_screen_width, g_screen_height)) {
+                    draw->AddCircleFilled(ImVec2(b_screen.x, b_screen.y), 5.0f, IM_COL32(255, 200, 0, 240));
+                    draw->AddCircle(ImVec2(b_screen.x, b_screen.y), 8.0f, IM_COL32(255, 255, 255, 220), 16, 1.5f);
+                    char b_txt[64];
+                    sprintf_s(b_txt, "#%d Bounce (%.0f deg)", b.id, b.angle);
+                    draw->AddText(ImVec2(b_screen.x + 10.0f, b_screen.y - 6.0f), IM_COL32(255, 230, 100, 255), b_txt);
+                }
+            }
+
+            if (!cache.points.empty()) {
+                sdk::Vector3 landPos = cache.points.back();
+                sdk::Vector2 land_screen{};
+                if (WorldToScreen(landPos, land_screen, matrix, g_screen_width, g_screen_height)) {
+                    ImU32 landColor = ImGui::ColorConvertFloat4ToU32({
+                        config::grenade::landing_color[0], config::grenade::landing_color[1],
+                        config::grenade::landing_color[2], config::grenade::landing_color[3]
+                    });
+                    draw->AddCircle(ImVec2(land_screen.x, land_screen.y), 16.0f, landColor, 32, 2.5f);
+                    draw->AddCircle(ImVec2(land_screen.x, land_screen.y), 8.0f, IM_COL32(255, 255, 255, 255), 24, 2.0f);
+                    draw->AddCircleFilled(ImVec2(land_screen.x, land_screen.y), 3.0f, landColor);
+
+                    float land_dist = (landPos - eyePos).Length() * 0.0254f;
+                    char land_txt[128];
+                    sprintf_s(land_txt, "PREDICTED LANDING SPOT (%.1fm | %d Bounces)", land_dist, cache.bounce_count);
+                    draw->AddRectFilled(ImVec2(land_screen.x - 4.0f, land_screen.y + 20.0f), ImVec2(land_screen.x + 280.0f, land_screen.y + 40.0f), IM_COL32(20, 10, 10, 210), 4.0f);
+                    draw->AddRect(ImVec2(land_screen.x - 4.0f, land_screen.y + 20.0f), ImVec2(land_screen.x + 280.0f, land_screen.y + 40.0f), landColor, 4.0f, 0, 1.5f);
+                    draw->AddText(ImVec2(land_screen.x + 4.0f, land_screen.y + 22.0f), IM_COL32(255, 255, 255, 255), land_txt);
+                }
+            }
+        }
+    }
+
     void RenderOverlays() {
         if (!ImGui::GetCurrentContext()) return;
         const auto state = game_state::GetSnapshot();
         sdk::ScopedLocalReads reads;
         UpdateWorldVisuals(state);
-        if (!state.in_game || !state.pawn || !state.entity_list) return;
+        if (!state.in_game || !state.pawn || !state.entity_list) { thrownTrails.trails.clear(); grenadePrediction.valid = false; return; }
         UpdateScreenDimensions();
         const auto draw = ImGui::GetBackgroundDrawList();
         const ImVec2 center(g_screen_width*.5f,g_screen_height*.5f);
@@ -1295,6 +1597,8 @@ namespace features {
         }
         const auto localOrigin = sdk::read_value<sdk::Vector3>(state.pawn + sdk::off::C_BasePlayerPawn::m_vOldOrigin);
         RenderWorldEntities(state,localOrigin,client);
+        RenderThrownGrenades(state,client);
+        RenderGrenadePredictionAndSurfaceInfo(state,localOrigin,client);
         sdk::Vector2 view{};
         const bool hasView = client && sdk::read_memory(client + cs2_dumper::offsets::client_dll::dwViewAngles,view);
         if (config::misc::external_radar && hasView && sdk::finite(localOrigin)) {
@@ -1360,7 +1664,7 @@ namespace features {
         }
     }
 
-    // ======================== MISC FEATURES ========================
+    // Misc features.
     void ReleaseInputs() {
         RestoreVisualFields();
         PublishFireTarget(0);

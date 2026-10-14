@@ -7,8 +7,8 @@
 #include <type_traits>
 
 namespace sdk {
-    // Opt-in for synchronous in-process snapshots. Cache readable mappings only
-    // for the scope lifetime; SEH still handles memory unmapped after validation.
+    // Cache readable regions for this local snapshot.
+    // The cache expires at scope exit. SEH handles memory that becomes unavailable.
     struct LocalReadCache {
         struct Region { uintptr_t begin, end; } regions[32]{};
         unsigned count=0;

@@ -122,3 +122,14 @@ bool Initialize() { return false; }
 void OnFrameStage(int) { std::abort(); }
 void RestoreBeforeUnload() {}
 }
+
+// Cursor drawing is exercised with real ImGui in console_regressions.
+namespace ImGui {
+bool IsMousePosValid(const ImVec2*) { std::abort(); }
+ImGuiMouseCursor GetMouseCursor() { std::abort(); }
+void SetMouseCursor(ImGuiMouseCursor) { std::abort(); }
+ImDrawList* GetForegroundDrawList() { std::abort(); }
+}
+void ImDrawList::AddLine(const ImVec2&, const ImVec2&, ImU32, float) { std::abort(); }
+void ImDrawList::AddQuadFilled(const ImVec2&, const ImVec2&, const ImVec2&, const ImVec2&, ImU32) { std::abort(); }
+void ImDrawList::AddPolyline(const ImVec2*, int, ImU32, ImDrawFlags, float) { std::abort(); }

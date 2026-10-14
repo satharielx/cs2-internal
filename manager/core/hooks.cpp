@@ -1,12 +1,18 @@
+#include "constants/hooks_signatures.h"
 #include "entity_events.h"
 #include "aim_profiler.h"
 #include "hooks.h"
+#include "menu_mouse.h"
+#include "ui/cursor.h"
 #include "features.h"
 #include "game_state.h"
 #include "skybox.h"
 #include "lighting.h"
 #include "viewmodel.h"
+#include "camera_view.h"
+#include "skin_hud.h"
 #include "config.h"
+#include "../external/offsets/offsets.hpp"
 #include "menu_advanced.h"
 #include "skins.h"
 #include "debug_console.h"
@@ -63,6 +69,73 @@ namespace {
         ~CallbackScope() { --s_active_callbacks; }
     };
 
+    std::recursive_mutex s_mouse_mutex;
+    menu_mouse::State s_mouse_state;
+    using Relative2 = int(__cdecl*)(int);
+    using Relative3 = bool(__cdecl*)(void*, bool);
+    Relative2 s_relative2 = nullptr;
+    Relative3 s_relative3 = nullptr;
+    int(__cdecl* s_get_relative2)() = nullptr;
+    bool(__cdecl* s_get_relative3)(void*) = nullptr;
+    void*(__cdecl* s_get_mouse_focus)() = nullptr;
+    void* s_mouse_window = nullptr;
+    UINT s_restore_mouse_message = 0;
+
+    int __cdecl RelativeMouse2(int enabled) {
+        CallbackScope callback;
+        std::lock_guard<std::recursive_mutex> lock(s_mouse_mutex);
+        return s_relative2(s_stopping ? enabled : s_mouse_state.Request(enabled != 0));
+    }
+    bool __cdecl RelativeMouse3(void* window, bool enabled) {
+        CallbackScope callback;
+        std::lock_guard<std::recursive_mutex> lock(s_mouse_mutex);
+        s_mouse_window = window;
+        return s_relative3(window, s_stopping ? enabled : s_mouse_state.Request(enabled));
+    }
+    void SetMenuMouseBlocked(bool blocked) {
+        std::lock_guard<std::recursive_mutex> lock(s_mouse_mutex);
+        if (s_relative3) {
+            if (!s_mouse_window && s_get_mouse_focus) s_mouse_window = s_get_mouse_focus();
+            if (!s_mouse_window) return;
+            s_mouse_state.SetBlocked(blocked,
+                [] { return s_get_relative3(s_mouse_window); },
+                [](bool mode) { s_relative3(s_mouse_window, mode); });
+        } else if (s_relative2) {
+            s_mouse_state.SetBlocked(blocked,
+                [] { return s_get_relative2() != 0; },
+                [](bool mode) { s_relative2(mode); });
+        }
+    }
+    void CreateRelativeMouseHook() {
+        void* target = nullptr;
+        void* detour = nullptr;
+        void** original = nullptr;
+        if (const auto module = GetModuleHandleA("SDL3.dll")) {
+            target = reinterpret_cast<void*>(GetProcAddress(module, "SDL_SetWindowRelativeMouseMode"));
+            s_get_relative3 = reinterpret_cast<decltype(s_get_relative3)>(GetProcAddress(module, "SDL_GetWindowRelativeMouseMode"));
+            s_get_mouse_focus = reinterpret_cast<decltype(s_get_mouse_focus)>(GetProcAddress(module, "SDL_GetMouseFocus"));
+            if (target && s_get_relative3 && s_get_mouse_focus) {
+                detour = reinterpret_cast<void*>(&RelativeMouse3);
+                original = reinterpret_cast<void**>(&s_relative3);
+            }
+        }
+        if (!original) if (const auto module = GetModuleHandleA("SDL2.dll")) {
+            target = reinterpret_cast<void*>(GetProcAddress(module, "SDL_SetRelativeMouseMode"));
+            s_get_relative2 = reinterpret_cast<decltype(s_get_relative2)>(GetProcAddress(module, "SDL_GetRelativeMouseMode"));
+            if (target && s_get_relative2) {
+                detour = reinterpret_cast<void*>(&RelativeMouse2);
+                original = reinterpret_cast<void**>(&s_relative2);
+            }
+        }
+        if (original && MH_CreateHook(target, detour, original) == MH_OK)
+            debug_console::Console::Get().Success("[INPUT] Relative mouse mode hook ready");
+        else {
+            s_relative2 = nullptr; s_relative3 = nullptr;
+            debug_console::Console::Get().Warning("[INPUT] Relative mouse mode export unavailable or hook creation failed");
+        }
+        s_restore_mouse_message = RegisterWindowMessageA("Nephilimgate.RestoreRelativeMouse");
+    }
+
     // The bundled ImGui backend restores pipeline state but not OM bindings.
     struct RenderTargetScope {
         ID3D11DeviceContext* context;
@@ -87,8 +160,15 @@ using UpdateLightObjectFn = void(__fastcall*)(void*, void*, void*);
 UpdateLightObjectFn oUpdateLightObject = nullptr;
 void __fastcall hkUpdateLightObject(void* context, void* light, void* data) {
     CallbackScope callback;
-    lighting::ScopedColor color(!s_stopping && game_state::GetSnapshot().in_game
-        ? reinterpret_cast<uintptr_t>(light) : 0);
+    static thread_local lighting::Settings settings;
+    static thread_local ULONGLONG nextSettingsUpdate = 0;
+    const auto now = GetTickCount64();
+    if (!s_stopping && now >= nextSettingsUpdate) {
+        nextSettingsUpdate = now + 8;
+        settings = lighting::CaptureSettings();
+        if (settings.active && !game_state::GetSnapshot().in_game) settings.active = false;
+    }
+    lighting::ScopedColor color(s_stopping ? 0 : reinterpret_cast<uintptr_t>(light), settings);
     oUpdateLightObject(context, light, data);
 }
 SkyboxDrawArrayFn oSkyboxDrawArray = nullptr;
@@ -167,6 +247,39 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
         } else features::silent_aim_status = "Source written, but history copy not verified";
     }
 }
+using OverrideViewFn = void(__fastcall*)(void*, void*);
+using WeaponHudTickFn = void(__fastcall*)(void*);
+static WeaponHudTickFn oWeaponHudTick = nullptr;
+static void __fastcall hkWeaponHudTick(void* hud) {
+    CallbackScope callback;
+    ++skin_hud::ticks;
+    oWeaponHudTick(hud); // Populate selection entries before attempting cleanup.
+    static unsigned applied = 0;
+    const auto requested = skin_hud::revision.load();
+    if (!s_stopping && requested != applied && game_state::IsInGame()) {
+        if (skin_hud::GuardedRefresh(reinterpret_cast<uintptr_t>(hud))) {
+            applied = requested;
+            skin_hud::status = "Loadout HUD icon and label refresh requested";
+        }
+    }
+}
+static OverrideViewFn oOverrideView = nullptr;
+static void __fastcall hkOverrideView(void* clientMode, void* setup) {
+    CallbackScope callback;
+    oOverrideView(clientMode, setup);
+    if (s_stopping) return;
+    std::unique_lock<std::recursive_mutex> lock(config::mutex, std::try_to_lock);
+    if (!lock.owns_lock() || !config::viewmodel::no_aim_punch) return;
+    const auto state = game_state::GetSnapshot();
+    if (!state.in_game) return;
+    sdk::ScopedLocalReads reads;
+    const auto pawn = state.pawn;
+    if (!pawn || sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) <= 0) return;
+    const auto input = sdk::read_value<uintptr_t>(camera_view::input_slot);
+    camera_view::status = camera_view::GuardedApply(reinterpret_cast<uintptr_t>(setup), input)
+        ? "Visual recoil removed" : "Camera angle read/write unavailable";
+}
+
 static void __fastcall hkFrameStageNotify(CSource2Client* client, int stage) {
     CallbackScope callback;
     if (s_stopping)
@@ -175,6 +288,8 @@ static void __fastcall hkFrameStageNotify(CSource2Client* client, int stage) {
         std::unique_lock<std::recursive_mutex> lock(config::mutex, std::try_to_lock);
         const auto pawn = lock.owns_lock() && game_state::IsInGame()
             ? game_state::GetLocalPawnRaw() : 0;
+
+
         viewmodel::ScopedOverride view(pawn);
         hooks::Hook_FrameStageNotify(client, stage);
     } else
@@ -189,7 +304,7 @@ void HookCreateMove() {
     }
 
     auto addr = sdk::find_pattern("client.dll",
-        "85 D2 0F 85 ? ? ? ? 48 8B C4 44 88 40 18");
+        runtime_patterns::hooks::create_move);
     if (!addr) {
         error_logger::ErrorLogger::Get().Log("CreateMove", "Pattern not found", 1);
         debug_console::Console::Get().Error("[HOOK] CreateMove pattern not found");
@@ -256,6 +371,7 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
             if (globals::console_open) {
                 try {
                     debug_console::Console::Get().Render();
+                    globals::console_open = debug_console::Console::Get().IsVisible();
                 }
                 catch (const std::exception& ex) {
                     error_logger::ErrorLogger::Get().LogException("Debug Console Render", ex);
@@ -278,6 +394,7 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
                 }
             }
 
+            menu_advanced::DrawWorkspaceCursor(globals::menu_open || globals::console_open);
             ImGui::EndFrame();
             ImGui::Render();
             if (!globals::menu_open && !globals::console_open) {
@@ -386,6 +503,10 @@ HRESULT __stdcall hkCreateSwapChain(IDXGIFactory* factory, IUnknown* device,
 
 static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     CallbackScope callback;
+    if (s_restore_mouse_message && msg == s_restore_mouse_message) {
+        SetMenuMouseBlocked(false);
+        return 0;
+    }
     WNDPROC original = nullptr;
     {
         std::lock_guard<std::recursive_mutex> lock(s_render_mutex);
@@ -393,6 +514,7 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         if (!s_stopping) {
             ImGuiContextScope context;
             std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
+            SetMenuMouseBlocked(globals::menu_open || globals::console_open);
             if (globals::imgui_initialized && (globals::menu_open || globals::console_open)) {
                 if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
                     return true;
@@ -405,22 +527,22 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     if (globals::menu_open) features::ReleaseInputs();
                     if (globals::imgui_initialized) {
                         ImGuiIO& io = ImGui::GetIO();
-                        io.MouseDrawCursor = globals::menu_open;
-                        if (!globals::menu_open) {
+                        io.MouseDrawCursor = globals::menu_open || globals::console_open;
+                        if (!globals::menu_open && !globals::console_open) {
                             // Reset ImGui mouse state
                             io.MouseDown[0] = io.MouseDown[1] = io.MouseDown[2] = false;
                             io.MouseWheel = 0.0f;
                             // Release window capture
                             ReleaseCapture();
-                            ClipCursor(nullptr);
-                            // Force show system cursor
-                            while (ShowCursor(TRUE) < 0);
                         }
                     }
+                    SetMenuMouseBlocked(globals::menu_open || globals::console_open);
                     return 0;
                 }
                 if (wparam == VK_F1) {
                     globals::console_open = !globals::console_open;
+                    auto& console = debug_console::Console::Get();
+                    if (console.IsVisible() != globals::console_open) console.ToggleVisibility();
                     features::SetInputBlocked(globals::menu_open || globals::console_open);
                     if (globals::console_open) features::ReleaseInputs();
                     if (globals::imgui_initialized) {
@@ -430,10 +552,9 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                             io.MouseDown[0] = io.MouseDown[1] = io.MouseDown[2] = false;
                             io.MouseWheel = 0.0f;
                             ReleaseCapture();
-                            ClipCursor(nullptr);
-                            while (ShowCursor(TRUE) < 0);
                         }
                     }
+                    SetMenuMouseBlocked(globals::menu_open || globals::console_open);
                     return 0;
                 }
             }
@@ -445,15 +566,15 @@ static LRESULT __stdcall WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 const auto& io = ImGui::GetIO();
                 const bool mouse = msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST;
                 const bool keyboard = msg >= WM_KEYFIRST && msg <= WM_KEYLAST;
-                if (mouse && io.WantCaptureMouse)
+                if (mouse)
                     return (msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP || msg == WM_XBUTTONDBLCLK) ? TRUE : 0;
                 if (keyboard && io.WantCaptureKeyboard) return 0;
-                if (msg == WM_INPUT && (io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                if (msg == WM_INPUT) {
                     RAWINPUTHEADER header{};
                     UINT size = sizeof(header);
                     if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_HEADER,
                         &header, &size, sizeof(header)) != UINT(-1) &&
-                        ((header.dwType == RIM_TYPEMOUSE && io.WantCaptureMouse) ||
+                        ((header.dwType == RIM_TYPEMOUSE) ||
                          (header.dwType == RIM_TYPEKEYBOARD && io.WantCaptureKeyboard)))
                         return DefWindowProcA(hwnd, msg, wparam, lparam); // Required raw-input cleanup.
                 }
@@ -651,8 +772,8 @@ namespace hooks {
     static void CreateEntityLifecycleHooks() {
         struct Entry { const char* name; const char* signature; EntityLifecycleFn callback; EntityLifecycleFn* original; };
         const Entry entries[]={
-            {"OnAddEntity", "48 89 74 24 ? 57 48 83 EC ? 41 B9 ? ? ? ? 41 8B C0 41 23 C1 48 8B F2 41 83 F8 ? 48 8B F9 44 0F 45 C8 41 81 F9 ? ? ? ? 73 ? FF 81", &Hook_OnAddEntity, &OnAddEntity_o},
-            {"OnRemoveEntity", "48 89 74 24 ? 57 48 83 EC ? 41 B9 ? ? ? ? 41 8B C0 41 23 C1 48 8B F2 41 83 F8 ? 48 8B F9 44 0F 45 C8 41 81 F9 ? ? ? ? 73 ? FF 89", &Hook_OnRemoveEntity, &OnRemoveEntity_o}
+            {"OnAddEntity", runtime_patterns::hooks::entity_added, &Hook_OnAddEntity, &OnAddEntity_o},
+            {"OnRemoveEntity", runtime_patterns::hooks::entity_removed, &Hook_OnRemoveEntity, &OnRemoveEntity_o}
         };
         for(const auto& entry:entries) {
             const auto target=sdk::find_pattern("client.dll",entry.signature);
@@ -669,7 +790,7 @@ namespace hooks {
         }
     }
 
-    // ==================== HOOK SYSTEM INITIALIZATION ====================
+    // Hook system initialization.
     // 
     // create() - Initialize all MinHook hooks and ImGui rendering pipeline
     //
@@ -712,7 +833,7 @@ namespace hooks {
 
             // Create Present hook
             void* present_target = sdk::find_pattern("gameoverlayrenderer64.dll",
-                "48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 54 41 56 41 57 48 83 EC ? 41 8B F0");
+                runtime_patterns::hooks::present);
             if (!present_target) {
                 error_logger::ErrorLogger::Get().LogPointerError("Present target", reinterpret_cast<uintptr_t>(present_target));
                 throw std::runtime_error("Present target is null");
@@ -727,7 +848,7 @@ namespace hooks {
 
             // Create ResizeBuffers hook
             void* resize_target = sdk::find_pattern("gameoverlayrenderer64.dll",
-                "40 53 55 56 57 41 54 41 56 41 57 48 83 EC ? 44 8B E2");
+                runtime_patterns::hooks::resize_buffers);
             if (!resize_target) {
                 error_logger::ErrorLogger::Get().LogPointerError("ResizeBuffers target", reinterpret_cast<uintptr_t>(resize_target));
                 throw std::runtime_error("ResizeBuffers target is null");
@@ -741,7 +862,7 @@ namespace hooks {
             error_logger::ErrorLogger::Get().Log("MinHook", "ResizeBuffers hook created successfully", 0);
 
             void* create_target = sdk::find_pattern("gameoverlayrenderer64.dll",
-                "40 53 55 56 57 48 83 EC ? 48 8B F9 49 8B F1 48 8D 0D ? ? ? ? 49 8B D8 48 8B EA E8 ? ? ? ? 48 8D 0D ? ? ? ? E8 ? ? ? ? 48 8D 0D ? ? ? ? E8 ? ? ? ? 48 8D 0D ? ? ? ? E8 ? ? ? ? 48 8B 05 ? ? ? ? 4C 8B CE 4C 8B C3 48 8B D5 48 8B CF FF D0 8B D8 85 C0 78 ? 48 85 F6 74 ? 48 83 3E ? 74 ? 48 8B D5 48 8B CE E8 ? ? ? ? 8B C3 48 83 C4 ? 5F 5E 5D 5B C3 CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC 48 83 EC");
+                runtime_patterns::hooks::create_swap_chain);
             if (!create_target)
                 throw std::runtime_error("Steam overlay CreateSwapChain pattern not found");
             status = MH_CreateHook(create_target, &hkCreateSwapChain, reinterpret_cast<void**>(&oCreateSwapChain));
@@ -778,7 +899,7 @@ namespace hooks {
                         if (skybox::Initialize())
                             RegisterOnFrameStageNotify(&skybox::OnFrameStage);
 
-                        // ========== KNIFE CHANGER CALLBACK REGISTRATION ==========
+                        // Knife changer callback registration.
                         // Subscribe to FrameStageNotify events via event-driven callback system
                         // Callback dispatcher (Hook_FrameStageNotify.cpp) invokes all registered callbacks
                         // This callback executes on game thread during frame stage transitions (0-11)
@@ -813,9 +934,41 @@ namespace hooks {
                 debug_console::Console::Get().Warning("[KNIFE] Failed to get client.dll base address");
             }
             HookCreateMove();
+            {
+                const auto tick = sdk::find_pattern("client.dll",
+                    runtime_patterns::hooks::weapon_hud_tick);
+                const auto clear = sdk::find_pattern("client.dll",
+                    runtime_patterns::hooks::clear_weapon_hud);
+                skin_hud::status = "Unavailable: weapon HUD signatures missing";
+                if (tick && clear) {
+                    skin_hud::clear = reinterpret_cast<skin_hud::Clear>(clear);
+                    const auto result = MH_CreateHook(tick, &hkWeaponHudTick,
+                        reinterpret_cast<void**>(&oWeaponHudTick));
+                    skin_hud::status = result == MH_OK ? "Weapon HUD refresh ready" : "Unavailable: weapon HUD hook failed";
+                }
+            }
+            {
+                const auto target = sdk::find_pattern("client.dll",
+                    runtime_patterns::hooks::override_view);
+                const auto getter = sdk::find_pattern("client.dll", runtime_patterns::hooks::get_view_angles);
+                const auto inputRef = sdk::find_pattern("client.dll",
+                    runtime_patterns::hooks::input_reference);
+                camera_view::status = "Unavailable: camera signatures missing";
+                if (target && getter && inputRef) {
+                    int32_t displacement = 0;
+                    if (sdk::read_memory(reinterpret_cast<uintptr_t>(inputRef) + 7, displacement)) {
+                        camera_view::input_slot = reinterpret_cast<uintptr_t>(inputRef) + 11 + displacement;
+                        camera_view::get_angles = reinterpret_cast<camera_view::GetAngles>(getter);
+                        const auto hookStatus = MH_CreateHook(target, &hkOverrideView,
+                            reinterpret_cast<void**>(&oOverrideView));
+                        camera_view::status = hookStatus == MH_OK ? "Visual recoil hook ready"
+                            : "Unavailable: camera hook creation failed";
+                    }
+                }
+            }
 
             {
-                auto subtick_addr = sdk::find_pattern("client.dll", "48 89 5C 24 ? 55 57 41 56 48 8D 6C 24 ? 48 81 EC ? ? ? ? 8B 01 48 8B F9");
+                auto subtick_addr = sdk::find_pattern("client.dll", runtime_patterns::hooks::subtick);
                 if (subtick_addr) {
                     MH_STATUS status = MH_CreateHook(subtick_addr, &hkSubTickAngle,
                         reinterpret_cast<void**>(&oSubTickAngle));
@@ -837,14 +990,14 @@ namespace hooks {
                 }
             }
 
-            auto sky_target = sdk::find_pattern("scenesystem.dll", "45 85 C9 0F 8E ? ? ? ? 4C 8B DC 55");
+            auto sky_target = sdk::find_pattern("scenesystem.dll", runtime_patterns::hooks::sky_draw);
             skybox::color_status = "Unavailable: sky draw signature not found";
             if (sky_target) {
                 const auto sky_status = MH_CreateHook(sky_target, &hkSkyboxDrawArray,
                     reinterpret_cast<void**>(&oSkyboxDrawArray));
                 skybox::color_status = sky_status == MH_OK ? "Sky color ready" : "Unavailable: sky draw hook failed";
             }
-            auto light_target = sdk::find_pattern("scenesystem.dll", "48 89 54 24 ? 55 57 41 56 48 83 EC");
+            auto light_target = sdk::find_pattern("scenesystem.dll", runtime_patterns::hooks::light_update);
             lighting::status = "Unavailable: light update signature not found";
             if (light_target) {
                 const auto light_status = MH_CreateHook(light_target, &hkUpdateLightObject,
@@ -852,6 +1005,7 @@ namespace hooks {
                 lighting::status = light_status == MH_OK ? "Light color ready" : "Unavailable: light update hook failed";
             }
             // Present will initialize D3D11, ImGui and WndProc from its COM argument.
+            CreateRelativeMouseHook();
             status = MH_EnableHook(MH_ALL_HOOKS);
             if (status != MH_OK) {
                 error_logger::ErrorLogger::Get().Log("MinHook", "Failed to enable hooks", static_cast<int>(status));
@@ -879,6 +1033,11 @@ namespace hooks {
 
     void destroy() {
         skybox::RestoreBeforeUnload();
+        if (s_restore_mouse_message && s_hooked_window && IsWindow(s_hooked_window)) {
+            DWORD_PTR result = 0;
+            SendMessageTimeoutA(s_hooked_window, s_restore_mouse_message, 0, 0,
+                SMTO_ABORTIFHUNG | SMTO_BLOCK, 1000, &result);
+        }
         s_stopping = true;
         features::SetInputBlocked(true);
         MH_DisableHook(MH_ALL_HOOKS);
@@ -898,6 +1057,13 @@ namespace hooks {
             features::ReleaseInputs();
         }
         MH_RemoveHook(MH_ALL_HOOKS);
+        oOverrideView = nullptr;
+        oWeaponHudTick = nullptr;
+        skin_hud::clear = nullptr;
+        camera_view::get_angles = nullptr;
+        camera_view::input_slot = 0;
+        s_relative2 = nullptr; s_relative3 = nullptr; s_mouse_window = nullptr;
+        s_mouse_state.Reset();
         MH_Uninitialize();
         entity_events::Reset();
         OnAddEntity_o = nullptr;

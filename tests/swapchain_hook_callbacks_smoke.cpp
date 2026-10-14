@@ -235,20 +235,46 @@ static void TestMenuInput() {
         Check(WndProc(window.handle,message,'A',0)==0,"Captured input must not reach game");
     Check(game_input_messages==0 && test_input_messages==7,"Backend receives each captured event once even when returning zero");
     test_input_io.WantCaptureMouse=false;
-    Check(WndProc(window.handle,WM_LBUTTONUP,0,0)==456,"Uncaptured mouse forwards");
+    Check(WndProc(window.handle,WM_LBUTTONUP,0,0)==0,"Open menu blocks mouse even outside its widgets");
     test_input_io.WantCaptureKeyboard=false;
     Check(WndProc(window.handle,WM_KEYUP,'A',0)==456,"Uncaptured keyboard forwards");
     globals::menu_open=false; test_input_io.WantCaptureMouse=true;
     Check(WndProc(window.handle,WM_LBUTTONDOWN,0,0)==456,"Closed menu ignores stale capture flag");
     globals::console_open=true;
     Check(WndProc(window.handle,WM_LBUTTONDOWN,0,0)==0,"Console also captures its clicks");
-    Check(game_input_messages==3,"Only uncaptured events reach original");
+    Check(game_input_messages==2,"Only uncaptured events reach original");
     globals::console_open=false; globals::imgui_initialized=false;
     hooks::oWndProc=previous; test_window_input=false;
     std::puts("PASS: captured menu input is not forwarded to game");
 }
+static void TestRelativeMouseHooks() {
+    static bool mode = true;
+    static void* receivedWindow = nullptr;
+    s_stopping = false;
+    s_mouse_state.Reset();
+    s_relative2 = +[](int enabled)->int { mode = enabled != 0; return 17; };
+    s_get_relative2 = +[]()->int { return mode; };
+    SetMenuMouseBlocked(true);
+    Check(!mode, "Opening menu releases SDL2 relative capture immediately");
+    Check(RelativeMouse2(1) == 17 && !mode, "SDL2 hook suppresses recapture and preserves return value");
+    SetMenuMouseBlocked(false);
+    Check(mode, "Closing restores SDL2 gameplay relative mode");
+    s_relative2 = nullptr;
+    s_mouse_state.Reset();
+    s_mouse_window = reinterpret_cast<void*>(0x1234);
+    s_relative3 = +[](void* window, bool enabled)->bool { receivedWindow = window; mode = enabled; return true; };
+    s_get_relative3 = +[](void*)->bool { return mode; };
+    SetMenuMouseBlocked(true);
+    Check(!mode && receivedWindow == s_mouse_window, "SDL3 window and boolean ABI preserved");
+    Check(RelativeMouse3(s_mouse_window, true) && !mode, "SDL3 hook suppresses recapture");
+    SetMenuMouseBlocked(false);
+    Check(mode, "Closing restores SDL3 gameplay relative mode");
+    s_mouse_state.Reset(); s_relative3 = nullptr; s_mouse_window = nullptr;
+    std::puts("PASS: SDL2/SDL3 relative mouse capture, suppression and restoration");
+}
 int main() {
     try {
+        TestRelativeMouseHooks();
         TestMenuInput();
         unsigned entityCalls=0;
         static unsigned* entityCounter=nullptr; entityCounter=&entityCalls;

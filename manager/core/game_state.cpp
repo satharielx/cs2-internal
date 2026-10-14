@@ -1,3 +1,4 @@
+#include "constants/game_state_signatures.h"
 #include "game_state.h"
 #include "interfaces.h"
 #include "../external/offsets/offsets.hpp"
@@ -73,9 +74,9 @@ namespace game_state {
                 // Function entry, not a RIP-relative pointer slot. Verified against the installed binary.
                 if (!getter)
                     getter = reinterpret_cast<LocalPawnGetter>(sdk::find_pattern("client.dll",
-                        "48 83 EC ? 83 F9 ? 75 ? 48 8B 0D ? ? ? ? 48 8D 54 24 ? ? ? ? FF 90 ? ? ? ? ? ? 48 63 C1 4C 8D 05"));
+                        runtime_patterns::game_state::local_pawn_getter));
                 if (!controller_slot) {
-                    if (auto* instruction = sdk::find_pattern("client.dll", "48 8B 05 ? ? ? ? 41 89 BE"))
+                    if (auto* instruction = sdk::find_pattern("client.dll", runtime_patterns::game_state::local_controller))
                         controller_slot = reinterpret_cast<uintptr_t>(sdk::resolve_absolute_rip_address(instruction, 3, 7));
                 }
             }
