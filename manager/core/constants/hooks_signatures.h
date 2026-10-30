@@ -2,6 +2,7 @@
 
 // These patterns depend on the game build.
 namespace runtime_patterns::hooks {
+    inline constexpr char base_draw_array[] = "48 8B C4 4C 89 40 18 48 89 50 10 55 53 41 57";
     inline constexpr char create_move[] = "85 D2 0F 85 ? ? ? ? 48 8B C4 44 88 40 18";
     inline constexpr char entity_added[] = "48 89 74 24 ? 57 48 83 EC ? 41 B9 ? ? ? ? 41 8B C0 41 23 C1 48 8B F2 41 83 F8 ? 48 8B F9 44 0F 45 C8 41 81 F9 ? ? ? ? 73 ? FF 81";
     inline constexpr char entity_removed[] = "48 89 74 24 ? 57 48 83 EC ? 41 B9 ? ? ? ? 41 8B C0 41 23 C1 48 8B F2 41 83 F8 ? 48 8B F9 44 0F 45 C8 41 81 F9 ? ? ? ? 73 ? FF 89";

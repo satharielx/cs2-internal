@@ -7,6 +7,8 @@ namespace skybox {
     class ScopedColor {
         uintptr_t address_ = 0;
         float original_[3]{};
+        ScopedColor* parent_ = nullptr;
+        inline static thread_local ScopedColor* current_ = nullptr;
     public:
         ScopedColor(uintptr_t draw_data, int count);
         ~ScopedColor();

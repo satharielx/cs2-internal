@@ -365,6 +365,24 @@ int main() {
         };
         hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
         Check(history[4] == 42, "Disabled aim preserves original input mutations");
+        Check(std::strcmp(features::silent_callback_state.load(), "Master aim switch off") == 0,
+            "Master switch has a distinct diagnostic");
+        config::aimbot::enabled = true;
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(std::strcmp(features::silent_callback_state.load(), "Silent mode switch off") == 0,
+            "Silent mode has a distinct diagnostic");
+        config::aimbot::enabled = false;
+        features::silent_aim_status = "Last gameplay result";
+        globals::menu_open = true;
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(std::strcmp(features::silent_aim_status.load(), "Last gameplay result") == 0,
+            "Opening diagnostics preserves the gameplay failure reason");
+        globals::menu_open = false;
+        globals::console_open = true;
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(std::strcmp(features::silent_aim_status.load(), "Last gameplay result") == 0,
+            "Opening console preserves the gameplay failure reason");
+        globals::console_open = false;
         std::puts("PASS: CreateMove ABI and unlocked subtick forwarding");
         HiddenWindow selected_window;
         HiddenWindow foreign_window;

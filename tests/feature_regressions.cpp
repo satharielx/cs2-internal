@@ -282,9 +282,14 @@ static void TestFeatureExpansion() {
     const auto& refreshed=features::ReadSilentTargets(system.addr(),local.addr(),remote.addr());
     assert(features::silent_target_scans==scans+1 && refreshed.targets[2].points[2].x==100);
     config::aimbot::hitboxes[0]=true; config::aimbot::hitboxes[2]=false;
+    features::SetInputBlocked(true);
+    assert(std::strcmp(features::AimBlockReason(local.addr()), "Paused: overlay input is captured") == 0);
+    features::SetInputBlocked(false);
     config::aimbot::disable_airborne=true;
     assert(!features::AimDisabled(local.addr())); local.put<uint32_t>(sdk::off::C_BaseEntity::m_fFlags,0);
-    assert(features::AimDisabled(local.addr())); config::aimbot::disable_airborne=false;
+    assert(features::AimDisabled(local.addr()));
+    assert(std::strstr(features::AimBlockReason(local.addr()), "airborne"));
+    config::aimbot::disable_airborne=false;
     config::aimbot::disable_flashed=true; local.put(C_CSPlayerPawnBase::m_flFlashDuration,1.0f);
     assert(features::AimDisabled(local.addr())); config::aimbot::disable_flashed=false;
     config::aimbot::disable_scoped=true; local.put(sdk::off::C_CSPlayerPawn::m_bIsScoped,true);
@@ -331,6 +336,27 @@ static void TestFeatureExpansion() {
     const auto restored=sdk::read_value<sdk::Vector3>(smoke.addr()+C_SmokeGrenadeProjectile::m_vSmokeColor);
     assert(restored.x==50 && restored.y==60 && restored.z==70 && features::visual_fields.empty());
     for(float& channel:config::world::smoke_color) channel=1;
+    Buffer sun(0x2000),sunIdentity(0x80),sunName(96),lightComponent(0x200);
+    const uint32_t sunHandle=140|(5u<<15);
+    const char sunClass[]="light_environment";
+    std::memcpy(sunName.bytes.data(),sunClass,sizeof(sunClass));
+    chunk.put(140*0x70,sun.addr());sun.put(0x10,sunIdentity.addr());sunIdentity.put(0x10,sunHandle);
+    sunIdentity.put(CEntityIdentity::m_designerName,sunName.addr());
+    sun.put(sdk::off::C_LightEntity::m_CLightComponent,lightComponent.addr());
+    lightComponent.put(sdk::off::CLightComponent::m_bEnabled,true);
+    lightComponent.put(sdk::off::CLightComponent::m_flBrightness,4.f);
+    config::lighting::remove_sun=true;test_time+=1100;
+    features::UpdateWorldVisuals(game_state::test_state);
+    assert(!sdk::read_value<bool>(lightComponent.addr()+sdk::off::CLightComponent::m_bEnabled));
+    assert(sdk::read_value<float>(lightComponent.addr()+sdk::off::CLightComponent::m_flBrightness)==4.f);
+    config::lighting::remove_sun=false;features::UpdateWorldVisuals(game_state::test_state);
+    assert(sdk::read_value<bool>(lightComponent.addr()+sdk::off::CLightComponent::m_bEnabled));
+    assert(features::visual_fields.empty());
+    config::lighting::remove_sun=true;test_time+=1100;features::UpdateWorldVisuals(game_state::test_state);
+    sunIdentity.put<uint32_t>(0x10,sunHandle+(1u<<15));
+    config::lighting::remove_sun=false;features::UpdateWorldVisuals(game_state::test_state);
+    assert(!sdk::read_value<bool>(lightComponent.addr()+sdk::off::CLightComponent::m_bEnabled)); // Stale handle cannot receive restoration.
+    chunk.put<uintptr_t>(140*0x70,0);
     Buffer weaponServices(0x200), weapon(0x5000), weaponIdentity(0x80), weaponHandles(4);
     const uint32_t wh=131|(4u<<15);
     chunk.put(0x70*131,weapon.addr()); weapon.put(0x10,weaponIdentity.addr()); weaponIdentity.put(0x10,wh);
@@ -619,6 +645,89 @@ int main() {
     Buffer clientMemory(cs2_dumper::offsets::client_dll::dwViewAngles+0x100);
     Buffer localScene(0x300), bones(256*32);
     test_module=reinterpret_cast<HMODULE>(clientMemory.addr());
+    // Auto-strafe owns only a lateral button; lifecycle and manual input release it.
+    config::misc::auto_strafe = true;
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags, 0);
+    pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_MoveType, 2);
+    const auto left = clientMemory.addr() + cs2_dumper::buttons::left;
+    const auto right = clientMemory.addr() + cs2_dumper::buttons::right;
+    auto turn = [&](float yaw) {
+        clientMemory.put(cs2_dumper::offsets::client_dll::dwViewAngles, sdk::Vector2{0, yaw});
+        features::AutoStrafe();
+    };
+    turn(0); turn(1);
+    assert(sdk::read_value<uint32_t>(left) == 65537);
+    turn(-1);
+    assert(sdk::read_value<uint32_t>(left) == 256 && sdk::read_value<uint32_t>(right) == 65537);
+    features::SetInputBlocked(true); turn(-2);
+    assert(sdk::read_value<uint32_t>(right) == 256);
+    features::SetInputBlocked(false); turn(179); turn(-179); // Wrap is a left turn.
+    assert(sdk::read_value<uint32_t>(left) == 65537);
+    test_keys['A'] = static_cast<SHORT>(0x8000); turn(-178);
+    assert(sdk::read_value<uint32_t>(left) == 65537); // Physical A keeps ownership.
+    test_keys['A'] = 0; sdk::write_memory(left, uint32_t{256});
+    turn(0); turn(1);
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags, 1); turn(2);
+    assert(sdk::read_value<uint32_t>(left) == 256);
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags, 0); turn(0); turn(-1);
+    pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_MoveType, 9); turn(-2);
+    assert(sdk::read_value<uint32_t>(right) == 256);
+    pawn.put<uint8_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_MoveType, 2); turn(0); turn(1);
+    config::misc::auto_strafe = false; turn(2);
+    assert(sdk::read_value<uint32_t>(left) == 256);
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags, 1);
+    test_keys[VK_SPACE]=0;
+    config::misc::quick_stop=true;
+    clientMemory.put(cs2_dumper::offsets::client_dll::dwViewAngles,sdk::Vector2{0,0});
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_vecAbsVelocity,sdk::Vector3{180,0,0});
+    const auto back=clientMemory.addr()+cs2_dumper::buttons::back;
+    features::MovementAssist(); assert(sdk::read_value<uint32_t>(back)==65537);
+    test_keys['W']=static_cast<SHORT>(0x8000);
+    features::MovementAssist(); assert(sdk::read_value<uint32_t>(back)==256);
+    test_keys['W']=0;
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_vecAbsVelocity,sdk::Vector3{0,180,0});
+    features::MovementAssist(); assert(sdk::read_value<uint32_t>(right)==65537);
+    features::SetInputBlocked(true); features::MovementAssist();
+    assert(sdk::read_value<uint32_t>(right)==256);
+    features::SetInputBlocked(false);
+    config::misc::quick_stop=false;
+    config::misc::strafe_assist=true;
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags,0);
+    test_keys[VK_SPACE]=static_cast<SHORT>(0x8000);
+    turn(0); turn(0); assert(sdk::read_value<uint32_t>(right)==256); // Large mismatch must not brake in air.
+    turn(85); assert(sdk::read_value<uint32_t>(left)==65537);
+    config::misc::strafe_assist=false; turn(85); assert(sdk::read_value<uint32_t>(left)==256);
+    // Predictive edge jump must jump while still grounded, never on missing traces.
+    test_keys[VK_SPACE]=0;
+    test_keys[VK_MENU]=static_cast<SHORT>(0x8000);
+    config::misc::edge_jump=true; config::misc::bunny_hop=false;
+    pawn.put<uint32_t>(cs2_dumper::schemas::client_dll::C_BaseEntity::m_fFlags,1);
+    pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_vecAbsVelocity,sdk::Vector3{200,0,0});
+    pawn.put(sdk::off::C_BasePlayerPawn::m_vOldOrigin,sdk::Vector3{0,0,0});
+    const auto savedTrace=engine_trace::functions;
+    const bool savedFault=engine_trace::faulted;
+    engine_trace::functions={}; engine_trace::faulted=false;
+    features::MovementAssist(); features::BunnyHop();
+    const auto jump=clientMemory.addr()+cs2_dumper::buttons::jump;
+    assert(sdk::read_value<uint32_t>(jump)!=65537);
+    static engine_trace::Entry floorEntry{};
+    floorEntry.start=.25f;
+    engine_trace::functions={
+        [](engine_trace::Data* d) { *d={}; },
+        [](engine_trace::Hit* h) { *h={}; h->fraction=.25f; h->normal={0,0,1}; },
+        [](engine_trace::Filter*,uintptr_t,uint64_t,int,int)->void* { return nullptr; },
+        [](engine_trace::Data* d,sdk::Vector3 start,sdk::Vector3,engine_trace::Filter*,int,bool) {
+            d->entries.size=start.x<1 ? 1 : 0; d->entries.data=&floorEntry;
+        },
+        [](engine_trace::Data*,engine_trace::Hit*,float,void*) {}
+    };
+    features::MovementAssist(); features::BunnyHop();
+    assert(sdk::read_value<uint32_t>(jump)==65537);
+    test_time+=30; features::MovementAssist(); features::BunnyHop();
+    assert(sdk::read_value<uint32_t>(jump)==256); // No repeated pulse while held at the edge.
+    config::misc::edge_jump=false; test_keys[VK_MENU]=0;
+    features::MovementAssist(); features::ReleaseInputs();
+    engine_trace::functions=savedTrace; engine_trace::faulted=savedFault;
     pawn.put(cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode,localScene.addr());
     pawn.put(cs2_dumper::schemas::client_dll::C_BaseModelEntity::m_vecViewOffset+0x20,64.0f);
     scene.put(CSkeletonInstance::m_modelState+0x80,bones.addr());
@@ -645,10 +754,21 @@ int main() {
     const sdk::Vector3 sourceAngles{10,20,3};
     std::memcpy(history+4,&sourceAngles,sizeof(sourceAngles));
     history[0]=123; history[2]=456;
+    bool selectedHitboxes[4];
+    std::copy(std::begin(config::aimbot::hitboxes),std::end(config::aimbot::hitboxes),selectedHitboxes);
+    std::fill(std::begin(config::aimbot::hitboxes),std::end(config::aimbot::hitboxes),false);
+    features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
+    assert(features::silent_aim_writes==0);
+    assert(std::strstr(features::silent_aim_status.load(),"No target hitboxes selected"));
+    std::copy(std::begin(selectedHitboxes),std::end(selectedHitboxes),config::aimbot::hitboxes);
+    test_time += 250; // Allow the throttled debug snapshot to capture the next evaluation.
+    // A missing lifecycle cache must not reject an otherwise valid live winner.
+    entity_events::Reset(); entity_events::enabled=true;
     features::RunSilentAimSubTick(history,reinterpret_cast<sdk::C_CSPlayerPawn*>(pawn.addr()));
     angles=sdk::read_value<sdk::Vector2>(reinterpret_cast<uintptr_t>(history+4));
     assert(std::abs(angles.x)<0.001f && std::abs(angles.y-45.0f)<0.001f);
     assert(features::silent_aim_writes==1);
+    entity_events::Reset();
     auto debug=features::GetSilentAimDebug();
     assert(debug.input_valid && debug.input.x==10 && debug.input.y==20 && debug.input.z==3);
     assert(debug.raw_angles[0]==0x41200000 && debug.target_valid && debug.written);
@@ -909,6 +1029,29 @@ int main() {
         entity_events::Reset();
         assert(features::ReadAimPlayers(eventSystem.addr(),0,true).pawns[1]==eventPawn.addr()); // Disabled-hook fallback.
     }
+    {
+        // Hook registration can precede player creation without an Added event.
+        // A seeded empty registry must not hide live remote targets.
+        Buffer system(0x40), chunk(0x70*512), controller(0x1000), remote(0x5000), controllerId(0x30), pawnId(0x30);
+        system.put(0x10,chunk.addr());
+        entity_events::Reset(); entity_events::enabled=true;
+        std::array<entity_events::Entry,65> empty{};
+        assert(entity_events::Snapshot(system.addr(),empty));
+        const uint32_t controllerHandle=2|(4u<<15), pawnHandle=128|(6u<<15);
+        chunk.put(2*0x70,controller.addr()); chunk.put(128*0x70,remote.addr());
+        controller.put(0x10,controllerId.addr()); controllerId.put(0x10,controllerHandle);
+        controller.put(sdk::off::CCSPlayerController::m_hPlayerPawn,pawnHandle);
+        remote.put(0x10,pawnId.addr()); pawnId.put(0x10,pawnHandle);
+        remote.put(sdk::off::C_BaseEntity::m_iHealth,100);
+        auto live=features::ReadSilentTargets(system.addr(),0,0);
+        assert(live.active_count==1 && live.targets[2].pawn==remote.addr());
+        // Recycled slots cannot satisfy an old controller handle.
+        pawnId.put(0x10,128|(7u<<15));
+        assert(features::ReadSilentTargets(system.addr(),0,0).active_count==0);
+        controller.put(sdk::off::CCSPlayerController::m_hPlayerPawn,128|(7u<<15));
+        assert(features::ReadSilentTargets(system.addr(),0,0).active_count==1);
+        entity_events::Reset();
+    }
     auto* ui=ImGui::CreateContext();
     menu_advanced::LoadIconFont();
     auto& io=ImGui::GetIO();
@@ -924,8 +1067,15 @@ int main() {
             assert(ImGui::GetStyle().Colors[ImGuiCol_WindowBg].x == previousStyle.Colors[ImGuiCol_WindowBg].x);
             assert(ImGui::GetDrawData()->TotalVtxCount>0);
             if(frame==2 && (page==11 || page==0)) SaveMenuPreview(page==11 ? "dashboard.bmp" : "aim-page.bmp",pixels,atlasWidth,atlasHeight);
+            if(frame==2 && page==2) SaveMenuPreview("players-page.bmp",pixels,atlasWidth,atlasHeight);
         }
     }
+    config::colors::light_theme=true;
+    const auto darkStyle=ImGui::GetStyle();
+    ImGui::NewFrame(); menu_advanced::RenderMainMenu(); ImGui::Render();
+    assert(ImGui::GetStyle().Colors[ImGuiCol_WindowBg].x==darkStyle.Colors[ImGuiCol_WindowBg].x);
+    SaveMenuPreview("light-page.bmp",pixels,atlasWidth,atlasHeight);
+    config::colors::light_theme=false;
     // Real mouse events must toggle exactly the clicked aim setting once.
     menu_advanced::selected_tab=0;
     bool* aimSettings[]={&config::aimbot::enabled,&config::aimbot::auto_shoot,&config::aimbot::team_check,

@@ -12,27 +12,46 @@ ScopedColor::ScopedColor(uintptr_t draw_data, int count) {
     bool useOriginal = false;
     float night = 1;
     {
+        struct CachedTint { bool active = false, original = true; float night = 1, tint[3]{}; };
+        static thread_local CachedTint cached;
         std::unique_lock<std::recursive_mutex> lock(config::mutex, std::try_to_lock);
-        if (!lock.owns_lock() || (!config::skybox::color_enabled && !config::lighting::night_mode)) return;
-        useOriginal = !config::skybox::color_enabled;
-        if (config::lighting::night_mode && std::isfinite(config::lighting::night_brightness)) night = std::clamp(config::lighting::night_brightness, .02f, 1.0f);
-        for (int i = 0; i < 3; ++i)
-            tint[i] = config::skybox::color[i] * config::skybox::brightness;
+        if (lock.owns_lock()) {
+            cached = {};
+            cached.active = config::skybox::color_enabled || config::lighting::night_mode;
+            cached.original = !config::skybox::color_enabled;
+            if (config::lighting::night_mode && std::isfinite(config::lighting::night_brightness))
+                cached.night = std::clamp(config::lighting::night_brightness, .02f, 1.0f);
+            for (int i = 0; i < 3; ++i)
+                cached.tint[i] = config::skybox::color[i] * config::skybox::brightness;
+        }
+        if (!cached.active) return;
+        useOriginal = cached.original;
+        night = cached.night;
+        std::copy(std::begin(cached.tint), std::end(cached.tint), tint);
     }
     if (!game_state::GetSnapshot().in_game) return;
     // Supplied DrawArray layout: scene object at +0x18, RGB floats at +0xE8.
     const auto object = sdk::read_value<uintptr_t>(draw_data + 0x18);
     if (!object) return;
     const auto address = object + 0xE8;
+    for (auto* scope = current_; scope; scope = scope->parent_)
+        if (scope->address_ == address) return;
     if (!sdk::read_memory(address, original_)) return;
     for (int i = 0; i < 3; ++i) {
         tint[i] = (useOriginal ? original_[i] : tint[i]) * night;
         if (!std::isfinite(tint[i])) return;
     }
-    if (sdk::write_memory(address, tint)) address_ = address;
+    if (sdk::write_memory(address, tint)) {
+        address_ = address;
+        parent_ = current_;
+        current_ = this;
+    }
 }
 ScopedColor::~ScopedColor() {
-    if (address_) sdk::write_memory(address_, original_);
+    if (address_) {
+        current_ = parent_;
+        sdk::write_memory(address_, original_);
+    }
 }
 namespace {
     using UpdateSkybox = void (__fastcall*)(void*);

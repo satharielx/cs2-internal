@@ -8,6 +8,8 @@
 #include "game_state.h"
 #include "skybox.h"
 #include "lighting.h"
+#include "chams.h"
+#include "scene_visuals.h"
 #include "viewmodel.h"
 #include "camera_view.h"
 #include "skin_hud.h"
@@ -156,6 +158,18 @@ namespace {
     bool initialize_renderer(IDXGISwapChain* chain);
 }
 using SkyboxDrawArrayFn = void(__fastcall*)(uintptr_t, uintptr_t, uintptr_t, int, int, uintptr_t, uintptr_t);
+scene_visuals::DrawArray oBaseDrawArray=nullptr;
+void __fastcall hkBaseDrawArray(uintptr_t desc,uintptr_t context,uintptr_t list,int count,uintptr_t view,uintptr_t layer,uintptr_t unknown) {
+    CallbackScope callback;
+    if(s_stopping) oBaseDrawArray(desc,context,list,count,view,layer,unknown);
+    else scene_visuals::Draw(oBaseDrawArray,desc,context,list,count,view,layer,unknown);
+}
+chams::Generate oGeneratePrimitives = nullptr;
+uintptr_t __fastcall hkGeneratePrimitives(uintptr_t desc,uintptr_t object,uintptr_t context,uintptr_t output) {
+    CallbackScope callback;
+    return s_stopping ? oGeneratePrimitives(desc,object,context,output) :
+        chams::Draw(oGeneratePrimitives,desc,object,context,output);
+}
 using UpdateLightObjectFn = void(__fastcall*)(void*, void*, void*);
 UpdateLightObjectFn oUpdateLightObject = nullptr;
 void __fastcall hkUpdateLightObject(void* context, void* light, void* data) {
@@ -175,6 +189,7 @@ SkyboxDrawArrayFn oSkyboxDrawArray = nullptr;
 void __fastcall hkSkyboxDrawArray(uintptr_t a1, uintptr_t a2, uintptr_t data, int count,
     int a5, uintptr_t a6, uintptr_t a7) {
     CallbackScope callback;
+    if(!s_stopping && (scene_visuals::flags.load(std::memory_order_relaxed)&scene_visuals::Sky)) return;
     skybox::ScopedColor color(s_stopping ? 0 : data, count);
     oSkyboxDrawArray(a1, a2, data, count, a5, a6, a7);
 }
@@ -207,8 +222,10 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
         if (!settings_lock.owns_lock()) {
             aim_profiler::Mark(aim_profiler::SkipBusy);
             ++features::silent_settings_skips;
+            features::silent_callback_state = "Skipped: settings mutex busy";
         } else if (!s_stopping && !globals::menu_open && !globals::console_open &&
             config::aimbot::enabled && config::aimbot::silent_aim) {
+            features::silent_callback_state = "Evaluating";
             aim_profiler::Mark(aim_profiler::Evaluated);
             const auto before = features::silent_aim_writes.load();
             // The serializer consumes source floats at +0x10/+0x14/+0x18.
@@ -216,6 +233,7 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
             // Limit the angle substitution to this serialization call.
             if (source && sdk::read_memory(reinterpret_cast<uintptr_t>(source + 4), originalAngles))
                 features::RunSilentAimSubTick(source, game_state::GetLocalPawn());
+            else features::silent_aim_status = "Subtick source angles unreadable";
             applied = features::silent_aim_writes.load() != before;
             aim_profiler::Mark(applied ? aim_profiler::Applied : aim_profiler::NoWrite);
             static thread_local ULONGLONG next_verification = 0;
@@ -226,7 +244,12 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
         } else {
             aim_profiler::Mark(s_stopping ? aim_profiler::SkipStopping :
                 globals::menu_open || globals::console_open ? aim_profiler::SkipMenu : aim_profiler::SkipDisabled);
-            features::silent_aim_status = "Disabled or menu/console open";
+            features::silent_callback_state = s_stopping ? "Stopping" :
+                globals::menu_open ? "Paused: menu open" : globals::console_open ? "Paused: console open" :
+                !config::aimbot::enabled ? "Master aim switch off" : "Silent mode switch off";
+            // Opening diagnostics must not erase the last gameplay result.
+            if (!globals::menu_open && !globals::console_open)
+                features::silent_aim_status = features::silent_callback_state.load();
         }
     }
     {
@@ -341,7 +364,7 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
             return;
         }
 
-        std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
+        std::unique_lock<std::recursive_mutex> settings_lock(config::mutex, std::defer_lock);
         features::SetInputBlocked(globals::menu_open || globals::console_open);
         RenderTargetScope render_targets(interfaces::d3d11_device_context);
 
@@ -350,6 +373,11 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
 
+            settings_lock.lock();
+            scene_visuals::flags.store(game_state::IsInGame() ?
+                (config::lighting::remove_sun ? scene_visuals::Sun : 0u) |
+                (config::skybox::remove_clouds ? scene_visuals::Clouds : 0u) |
+                (config::skybox::hide_background ? scene_visuals::Sky : 0u) : 0u,std::memory_order_relaxed);
             // Run features every frame
             if (config::esp::enabled) {
                 try {
@@ -363,7 +391,9 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
 
             // Misc features ? run every frame
             try { features::TriggerBot(); } catch (...) {}
+            try { features::MovementAssist(); } catch (...) {}
             try { features::BunnyHop(); } catch (...) {}
+            try { features::AutoStrafe(); } catch (...) {}
             try { features::NoFlash(); } catch (...) {}
             try { features::RadarHack(); } catch (...) {}
 
@@ -394,6 +424,10 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
                 }
             }
 
+            features::SetInputBlocked(globals::menu_open || globals::console_open);
+            // Draw data no longer reads settings. GPU uploads must not suppress
+            // game callbacks that use try_lock on the settings mutex.
+            settings_lock.unlock();
             menu_advanced::DrawWorkspaceCursor(globals::menu_open || globals::console_open);
             ImGui::EndFrame();
             ImGui::Render();
@@ -765,6 +799,7 @@ namespace hooks {
 
     void* __fastcall Hook_OnRemoveEntity(void* system, void* entity, uint32_t handle) {
         CallbackScope callback;
+        if(!s_stopping) chams::BeforeRemove(reinterpret_cast<uintptr_t>(system),reinterpret_cast<uintptr_t>(entity),handle);
         if(!s_stopping) entity_events::Removed(reinterpret_cast<uintptr_t>(system),reinterpret_cast<uintptr_t>(entity),handle);
         return OnRemoveEntity_o(system, entity, handle);
     }
@@ -990,7 +1025,23 @@ namespace hooks {
                 }
             }
 
+            if(FrameStageNotify_o) {
+                const auto target=chams::Initialize();
+                if(target) {
+                    const auto result=MH_CreateHook(reinterpret_cast<void*>(target),&hkGeneratePrimitives,
+                        reinterpret_cast<void**>(&oGeneratePrimitives));
+                    chams::hook_ready=result==MH_OK;
+                    chams::status=result==MH_OK ? "Chams hook prepared" : "Unavailable: GeneratePrimitives hook failed";
+                    if(result==MH_OK) RegisterOnFrameStageNotify(&chams::OnFrameStage);
+                }
+            } else chams::status="Unavailable: frame-stage hook required for chams";
             auto sky_target = sdk::find_pattern("scenesystem.dll", runtime_patterns::hooks::sky_draw);
+            const auto base_draw=sdk::find_pattern("scenesystem.dll",runtime_patterns::hooks::base_draw_array);
+            scene_visuals::status="Unavailable: sun/cloud draw hook did not resolve";
+            if(base_draw) {
+                const auto result=MH_CreateHook(base_draw,&hkBaseDrawArray,reinterpret_cast<void**>(&oBaseDrawArray));
+                scene_visuals::status=result==MH_OK ? "Sun/cloud geometry filter ready" : "Unavailable: sun/cloud draw hook failed";
+            }
             skybox::color_status = "Unavailable: sky draw signature not found";
             if (sky_target) {
                 const auto sky_status = MH_CreateHook(sky_target, &hkSkyboxDrawArray,
@@ -1032,6 +1083,9 @@ namespace hooks {
     }
 
     void destroy() {
+        scene_visuals::flags=0;
+        // Restore while GeneratePrimitives still pins each draw's owned snapshot.
+        chams::Shutdown();
         skybox::RestoreBeforeUnload();
         if (s_restore_mouse_message && s_hooked_window && IsWindow(s_hooked_window)) {
             DWORD_PTR result = 0;
@@ -1057,6 +1111,8 @@ namespace hooks {
             features::ReleaseInputs();
         }
         MH_RemoveHook(MH_ALL_HOOKS);
+        oGeneratePrimitives = nullptr;
+        oBaseDrawArray = nullptr;
         oOverrideView = nullptr;
         oWeaponHudTick = nullptr;
         skin_hud::clear = nullptr;

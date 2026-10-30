@@ -4,6 +4,7 @@
 #include "../camera_view.h"
 #include "../lighting.h"
 #include "../skybox.h"
+#include "../scene_visuals.h"
 #include "../engine_trace.h"
 #include <cstdio>
 
@@ -68,6 +69,11 @@ namespace menu_advanced {
 
         ImGui::Separator();
         ModernToggle("Night Mode Lighting", &config::lighting::night_mode);
+        ModernToggle("Remove Sun", &config::lighting::remove_sun);
+        ModernToggle("Remove Clouds", &config::skybox::remove_clouds);
+        ModernToggle("Hide Sky Background", &config::skybox::hide_background);
+        ImGui::TextWrapped("Removes sun/cloud geometry by material name. Hide the sky background to remove a sun baked into its texture.");
+        ImGui::TextWrapped("%s",scene_visuals::status.load());
         ImGui::SliderFloat("Night Brightness", &config::lighting::night_brightness, .02f, 1.0f, "%.2f");
         ImGui::TextWrapped("%s", lighting::status.load());
         ModernToggle("Custom Light Color", &config::lighting::enabled);
@@ -122,6 +128,7 @@ namespace menu_advanced {
         BeginCard("##MainMiscCard");
         ImGui::Indent(10);
         ModernToggle("Auto Bunny Hop", &config::misc::bunny_hop);
+        ModernToggle("Auto Strafe", &config::misc::auto_strafe);
         ModernToggle("Show Player Money in ESP", &config::misc::show_money);
         ModernToggle("No Flashbang Blindness", &config::misc::no_flash);
         ModernToggle("Engine Radar Hack", &config::misc::radar_hack);
@@ -136,6 +143,16 @@ namespace menu_advanced {
         ImGui::Indent(10);
         ModernToggle("Automatic Bunny Hop (BHop)", &config::misc::bunny_hop);
         ImGui::TextDisabled("Hold spacebar to continuously jump at peak velocity.");
+        ModernToggle("Auto Strafe", &config::misc::auto_strafe);
+        ImGui::TextWrapped("Hold Space in the air and turn the mouse to strafe. A/D takes priority; disabled on ladders and in noclip.");
+        ModernToggle("Strafe Assist", &config::misc::strafe_assist);
+        ImGui::TextWrapped("Maintains lateral air movement relative to your velocity while holding Space. A/D takes priority.");
+        ModernToggle("Quick Stop", &config::misc::quick_stop);
+        ImGui::TextWrapped("Counter-strafes on the ground when you release WASD.");
+        ModernToggle("Edge Jump", &config::misc::edge_jump);
+        ImGui::TextWrapped("Hold the edge key to jump before stepping off a ledge. Requires working collision traces.");
+        ImGui::SliderInt("Edge key (VK)", &config::misc::edge_jump_key, 1, 255);
+        ImGui::TextDisabled("Default: Alt (18)");
         ImGui::Unindent(10);
         EndCard();
     }

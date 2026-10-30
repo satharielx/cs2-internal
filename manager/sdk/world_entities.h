@@ -17,8 +17,11 @@ namespace sdk::world {
         return false;
     }
     inline bool IsProjectile(const char* name) { return std::strstr(name, "projectile") != nullptr; }
+    inline bool IsSunLight(const char* name) {
+        return !std::strcmp(name,"light_environment") || !std::strcmp(name,"light_directional");
+    }
     inline bool IsTracked(const char* name) {
-        return !std::strncmp(name, "weapon_", 7) || IsProjectile(name) ||
+        return IsSunLight(name) || !std::strncmp(name, "weapon_", 7) || IsProjectile(name) ||
             !std::strcmp(name, "planted_c4") || !std::strcmp(name, "item_defuser");
     }
     inline std::vector<Entity> Discover(uintptr_t system, int highest) {

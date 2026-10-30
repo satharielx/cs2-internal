@@ -1,3 +1,6 @@
+#include "esp_style.h"
+#include "chams.h"
+#include "scene_visuals.h"
 #include "engine_trace.h"
 #include "pattern_resolver.h"
 #include "entity_events.h"
@@ -253,23 +256,37 @@ namespace menu_advanced {
         draw->AddRectFilled(origin, { origin.x + areaWidth, origin.y + 260 }, IM_COL32(11, 14, 21, 255), 10);
         draw->AddRect(origin, { origin.x + areaWidth, origin.y + 260 }, IM_COL32(26, 34, 48, 255), 10, 0, 1.5f);
 
-        if (config::esp::box) {
-            draw->AddRect(top, bottom, color, 4.0f, 0, 1.8f);
-            draw->AddRect({ top.x - 1, top.y - 1 }, { bottom.x + 1, bottom.y + 1 }, IM_COL32(0, 0, 0, 180), 4.0f);
-        }
-        if (config::esp::health_bar) {
-            draw->AddRectFilled({ top.x - 9, top.y }, { top.x - 5, bottom.y }, IM_COL32(20, 25, 35, static_cast<int>(alpha * 255)), 2);
-            draw->AddRectFilled({ top.x - 9, top.y + 35 }, { top.x - 5, bottom.y }, IM_COL32(50, 220, 90, static_cast<int>(alpha * 255)), 2);
-        }
-        if (config::esp::armor_bar)
-            draw->AddRectFilled({ top.x, bottom.y + 4 }, { bottom.x, bottom.y + 7 }, IM_COL32(50, 160, 255, static_cast<int>(alpha * 255)), 2);
-
-        auto text = [&](ImVec2 position, const char* label) { draw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * scale, position, color, label); };
-        if (config::esp::name) text({ top.x, top.y - 24 }, "Enemy Player");
-        if (config::esp::distance) text({ top.x, bottom.y + 14 }, "24.5m");
+        // Neutral mannequin keeps the preview useful while all overlay elements are off.
+        const float bodyX=(top.x+bottom.x)*.5f;
+        const auto body=config::esp::chams ? ImGui::ColorConvertFloat4ToU32(
+            {config::esp::chams_color[0],config::esp::chams_color[1],config::esp::chams_color[2],1}) : IM_COL32(42,60,72,255);
+        draw->AddCircleFilled({bodyX,top.y+17},11,body,20);
+        draw->AddRectFilled({bodyX-17,top.y+33},{bodyX+17,top.y+93},body,7);
+        draw->AddLine({bodyX-18,top.y+40},{bodyX-30,top.y+90},body,9);
+        draw->AddLine({bodyX+18,top.y+40},{bodyX+30,top.y+90},body,9);
+        draw->AddLine({bodyX-10,top.y+91},{bodyX-14,bottom.y-6},body,12);
+        draw->AddLine({bodyX+10,top.y+91},{bodyX+14,bottom.y-6},body,12);
+        if (config::esp::box) esp_style::Box(draw, top, bottom, color, alpha, scale);
+        if (config::esp::health_bar) esp_style::Health(draw, top, bottom, .78f, alpha, scale);
+        if (config::esp::armor_bar) esp_style::Armor(draw, top, bottom, .65f, alpha, scale);
+        const float lineHeight = (ImGui::GetFontSize() + 3) * scale;
+        const float neutral[] = {.91f, .94f, .98f, 1};
+        auto text = [&](ImVec2 position, const char* label, bool centered) {
+            esp_style::Text(draw, position, label, esp_style::Color(neutral, alpha), alpha, scale, centered);
+        };
+        const float center = (top.x + bottom.x) * .5f;
+        if (config::esp::name) text({center, top.y - lineHeight}, "Enemy Player", true);
+        float bottomY = bottom.y + (config::esp::armor_bar ? 11 : 5) * scale;
+        if (config::esp::weapon_text) { text({center, bottomY}, "AK-47", true); bottomY += lineHeight; }
+        if (config::esp::distance) text({center, bottomY}, "25m", true);
         float y = top.y;
-        auto flag = [&](bool enabled, const char* label) { if (enabled) { text({ bottom.x + 6, y }, label); y += 15 * scale; } };
-        flag(config::esp::weapon_text, "AK-47"); flag(config::esp::bomb, "BOMB"); flag(config::esp::defuse_kit, "KIT");
+        auto flag = [&](bool enabled, const char* label) {
+            if (enabled) {
+                esp_style::Text(draw, {bottom.x + 5 * scale, y}, label, color, alpha, scale);
+                y += lineHeight;
+            }
+        };
+        flag(config::esp::bomb, "BOMB"); flag(config::esp::defuse_kit, "KIT");
         flag(config::esp::flashed, "FLASHED"); flag(config::esp::scoped, "SCOPED"); flag(config::esp::planting, "PLANTING");
         flag(config::esp::defusing, "DEFUSING"); flag(config::esp::hostage, "HOSTAGE"); flag(config::misc::show_money, "$4200");
         if (config::esp::snaplines) draw->AddLine({ origin.x + areaWidth * .5f, origin.y + 252 }, { top.x + 45, bottom.y }, color, 1.5f);
@@ -284,93 +301,69 @@ namespace menu_advanced {
         }
     }
 
-    // Render esp tab (players).
+    // Player controls use two compact columns; the sample lives in the adjacent panel.
     void RenderESPTab() {
-        SectionHeader("Player ESP & Visuals", ICON_FA_EYE);
-        if (config::esp::enabled) {
-            const auto& d = features::esp_diagnostics;
-            ImGui::TextWrapped("ESP Diagnostic: %s | Matrix: %s", d.status, pattern_resolver::view_matrix ? "Signature" : "Fallback");
-            ImGui::TextDisabled("Entities: %u pawns / %u alive / %u team / %u drawn", d.pawns, d.alive, d.team_pass, d.drawn);
-        }
-
-        // Master Toggle Card
-        BeginCard("##ESPMasterCard");
-        ImGui::Indent(12);
-        ImGui::Dummy(ImVec2(0, 4));
-        ModernToggle("ENABLE PLAYER ESP SYSTEM", &config::esp::enabled);
-        ImGui::SameLine(350);
-        ImGui::TextColored(config::esp::enabled ? ImVec4(0.0f, 0.90f, 0.40f, 1.0f) : ImVec4(0.80f, 0.30f, 0.30f, 1.0f),
-            "Status: %s", config::esp::enabled ? "ACTIVE" : "DISABLED");
-        ImGui::Dummy(ImVec2(0, 4));
-        ImGui::Unindent(12);
-        EndCard();
-
-        ImGui::Dummy(ImVec2(0, 10));
-        ImGui::Columns(2, nullptr, false);
-        ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.52f);
-
-        // Left Column - Features
-        BeginCard("##FeaturesCard");
-        ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "RENDERING FEATURES");
-        ImGui::Separator();
-        ImGui::Indent(10);
-        ModernToggle("Box ESP", &config::esp::box);
+        ImGui::Columns(2, "player-settings", false);
+        ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * .5f);
+        BeginCard("##ESPMain");
+        ImGui::TextUnformatted("ESP"); ImGui::Separator();
+        ModernToggle("Enable ESP", &config::esp::enabled);
+        ModernToggle("Boxes", &config::esp::box);
         ModernToggle("Skeleton", &config::esp::skeleton);
-        ModernToggle("Glow ESP", &config::esp::glow);
-        ImGui::ColorEdit4("Glow Color", config::esp::glow_color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
-        ModernToggle("Health Bar", &config::esp::health_bar);
-        ModernToggle("Armor Bar", &config::esp::armor_bar);
-        ModernToggle("Player Name", &config::esp::name);
+        ModernToggle("Health bar", &config::esp::health_bar);
+        ModernToggle("Armor bar", &config::esp::armor_bar);
+        ModernToggle("Player name", &config::esp::name);
+        ModernToggle("Weapon text", &config::esp::weapon_text);
         ModernToggle("Distance", &config::esp::distance);
-        ModernToggle("Weapon Text", &config::esp::weapon_text);
         ModernToggle("Snaplines", &config::esp::snaplines);
-        ModernToggle("Bomb Carrier", &config::esp::bomb);
-        ModernToggle("Defuse Kit", &config::esp::defuse_kit);
-        ModernToggle("Flashed Indicator", &config::esp::flashed);
-        ModernToggle("Scoped Indicator", &config::esp::scoped);
-        ModernToggle("Planting Flag", &config::esp::planting);
-        ModernToggle("Defusing Flag", &config::esp::defusing);
-        ModernToggle("Out of FOV Arrows", &config::esp::out_of_fov_arrows);
-        ModernToggle("Show Player Money", &config::misc::show_money);
-        ImGui::Unindent(10);
+        ModernToggle("Offscreen arrows", &config::esp::out_of_fov_arrows);
+        ModernToggle("Live preview", &config::esp::preview);
         EndCard();
-
-        ImGui::Dummy(ImVec2(0, 10));
-
-        BeginCard("##FiltersCard");
-        ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "FILTERS & LIMITS");
-        ImGui::Separator();
-        ImGui::Indent(10);
-        ModernToggle("Team Check (Ignore Teammates)", &config::esp::team_check);
-        ImGui::Dummy(ImVec2(0, 6));
-        ImGui::SliderFloat("ESP Scale", &config::esp::scale, .5f, 2.0f, "%.2fx");
-        ImGui::SliderFloat("ESP Opacity", &config::esp::alpha, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Max Render Distance", &config::esp::max_distance, 50.0f, 500.0f, "%.0f meters");
-        ImGui::Unindent(10);
+        BeginCard("##ESPFilters");
+        ImGui::TextUnformatted("Filters & appearance"); ImGui::Separator();
+        ModernToggle("Ignore teammates", &config::esp::team_check);
+        ImGui::PushItemWidth(-1);
+        ImGui::TextDisabled("Scale"); ImGui::SliderFloat("##Scale", &config::esp::scale, .5f, 2.f, "%.2fx");
+        ImGui::TextDisabled("Opacity"); ImGui::SliderFloat("##Alpha", &config::esp::alpha, 0.f, 1.f, "%.2f");
+        ImGui::TextDisabled("Maximum distance"); ImGui::SliderFloat("##Range", &config::esp::max_distance, 50.f, 500.f, "%.0f m");
+        ImGui::PopItemWidth();
         EndCard();
-
         ImGui::NextColumn();
-
-        // Right Column - Preview & Colors
-        ModernToggle("Live ESP Preview", &config::esp::preview);
-        RenderEspPreview();
-
-        ImGui::Dummy(ImVec2(0, 10));
-        BeginCard("##ColorsCard");
-        ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "COLOR CONFIGURATION");
-        ImGui::Separator();
-        ImGui::Indent(10);
-        ImGui::Text("Enemy Box Color:");
-        ImGui::ColorEdit4("##EnemyColor", config::esp::box_color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
-        ImGui::Dummy(ImVec2(0, 6));
-        ImGui::Text("Teammate Color:");
-        ImGui::ColorEdit4("##TeamColor", config::esp::team_color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
-        ImGui::Dummy(ImVec2(0, 6));
-        ImGui::Text("Skeleton Color:");
-        ImGui::ColorEdit4("##SkeletonColor", config::esp::skeleton_color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
-        ImGui::Unindent(10);
+        BeginCard("##ESPInformation");
+        ImGui::TextUnformatted("Player information"); ImGui::Separator();
+        ModernToggle("Bomb carrier", &config::esp::bomb);
+        ModernToggle("Defuse kit", &config::esp::defuse_kit);
+        ModernToggle("Flashed", &config::esp::flashed);
+        ModernToggle("Scoped", &config::esp::scoped);
+        ModernToggle("Planting", &config::esp::planting);
+        ModernToggle("Defusing", &config::esp::defusing);
+        ModernToggle("Hostage", &config::esp::hostage);
+        ModernToggle("Money", &config::misc::show_money);
         EndCard();
-
+        BeginCard("##ESPColors");
+        ImGui::TextUnformatted("Chams & glow"); ImGui::Separator();
+        ModernToggle("Enable chams", &config::esp::chams);
+        ModernToggle("Chams through walls", &config::esp::chams_through_walls);
+        ImGui::ColorEdit3("Chams color",config::esp::chams_color,ImGuiColorEditFlags_NoInputs);
+        ImGui::TextWrapped("%s",chams::status.load());
+        ModernToggle("Enable glow", &config::esp::glow);
+        const auto flags=ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar;
+        ImGui::ColorEdit4("Enemy",config::esp::box_color,flags);
+        ImGui::ColorEdit4("Teammate",config::esp::team_color,flags);
+        ImGui::ColorEdit4("Skeleton",config::esp::skeleton_color,flags);
+        ImGui::ColorEdit4("Glow",config::esp::glow_color,flags);
+        EndCard();
+        if(ImGui::CollapsingHeader("Diagnostics")) {
+            const auto& d=features::esp_diagnostics;
+            ImGui::TextWrapped("%s",d.status);
+            ImGui::Text("Pawns: %u / drawn: %u",d.pawns,d.drawn);
+            ImGui::Text("Matrix: %s",pattern_resolver::view_matrix ? "Signature" : "Fallback");
+            ImGui::Text("Chams: %u tracked / %u applied",chams::tracked.load(),chams::applied.load());
+            ImGui::Text("Chams callbacks (batched): %llu",chams::callbacks.load());
+            ImGui::Text("Chams holder writes/s: %u",chams::writes_per_second.load());
+            ImGui::Text("Chams writes: %u | slot updates: %u",chams::holder_writes.load(),chams::slot_updates.load());
+            ImGui::Text("Chams conflicts: %u | materials: %u",chams::conflicts.load(),chams::material_builds.load());
+        }
         ImGui::Columns(1);
     }
 
@@ -403,6 +396,8 @@ namespace menu_advanced {
         ImGui::Checkbox("Neck", &config::aimbot::hitboxes[1]); ImGui::SameLine();
         ImGui::Checkbox("Chest", &config::aimbot::hitboxes[2]); ImGui::SameLine();
         ImGui::Checkbox("Pelvis", &config::aimbot::hitboxes[3]);
+        if (!std::any_of(std::begin(config::aimbot::hitboxes), std::end(config::aimbot::hitboxes), [](bool selected) { return selected; }))
+            ImGui::TextWrapped("No target hitbox selected. Choose at least one above before aiming can run.");
         ModernToggle("Hitscan (Nearest Enabled Bone)", &config::aimbot::hitscan);
 
         ImGui::Dummy(ImVec2(0, 6));
@@ -436,7 +431,13 @@ namespace menu_advanced {
         ImGui::Indent(10);
         ImGui::TextWrapped("Events: %s | Cache Hits: %llu", entity_events::enabled.load() ? "Active" : "Scan Fallback", entity_events::hits.load());
         ImGui::TextWrapped("Normal Aim Status: %s", features::normal_aim_status.load());
-        ImGui::TextWrapped("Silent Aim Status: %s", features::silent_aim_status.load());
+        ImGui::Text("Live settings: master %s / silent %s", config::aimbot::enabled ? "ON" : "OFF", config::aimbot::silent_aim ? "ON" : "OFF");
+        ImGui::TextWrapped("Callback: %s", features::silent_callback_state.load());
+        ImGui::Text("Callbacks: %u | Busy skips: %u | Writes: %u | Verified: %u",
+            features::silent_callbacks.load(), features::silent_settings_skips.load(),
+            features::silent_aim_writes.load(), features::silent_history_writes.load());
+        ImGui::TextWrapped("Last Silent Aim Result: %s", features::silent_aim_status.load());
+        ImGui::TextDisabled("Aim pauses while the menu or console is open.");
         if (ImGui::CollapsingHeader("Performance Profiler")) {
             if (ImGui::Button("Capture 10 Seconds Profile", ImVec2(220, 28))) {
                 std::ostringstream settings;
@@ -767,6 +768,7 @@ namespace menu_advanced {
             ImGui::TableNextColumn(); ModernToggle("Triggerbot", &config::misc::trigger_bot);
             ImGui::TableNextColumn(); ModernToggle("Radar Hack", &config::misc::radar_hack);
             ImGui::TableNextColumn(); ModernToggle("Auto BHop", &config::misc::bunny_hop);
+            ImGui::TableNextColumn(); ModernToggle("Auto Strafe", &config::misc::auto_strafe);
             ImGui::EndTable();
         }
         ImGui::Unindent(10);
@@ -779,93 +781,142 @@ namespace menu_advanced {
         ImGui::Separator();
         ImGui::Text("Controllers: %u | Resolved Pawns: %u", features::aim_controllers.load(), features::aim_resolved_pawns.load());
         ImGui::TextWrapped("Normal Aim Status: %s", features::normal_aim_status.load());
-        ImGui::TextWrapped("Silent Aim Status: %s", features::silent_aim_status.load());
+        ImGui::Text("Live settings: master %s / silent %s", config::aimbot::enabled ? "ON" : "OFF", config::aimbot::silent_aim ? "ON" : "OFF");
+        ImGui::TextWrapped("Callback: %s", features::silent_callback_state.load());
+        ImGui::Text("Callbacks: %u | Busy skips: %u | Writes: %u | Verified: %u",
+            features::silent_callbacks.load(), features::silent_settings_skips.load(),
+            features::silent_aim_writes.load(), features::silent_history_writes.load());
+        ImGui::TextWrapped("Last Silent Aim Result: %s", features::silent_aim_status.load());
+        ImGui::TextDisabled("Aim pauses while the menu or console is open.");
         ImGui::Text("Engine Trace Status: %s", engine_trace::status.load());
         ImGui::Unindent(10);
         EndCard();
     }
 
     // Selected tab & names.
-    static int selected_tab = 11;
+    static int selected_tab = 2;
 
 
-    // Master render main menu.
+    static void RenderSidePreview(ImVec2 position, float availableHeight) {
+        if (selected_tab != 0 && selected_tab != 2) return;
+        if (selected_tab == 2 && !config::esp::preview) return;
+        ImGui::SetNextWindowPos(position, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({300, (std::min)(560.f, availableHeight)}, ImGuiCond_Always);
+        if (ImGui::Begin("##ReferencePreview", nullptr, ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::TextUnformatted(selected_tab == 2 ? "Interactive ESP Preview" : "Target Hitboxes");
+            ImGui::Separator();
+            if (selected_tab == 2) {
+                RenderEspPreview();
+                ImGui::Spacing();
+                ImGui::TextUnformatted("Displayed elements");
+                ImGui::Separator();
+                ModernToggle("Player name", &config::esp::name);
+                ModernToggle("Health", &config::esp::health_bar);
+                ModernToggle("Armor", &config::esp::armor_bar);
+                ModernToggle("Weapon", &config::esp::weapon_text);
+                ModernToggle("Distance", &config::esp::distance);
+            } else {
+                const auto origin = ImGui::GetCursorScreenPos();
+                const float x = origin.x + ImGui::GetContentRegionAvail().x * .5f;
+                auto* draw = ImGui::GetWindowDrawList();
+                const auto body = IM_COL32(48, 70, 82, 255);
+                const auto edge = IM_COL32(82, 113, 128, 255);
+                draw->AddCircleFilled({x, origin.y + 46}, 22, body, 24);
+                draw->AddRectFilled({x-30,origin.y+73},{x+30,origin.y+182},body,12);
+                draw->AddLine({x-29,origin.y+90},{x-54,origin.y+178},edge,15);
+                draw->AddLine({x+29,origin.y+90},{x+54,origin.y+178},edge,15);
+                draw->AddLine({x-17,origin.y+178},{x-24,origin.y+286},edge,20);
+                draw->AddLine({x+17,origin.y+178},{x+24,origin.y+286},edge,20);
+                ImGui::Dummy({ImGui::GetContentRegionAvail().x,310});
+                const float heights[] = {46, 78, 114, 172};
+                const char* names[] = {"Head", "Neck", "Chest", "Pelvis"};
+                for (int i=0; i<4; ++i) {
+                    ImGui::SetCursorScreenPos({x-11,origin.y+heights[i]-11});
+                    ImGui::PushID(i);
+                    if (ImGui::InvisibleButton("bone", {22,22})) config::aimbot::hitboxes[i] = !config::aimbot::hitboxes[i];
+                    draw->AddCircleFilled({x,origin.y+heights[i]},10,
+                        ImGui::GetColorU32(config::aimbot::hitboxes[i] ? ImGuiCol_CheckMark : ImGuiCol_TextDisabled),20);
+                    draw->AddText({x-4,origin.y+heights[i]-8},IM_COL32_WHITE,"+");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s",names[i]);
+                    ImGui::PopID();
+                }
+                ImGui::SetCursorScreenPos({origin.x,origin.y+320});
+                ImGui::TextWrapped("Click a target to select a hitbox.");
+                for(int i=0;i<4;++i) ModernToggle(names[i], &config::aimbot::hitboxes[i]);
+            }
+        }
+        ImGui::End();
+    }
+
+    // Sidebar and content share one movable window; the preview follows its right edge.
     void RenderMainMenu() {
         WorkspaceTheme theme;
         ImGui::PushFont(g_dashboard_body);
         const auto display = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowSize({(std::min)(1120.f, display.x-32), (std::min)(760.f, display.y-32)}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSizeConstraints({760, 520}, {1920, 1400});
+        ImGui::SetNextWindowSize({(std::min)(860.f,display.x-32), (std::min)(720.f,display.y-32)}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({(std::max)(16.f,(display.x-1180.f)*.5f),(std::max)(16.f,(display.y-720.f)*.5f)},ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints({760,520},{1920,1400});
+        ImVec2 previewPosition{};
+        float previewHeight=0;
+        bool showPreview=false;
         if (ImGui::Begin("NEPHILIMGATE_UI##Master", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
-            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "N / NEPHILIMGATE");
-            ImGui::SameLine(); ImGui::TextDisabled("WORKSPACE");
-            const auto state = game_state::GetSnapshot();
-            ImGui::SameLine((std::max)(350.f, ImGui::GetWindowWidth()-260.f));
-            ImGui::TextDisabled("%s  |  %.0f FPS", state.in_game ? "In session" : "Not connected", ImGui::GetIO().Framerate);
-            ImGui::Separator();
-            const float bodyHeight = ImGui::GetContentRegionAvail().y - 28;
-            ImGui::BeginChild("navigation", {204, bodyHeight}, ImGuiChildFlags_Borders);
-            static ImGuiTextFilter filter;
-            filter.Draw("##PageFilter", -1);
-            if (!filter.IsActive() && !ImGui::IsItemActive()) {
-                const auto p=ImGui::GetItemRectMin();
-                ImGui::GetWindowDrawList()->AddText({p.x+10,p.y+6},ImGui::GetColorU32(ImGuiCol_TextDisabled),"Find a page...");
-            }
+            const auto window=ImGui::GetWindowPos();
+            const auto size=ImGui::GetWindowSize();
+            previewPosition={window.x+size.x+16,window.y+48};
+            previewHeight=(std::min)(size.y-48,display.y-previewPosition.y-16);
+            showPreview=previewPosition.x+300<=display.x && previewHeight>=360;
+            const float height=ImGui::GetContentRegionAvail().y;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg,config::colors::light_theme ? ImVec4(.94f,.96f,.97f,1) : ImVec4(.085f,.14f,.18f,1));
+            ImGui::BeginChild("navigation",{180,height},ImGuiChildFlags_None);
+            ImGui::PushFont(g_dashboard_title ? g_dashboard_title : g_dashboard_body);
+            ImGui::TextUnformatted("NEPHILIM");
+            ImGui::PopFont();
+            ImGui::TextDisabled("G A T E");
             ImGui::Spacing();
-            auto section = [&](const char* title, std::initializer_list<int> pages) {
-                bool any=false; for(int page:pages) any |= filter.PassFilter(page_names[page]);
-                if (!any) return;
-                ImGui::TextDisabled("%s", title);
-                for (int page : pages) if (filter.PassFilter(page_names[page])) {
+            auto section=[&](const char* title,std::initializer_list<int> pages) {
+                ImGui::TextDisabled("%s",title);
+                static constexpr const char* icons[]={ICON_FA_CROSSHAIRS,ICON_FA_BOLT,ICON_FA_EYE,ICON_FA_CUBE,
+                    ICON_FA_PALETTE,ICON_FA_MAP,ICON_FA_COG,ICON_FA_RUNNING,ICON_FA_KNIFE,ICON_FA_BOMB,ICON_FA_SAVE,ICON_FA_HOME};
+                for(int page:pages) {
                     ImGui::PushID(page);
-                    static float highlight[12]{};
-                    static constexpr const char* icons[] = { ICON_FA_CROSSHAIRS, ICON_FA_BOLT, ICON_FA_EYE, ICON_FA_CUBE,
-                        ICON_FA_PALETTE, ICON_FA_MAP, ICON_FA_COG, ICON_FA_RUNNING, ICON_FA_KNIFE, ICON_FA_BOMB, ICON_FA_SAVE, ICON_FA_HOME };
-                    const auto start = ImGui::GetCursorScreenPos();
-                    const float width = ImGui::GetContentRegionAvail().x;
-                    ImGui::PushStyleColor(ImGuiCol_Header, {0,0,0,0});
-                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0,0,0,0});
-                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0,0,0,0});
-                    if (ImGui::Selectable("##page", selected_tab==page, 0, {0,32})) selected_tab=page;
-                    ImGui::PopStyleColor(3);
-                    const float target = selected_tab==page ? 1.f : (ImGui::IsItemHovered() ? .45f : 0.f);
-                    highlight[page] += (target-highlight[page]) * (1.f-std::exp(-18.f*ImGui::GetIO().DeltaTime));
-                    auto* draw = ImGui::GetWindowDrawList();
-                    auto accent = ImGui::GetStyleColorVec4(ImGuiCol_CheckMark);
-                    accent.w = highlight[page] * .14f;
-                    draw->AddRectFilled(start, {start.x+width, start.y+32}, ImGui::GetColorU32(accent), 6);
-                    if (selected_tab==page) draw->AddRectFilled({start.x,start.y+8},{start.x+3,start.y+24},ImGui::GetColorU32(ImGuiCol_CheckMark),2);
-                    if (g_icon_font) draw->AddText(g_icon_font, 14, {start.x+12,start.y+9}, ImGui::GetColorU32(selected_tab==page ? ImGuiCol_CheckMark : ImGuiCol_TextDisabled), icons[page]);
-                    draw->AddText({start.x+38,start.y+8},ImGui::GetColorU32(ImGuiCol_Text),page_names[page]);
+                    const auto pos=ImGui::GetCursorScreenPos();
+                    if(ImGui::Selectable("##page",selected_tab==page,0,{0,29})) selected_tab=page;
+                    auto* draw=ImGui::GetWindowDrawList();
+                    if(g_icon_font) draw->AddText(g_icon_font,14,{pos.x+8,pos.y+7},ImGui::GetColorU32(ImGuiCol_CheckMark),icons[page]);
+                    draw->AddText({pos.x+30,pos.y+6},ImGui::GetColorU32(ImGuiCol_Text),page_names[page]);
                     ImGui::PopID();
                 }
                 ImGui::Spacing();
             };
-            section("WORKSPACE", {11,10});
-            section("ASSISTANCE", {0,1,7});
-            section("VISUALS", {2,3,4,5,9});
-            section("PERSONALIZATION", {8,6});
-            if (filter.IsActive()) {
-                bool any=false; for(const char* page:page_names) any |= filter.PassFilter(page);
-                if (!any) ImGui::TextDisabled("No matching pages");
-            }
-            ImGui::EndChild();
-            ImGui::SameLine();
-            ImGui::BeginChild("workspace", {0,bodyHeight}, ImGuiChildFlags_Borders);
-            ImGui::PushFont(g_dashboard_title ? g_dashboard_title : g_dashboard_body);
-            ImGui::TextUnformatted(page_names[selected_tab]);
-            ImGui::PopFont();
-            static constexpr const char* descriptions[] = {
-                "Target selection, aim response and recoil control.", "Activation and timing for the trigger assistant.",
-                "Choose which player details to display.", "Labels for weapons, items and objectives.",
-                "Camera, lighting and environment settings.", "On-screen feedback and information.",
-                "General preferences and gameplay helpers.", "Movement assistance controls.",
-                "Customize weapons, knives and gloves.", "Throw prediction, projectile trails and surface details.",
-                "Save, load and reset your workspace settings.", "Your session and frequently used controls."
-            };
-            ImGui::TextDisabled("%s", descriptions[selected_tab]);
+            section("Assistance",{0,1});
+            section("Visuals",{2,3,9,4,5});
+            section("Miscellaneous",{6,7,8,10,11});
             ImGui::Separator();
-            ImGui::BeginChild("page_view", {0,0}, ImGuiChildFlags_None);
+            ImGui::TextDisabled("INSERT  Menu");
+            ImGui::TextDisabled("F1      Console");
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::BeginChild("workspace",{0,height},ImGuiChildFlags_None);
+            if(ImGui::Button("Save",{82,28})) {
+                wchar_t appData[MAX_PATH]{};
+                const auto length=GetEnvironmentVariableW(L"LOCALAPPDATA",appData,MAX_PATH);
+                const auto folder=(length && length<MAX_PATH ? std::filesystem::path(appData) : std::filesystem::temp_directory_path())/"Nephilim"/"Configs";
+                std::error_code error; std::filesystem::create_directories(folder,error);
+                config_store::Save(folder/"default.cfg");
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(160);
+            ImGui::Combo("##PageSelect",&selected_tab,page_names,IM_ARRAYSIZE(page_names));
+            ImGui::SameLine();
+            if(ImGui::Button(config::colors::light_theme ? "Dark" : "Light",{54,28}))
+                config::colors::light_theme=!config::colors::light_theme;
+            ImGui::SameLine();
+            ImGui::TextDisabled("%.0f FPS",ImGui::GetIO().Framerate);
+            ImGui::Separator();
+            if(!config_store::status.empty()) ImGui::TextWrapped("%s",config_store::status.c_str());
+            ImGui::BeginChild("page_view",{0,0},ImGuiChildFlags_None);
             switch (selected_tab) {
                 case 0: RenderAimbotTab(); break;
                 case 1: RenderTriggerBotTab(); break;
@@ -880,14 +931,15 @@ namespace menu_advanced {
                 case 10: RenderConfigsTab(); break;
                 default: RenderDashboard(); break;
             }
+            if(!showPreview && (selected_tab==0 || selected_tab==2)) {
+                if(selected_tab==2) RenderEspPreview();
+                else ImGui::TextDisabled("Hitbox selection is available in the aim settings above.");
+            }
             ImGui::EndChild();
             ImGui::EndChild();
-            ImGui::Separator();
-            ImGui::TextDisabled("INSERT  Menu     F1  Console");
-            ImGui::SameLine();
-            if (!config_store::status.empty()) ImGui::TextDisabled("  |  %s", config_store::status.c_str());
         }
         ImGui::End();
+        if(showPreview) RenderSidePreview(previewPosition,previewHeight);
         ImGui::PopFont();
     }
 }

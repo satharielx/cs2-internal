@@ -69,6 +69,8 @@ int main() {
         skybox::ScopedColor night(reinterpret_cast<uintptr_t>(draw.data()), 1);
         const auto actual = sdk::read_value<std::array<float, 3>>(color_address);
         assert((actual == std::array<float, 3>{.2f,.25f,.3f}));
+        { skybox::ScopedColor nested(reinterpret_cast<uintptr_t>(draw.data()), 1);
+          assert((sdk::read_value<std::array<float, 3>>(color_address) == actual)); }
     }
     assert((sdk::read_value<std::array<float, 3>>(color_address) == original));
     config::lighting::night_mode = false;

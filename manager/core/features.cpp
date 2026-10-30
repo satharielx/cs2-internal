@@ -1,3 +1,4 @@
+#include "esp_style.h"
 #include "entity_events.h"
 #include "engine_trace.h"
 #include "aim_profiler.h"
@@ -151,12 +152,17 @@ namespace features {
             cs2_dumper::schemas::client_dll::EntitySpottedState_t::m_bSpottedByMask, mask) && sdk::spotted_by(mask, local_index);
     }
 
-    static bool AimDisabled(uintptr_t local) {
-        return s_input_blocked ||
-            (config::aimbot::disable_flashed && sdk::read_value<float>(local + sdk::off::C_CSPlayerPawnBase::m_flFlashDuration) > 0) ||
-            (config::aimbot::disable_airborne && !(sdk::read_value<uint32_t>(local + sdk::off::C_BaseEntity::m_fFlags) & 1u)) ||
-            (config::aimbot::disable_scoped && sdk::read_value<bool>(local + sdk::off::C_CSPlayerPawn::m_bIsScoped));
+    static const char* AimBlockReason(uintptr_t local) {
+        if (s_input_blocked) return "Paused: overlay input is captured";
+        if (config::aimbot::disable_flashed && sdk::read_value<float>(local + sdk::off::C_CSPlayerPawnBase::m_flFlashDuration) > 0)
+            return "Paused: disable while flashed is enabled";
+        if (config::aimbot::disable_airborne && !(sdk::read_value<uint32_t>(local + sdk::off::C_BaseEntity::m_fFlags) & 1u))
+            return "Paused: disable while airborne is enabled";
+        if (config::aimbot::disable_scoped && sdk::read_value<bool>(local + sdk::off::C_CSPlayerPawn::m_bIsScoped))
+            return "Paused: disable while scoped is enabled";
+        return nullptr;
     }
+    static bool AimDisabled(uintptr_t local) { return AimBlockReason(local) != nullptr; }
     static sdk::Vector3 AimPoint(uintptr_t pawn, const sdk::Vector3& eye, const sdk::Vector2& view) {
         const auto& bones = constants::aim_bones;
         sdk::Vector3 best{}; float bestFov = INFINITY;
@@ -351,7 +357,10 @@ namespace features {
         cache.system=system; cache.local=local; cache.weapon=weapon;
         unsigned pointMask=0;
         for(int b=0;b<4;++b) if(config::aimbot::hitboxes[b]) pointMask |= 1u<<b;
-        const auto players = ReadAimPlayers(system, local, true);
+        // Lifecycle notifications can miss entities created before hook setup or
+        // during a map transition. Resolve live slots and validate pawn handles;
+        // an empty event registry is not evidence that the server has no players.
+        const auto players = ReadAimPlayers(system, local);
         cache.local_index = players.local_index;
         for (int i = 1; i <= 64; ++i) {
             auto& item = cache.targets[i];
@@ -433,11 +442,7 @@ namespace features {
         const auto services = sdk::read_value<uintptr_t>(localPawnPtr + sdk::off::C_BasePlayerPawn::m_pWeaponServices);
         uint32_t activeHandle = UINT32_MAX;
         if (services) sdk::read_memory(services + sdk::off::CPlayer_WeaponServices::m_hActiveWeapon, activeHandle);
-        if(entity_events::enabled) {
-            std::array<entity_events::Entry,65> initial;
-            if(!entity_events::Snapshot(entity_list,initial)) return;
-        }
-        const auto activeWeapon = entity_events::enabled ? entity_events::Resolve(entity_list,activeHandle) : sdk::entity_from_handle(entity_list, activeHandle);
+        const auto activeWeapon = sdk::entity_from_handle(entity_list, activeHandle);
         if (!activeWeapon) { silent_aim_status = "Active weapon unresolved"; return; }
         if (skins::IsKnife(skins::GetDefIndex(activeWeapon))) { silent_aim_status = "Knife equipped"; return; }
         int localHealth = sdk::read_value<int>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iHealth);
@@ -449,7 +454,12 @@ namespace features {
         if (!sample.data.eye_valid) { silent_aim_status = "Eye position contains NaN/Inf"; return; }
         int localTeam = sdk::read_value<uint8_t>(localPawnPtr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
 
-        if (AimDisabled(localPawnPtr)) { silent_aim_status = "Disabled by condition"; return; }
+        if (const auto reason = AimBlockReason(localPawnPtr)) { silent_aim_status = reason; return; }
+        if (!std::any_of(std::begin(config::aimbot::hitboxes), std::end(config::aimbot::hitboxes), [](bool selected) { return selected; })) {
+            PublishFireTarget(0);
+            silent_aim_status = "No target hitboxes selected: choose Head, Neck, Chest or Pelvis";
+            return;
+        }
         auto players = ReadSilentTargets(entity_list, localPawnPtr, activeWeapon);
         PrepareSilentGeometry(players, localEye);
         bool collisionRejected = false;
@@ -534,7 +544,7 @@ namespace features {
             silent_aim_status = collisionRejected ? "No visible target within aim FOV" :
                 !sample.data.alive ? "No living remote pawns resolved" :
                 !sample.data.enemies ? "All living players rejected by team check" :
-                !sample.data.bones ? "Enemy head positions unavailable" :
+                !sample.data.bones ? "Selected target bone positions unavailable" :
                 !sample.data.in_range ? "Enemies outside maximum distance" : "Enemies outside aim FOV";
             return;
         }
@@ -543,7 +553,7 @@ namespace features {
         const auto& selected = players.targets[bestControllerIndex];
         bool validWinner;
         { aim_profiler::Scope validation(aim_profiler::WinnerValidation);
-          validWinner=(entity_events::enabled ? entity_events::Resolve(entity_list,selected.handle) : sdk::entity_from_handle(entity_list, selected.handle))==selected.pawn &&
+          validWinner=sdk::entity_from_handle(entity_list, selected.handle)==selected.pawn &&
               sdk::read_value<int>(selected.pawn + sdk::off::C_BaseEntity::m_iHealth)>0; }
         if (!validWinner) {
             aim_profiler::Mark(aim_profiler::DeadWinner);
@@ -808,12 +818,8 @@ namespace features {
     static float EspAlpha() { return std::isfinite(config::esp::alpha) ? std::clamp(config::esp::alpha, 0.0f, 1.0f) : 1.0f; }
     static float EspScale() { return std::isfinite(config::esp::scale) ? std::clamp(config::esp::scale, .5f, 2.0f) : 1.0f; }
     void DrawBox(const sdk::Vector2& top, const sdk::Vector2& bottom, float width, const float color[4]) {
-        ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
-        float height = bottom.y - top.y;
-        ImVec2 top_left(top.x - width / 2, top.y);
-        ImVec2 bottom_right(top.x + width / 2, bottom.y);
-        ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3] * EspAlpha()));
-        draw_list->AddRect(top_left, bottom_right, col, 0.0f, 0, 2.0f);
+        esp_style::Box(ImGui::GetBackgroundDrawList(), {top.x - width * .5f, top.y},
+            {top.x + width * .5f, bottom.y}, esp_style::Color(color, EspAlpha()), EspAlpha(), EspScale());
     }
 
     void DrawLine(const sdk::Vector2& from, const sdk::Vector2& to, const float color[4], float thickness) {
@@ -840,17 +846,15 @@ namespace features {
     void DrawHealthBar(const sdk::Vector2& top, const sdk::Vector2& bottom, int health, int max_health) {
         if (max_health <= 0) return;
         health = std::clamp(health, 0, max_health);
-        float height = bottom.y - top.y;
-        float health_height = (health / (float)max_health) * height;
-        float bg_color[4] = { 0.1f, 0.1f, 0.1f, 0.8f };
-        DrawFilledRect(sdk::Vector2(top.x - 8, top.y), sdk::Vector2(4, height), bg_color);
-        float health_percent = health / (float)max_health;
-        float hp_color[4] = { 1.0f - health_percent, health_percent, 0.0f, 0.9f };
-        DrawFilledRect(sdk::Vector2(top.x - 8, bottom.y - health_height), sdk::Vector2(4, health_height), hp_color);
-        if (health < 100) {
-            char health_text[8];
-            sprintf_s(health_text, "%d", health);
-            DrawText(sdk::Vector2(top.x - 18, top.y + (height / 2) - 7), health_text, hp_color);
+        const float fraction = static_cast<float>(health) / max_health;
+        esp_style::Health(ImGui::GetBackgroundDrawList(), {top.x, top.y}, {bottom.x, bottom.y},
+            fraction, EspAlpha(), EspScale());
+        if (health < max_health) {
+            char text[16]; sprintf_s(text, "%d", health);
+            const float neutral[] = {.91f, .94f, .98f, 1};
+            const float textWidth = ImGui::CalcTextSize(text).x * EspScale();
+            DrawText({top.x - 10 * EspScale() - textWidth,
+                bottom.y - (bottom.y - top.y) * fraction - ImGui::GetFontSize() * EspScale() * .5f}, text, neutral);
         }
     }
 
@@ -885,7 +889,7 @@ namespace features {
         sdk::Vector2 projected[sdk::BONE_RIGHT_FOOT + 1]{};
         bool visited[sdk::BONE_RIGHT_FOOT + 1]{}, valid[sdk::BONE_RIGHT_FOOT + 1]{};
         auto* draw = ImGui::GetBackgroundDrawList();
-        const auto packed = ImGui::ColorConvertFloat4ToU32({color[0],color[1],color[2],color[3]});
+        const auto packed = esp_style::Color(color, EspAlpha());
         for (const auto& connection : bone_connections) {
             for (int joint : connection) {
                 if (visited[joint]) continue;
@@ -896,7 +900,7 @@ namespace features {
             }
             if (valid[connection[0]] && valid[connection[1]]) {
                 const auto& a = projected[connection[0]]; const auto& b = projected[connection[1]];
-                draw->AddLine({a.x,a.y},{b.x,b.y},packed,2.0f);
+                draw->AddLine({a.x,a.y},{b.x,b.y},packed,EspScale());
             }
         }
     }
@@ -1105,6 +1109,13 @@ namespace features {
             esp_diagnostics.status = "Players reached drawing; check enabled elements and alpha";
             const float* color = team == local_team ? config::esp::team_color : config::esp::box_color;
 
+            const float scale = EspScale();
+            const float lineHeight = (ImGui::GetFontSize() + 3) * scale;
+            const float neutral[] = {.91f, .94f, .98f, 1};
+            auto centered = [&](float y, const char* text, const float* tint) {
+                esp_style::Text(ImGui::GetBackgroundDrawList(), {screen_head.x, y}, text,
+                    esp_style::Color(tint, EspAlpha()), EspAlpha(), scale, true);
+            };
             if (config::esp::name) {
                 if (cached_name.controller != controller || cached_name.handle != handle || now >= cached_name.expires) {
                     cached_name = {}; cached_name.controller = controller; cached_name.handle = handle;
@@ -1112,23 +1123,24 @@ namespace features {
                     sdk::read_memory(controller + sdk::off::CBasePlayerController::m_iszPlayerName,cached_name.name);
                     cached_name.name[127] = '\0';
                 }
-                if (cached_name.name[0]) DrawText({screen_head.x,screen_head.y-16},cached_name.name,color);
+                if (cached_name.name[0]) centered(screen_head.y - lineHeight, cached_name.name, neutral);
             }
             if (config::esp::box) DrawBox(screen_head,screen_pos,width,color);
             if (config::esp::health_bar) DrawHealthBar({screen_head.x-width/2,screen_head.y},{screen_pos.x-width/2,screen_pos.y},health,100);
             if (config::esp::armor_bar) {
                 const int armor = std::clamp(sdk::read_value<int>(player + sdk::off::C_CSPlayerPawn::m_ArmorValue), 0, 100);
-                const float bg[] = {.05f,.05f,.05f,.8f}, ac[] = {.2f,.6f,1,1};
-                const float bar = 3 * EspScale();
-                DrawFilledRect({screen_pos.x-width*.5f,screen_pos.y+2}, {width,bar}, bg);
-                DrawFilledRect({screen_pos.x-width*.5f,screen_pos.y+2}, {width*armor/100,bar}, ac);
+                esp_style::Armor(ImGui::GetBackgroundDrawList(), {screen_head.x-width*.5f,screen_head.y},
+                    {screen_pos.x+width*.5f,screen_pos.y}, armor / 100.0f, EspAlpha(), scale);
             }
+            float bottomY = screen_pos.y + (config::esp::armor_bar ? 11 : 5) * scale;
             float labelY = screen_head.y;
             const auto weaponServices = sdk::read_value<uintptr_t>(player + sdk::off::C_BasePlayerPawn::m_pWeaponServices);
             const auto weapon = weaponServices ? sdk::entity_from_handle(state.entity_list,
                 sdk::read_value<uint32_t>(weaponServices + sdk::off::CPlayer_WeaponServices::m_hActiveWeapon)) : 0;
-            auto label = [&](const char* text) { DrawText({screen_head.x+width*.5f+5,labelY},text,color); labelY += 15 * EspScale(); };
-            if (config::esp::weapon_text && weapon) label(skins::GetWeaponName(skins::GetDefIndex(weapon)));
+            auto label = [&](const char* text) { DrawText({screen_head.x+width*.5f+5*scale,labelY},text,color); labelY += lineHeight; };
+            if (config::esp::weapon_text && weapon) {
+                centered(bottomY, skins::GetWeaponName(skins::GetDefIndex(weapon)), neutral); bottomY += lineHeight;
+            }
             if (config::esp::bomb && ((weapon && skins::GetDefIndex(weapon) == 49) || CarriesBomb(weaponServices,state.entity_list))) label("BOMB");
             const auto items = sdk::read_value<uintptr_t>(player + sdk::off::C_BasePlayerPawn::m_pItemServices);
             if (config::esp::defuse_kit && items && sdk::read_value<bool>(items + sdk::off::CCSPlayer_ItemServices::m_bHasDefuser)) label("KIT");
@@ -1147,7 +1159,7 @@ namespace features {
             if (config::esp::distance) {
                 char distance_text[32];
                 sprintf_s(distance_text,"%.0fm",std::sqrt(distance_squared)*0.0254f);
-                DrawText({screen_pos.x-15,screen_pos.y+5},distance_text,color);
+                centered(bottomY, distance_text, neutral);
             }
             if (config::esp::snaplines) DrawLine({g_screen_width/2.0f,static_cast<float>(g_screen_height)},screen_pos,color,1.0f);
         }
@@ -1156,15 +1168,21 @@ namespace features {
     struct VisualField {
         uintptr_t system = 0, entity = 0; uint32_t handle = UINT32_MAX;
         uintptr_t offset = 0; size_t size = 0;
+        uintptr_t pointer_offset = 0, target_object = 0;
         unsigned char original[16]{}, applied[16]{};
         bool touched = false;
         bool Live() const { return sdk::entity_from_handle(system,handle) == entity; }
+        uintptr_t Address() const {
+            if(!target_object) return entity+offset;
+            return sdk::read_value<uintptr_t>(entity+pointer_offset)==target_object ? target_object+offset : 0;
+        }
         void Restore() const {
             unsigned char current[16]{};
             // Restore only our own last value; leave subsequent engine updates intact.
-            if (Live() && sdk::read_memory(entity+offset,current) && !std::memcmp(current,applied,size)) {
+            const auto address=Live() ? Address() : 0;
+            if (address && sdk::read_memory(address,current) && !std::memcmp(current,applied,size)) {
                 SIZE_T written=0;
-                ProfileWrite(GetCurrentProcess(),reinterpret_cast<void*>(entity+offset),original,size,&written);
+                ProfileWrite(GetCurrentProcess(),reinterpret_cast<void*>(address),original,size,&written);
             }
         }
     };
@@ -1173,17 +1191,25 @@ namespace features {
         for (const auto& field : visual_fields) field.Restore();
         visual_fields.clear();
     }
-    template<class T> static void ApplyVisualField(uintptr_t system,uintptr_t entity,uint32_t handle,uintptr_t offset,const T& value) {
+    template<class T> static void ApplyVisualField(uintptr_t system,uintptr_t entity,uint32_t handle,uintptr_t offset,const T& value,
+        uintptr_t pointer_offset=0,uintptr_t target_object=0) {
         static_assert(sizeof(T)<=16);
-        auto field=std::find_if(visual_fields.begin(),visual_fields.end(),[&](const VisualField& f){return f.system==system && f.entity==entity && f.handle==handle && f.offset==offset;});
+        auto field=std::find_if(visual_fields.begin(),visual_fields.end(),[&](const VisualField& f){return f.system==system && f.entity==entity && f.handle==handle && f.offset==offset && f.target_object==target_object && f.pointer_offset==pointer_offset;});
         if(field==visual_fields.end()) {
             VisualField entry; entry.system=system; entry.entity=entity; entry.handle=handle; entry.offset=offset; entry.size=sizeof(T);
+            entry.pointer_offset=pointer_offset;entry.target_object=target_object;
             T original{};
-            if(!sdk::read_memory(entity+offset,original)) return;
+            const auto address=entry.Address();
+            if(!address || !sdk::read_memory(address,original)) return;
             std::memcpy(entry.original,&original,sizeof(T));
             visual_fields.push_back(entry); field=std::prev(visual_fields.end());
         }
-        if(sdk::write_memory(entity+offset,value)) {std::memcpy(field->applied,&value,sizeof(T)); field->touched=true;}
+        const auto address=field->Address();
+        T current{};
+        if(address && sdk::read_memory(address,current) &&
+            (!std::memcmp(&current,&value,sizeof(T)) || sdk::write_memory(address,value))) {
+            std::memcpy(field->applied,&value,sizeof(T)); field->touched=true;
+        }
     }
     static ImU32 VisualColor(const float color[4]) {
         ImVec4 value;
@@ -1213,10 +1239,11 @@ namespace features {
                     ApplyVisualField(state.entity_list,pawn,players.handles[i],glow+sdk::off::CGlowProperty::m_bEligibleForScreenHighlight,true);
                 }
             }
-            const bool scan=config::world::items || config::world::bomb || config::world::grenade_warning || config::world::smoke_color_enabled || config::grenade::thrown_trail;
+            const bool overlays=config::world::items || config::world::bomb || config::world::grenade_warning || config::world::smoke_color_enabled || config::grenade::thrown_trail;
+            const bool scan=overlays || config::lighting::remove_sun;
             if(world_system!=state.entity_list || world_local!=state.pawn) { world_entities.clear(); next_world_scan=0; world_system=state.entity_list; world_local=state.pawn; }
             if(scan && GetTickCount64()>=next_world_scan) {
-                next_world_scan=GetTickCount64()+100;
+                next_world_scan=GetTickCount64()+(overlays ? 100 : 1000);
                 world_entities.clear();
                 const auto highest = sdk::read_value<int>(state.entity_list +
                     cs2_dumper::offsets::client_dll::dwGameEntitySystem_highestEntityIndex);
@@ -1225,6 +1252,12 @@ namespace features {
             if(!scan) world_entities.clear();
             for(const auto& item:world_entities) {
                 if(sdk::entity_from_handle(state.entity_list,item.handle)!=item.entity) continue;
+                if(config::lighting::remove_sun && sdk::world::IsSunLight(item.name)) {
+                    const auto pointer=sdk::off::C_LightEntity::m_CLightComponent;
+                    const auto component=sdk::read_value<uintptr_t>(item.entity+pointer);
+                    if(component) ApplyVisualField(state.entity_list,item.entity,item.handle,
+                        sdk::off::CLightComponent::m_bEnabled,false,pointer,component);
+                }
                 if(config::world::smoke_color_enabled && !std::strcmp(item.name,"smokegrenade_projectile")) {
                     sdk::Vector3 color{config::world::smoke_color[0],config::world::smoke_color[1],config::world::smoke_color[2]};
                     if(sdk::finite(color)) ApplyVisualField(state.entity_list,item.entity,item.handle,sdk::off::C_SmokeGrenadeProjectile::m_vSmokeColor,
@@ -1242,6 +1275,7 @@ namespace features {
         if(!ReadViewMatrix(client,matrix)) return;
         const float color[]={1,.85f,.3f,1};
         for(const auto& item:world_entities) {
+            if(sdk::world::IsSunLight(item.name)) continue;
             if(sdk::entity_from_handle(state.entity_list,item.handle)!=item.entity) continue;
             const bool bomb=!std::strcmp(item.name,"planted_c4");
             const bool projectile=std::strstr(item.name,"projectile")!=nullptr;
@@ -1665,7 +1699,164 @@ namespace features {
     }
 
     // Misc features.
+    static uintptr_t s_strafe_address = 0, s_strafe_pawn = 0;
+    static int s_strafe_key = 0;
+    static float s_strafe_yaw = 0;
+    static bool s_strafe_has_yaw = false;
+    struct MovementButton { uintptr_t address = 0; int key = 0; };
+    static MovementButton s_stop_buttons[4]{};
+    static ULONGLONG s_edge_jump_until = 0;
+    static uintptr_t s_edge_pawn = 0;
+    static bool s_edge_latched = false;
+
+    static void ReleaseStop() {
+        for (auto& button : s_stop_buttons) {
+            if (button.address) sdk::write_memory(button.address,
+                (GetAsyncKeyState(button.key) & 0x8000) ? uint32_t{65537} : uint32_t{256});
+            button = {};
+        }
+    }
+
+    enum class GroundProbe { Invalid, Supported, Empty };
+    static GroundProbe ProbeGround(uintptr_t pawn, sdk::Vector3 point) {
+        // A guarded short floor trace, separate from target visibility checks.
+        if (!engine_trace::functions.Ready() || engine_trace::faulted) return GroundProbe::Invalid;
+        __try {
+            engine_trace::Data data{}; engine_trace::Filter filter{}; engine_trace::Hit hit{};
+            const auto fn = engine_trace::functions;
+            fn.init_data(&data);
+            fn.init_filter(&filter, pawn, constants::grenade_solid_mask, 4, 7);
+            fn.create(&data, point + sdk::Vector3{0,0,4}, {0,0,-16}, &filter, 4, true);
+            if (data.entries.size < 0 || data.entries.size > 128) return GroundProbe::Invalid;
+            if (!data.entries.size) return GroundProbe::Empty;
+            engine_trace::Entry entry{};
+            if (!data.entries.data || !sdk::read_memory(reinterpret_cast<uintptr_t>(data.entries.data),entry) ||
+                !std::isfinite(entry.start) || entry.start < 0 || entry.start > 1) return GroundProbe::Invalid;
+            const auto index=entry.surface_end & 0x7FFF;
+            if (index >= 128) return GroundProbe::Invalid;
+            fn.init_hit(&hit); fn.get_hit(&data,&hit,entry.start,&data.surfaces[index]);
+            if (!std::isfinite(hit.fraction) || hit.fraction < 0 || hit.fraction > 1 || hit.all_solid)
+                return GroundProbe::Invalid;
+            if (hit.fraction == 1) return GroundProbe::Empty;
+            return sdk::finite(hit.normal) && hit.normal.z > .65f ? GroundProbe::Supported : GroundProbe::Invalid;
+        } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION || GetExceptionCode()==EXCEPTION_IN_PAGE_ERROR
+            ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+            engine_trace::faulted = true;
+            return GroundProbe::Invalid;
+        }
+    }
+
+    void MovementAssist() {
+        if (!config::misc::quick_stop && !config::misc::edge_jump) {
+            ReleaseStop(); s_edge_jump_until=0; s_edge_pawn=0; s_edge_latched=false;
+            return;
+        }
+        const auto pawn=game_state::GetLocalPawnRaw();
+        uint32_t flags=0; uint8_t type=0;
+        const bool valid=!s_input_blocked && game_state::IsInGame() && pawn &&
+            sdk::read_value<int>(pawn+sdk::off::C_BaseEntity::m_iHealth)>0 &&
+            sdk::read_memory(pawn+sdk::off::C_BaseEntity::m_fFlags,flags) &&
+            sdk::read_memory(pawn+cs2_dumper::schemas::client_dll::C_BaseEntity::m_MoveType,type) && type==2;
+        const auto client=valid ? reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll")) : 0;
+        if (!client) {
+            ReleaseStop(); s_edge_jump_until=0; s_edge_pawn=0; s_edge_latched=false;
+            return;
+        }
+        if (s_edge_pawn!=pawn) { s_edge_jump_until=0; s_edge_latched=false; s_edge_pawn=pawn; }
+        sdk::Vector3 velocity{};
+        const bool hasVelocity=sdk::read_memory(pawn+cs2_dumper::schemas::client_dll::C_BaseEntity::m_vecAbsVelocity,velocity) && sdk::finite(velocity);
+        const bool grounded=(flags & 1u)!=0;
+        const float speed=hasVelocity ? std::hypot(velocity.x,velocity.y) : 0;
+        const int keys[]={'W','S','A','D'};
+        bool manual=false;
+        for (int key : keys) manual |= (GetAsyncKeyState(key) & 0x8000)!=0;
+        sdk::Vector2 view{};
+        if (config::misc::quick_stop && grounded && !manual && !(GetAsyncKeyState(VK_SPACE)&0x8000) &&
+            speed>12 && sdk::read_memory(client+cs2_dumper::offsets::client_dll::dwViewAngles,view) && std::isfinite(view.y)) {
+            const float yaw=view.y/constants::radians_to_degrees;
+            const float forward=velocity.x*std::cos(yaw)+velocity.y*std::sin(yaw);
+            const float right=velocity.x*std::sin(yaw)-velocity.y*std::cos(yaw);
+            const bool wanted[]={forward < -8,forward > 8,right > 8,right < -8};
+            const uintptr_t offsets[]={cs2_dumper::buttons::forward,cs2_dumper::buttons::back,cs2_dumper::buttons::left,cs2_dumper::buttons::right};
+            for (int i=0;i<4;++i) {
+                auto& button=s_stop_buttons[i];
+                const auto address=client+offsets[i];
+                if (button.address && (!wanted[i] || button.address!=address)) {
+                    sdk::write_memory(button.address,uint32_t{256}); button={};
+                }
+                if (wanted[i] && !button.address && sdk::write_memory(address,uint32_t{65537})) button={address,keys[i]};
+            }
+        } else ReleaseStop();
+        const bool edgeHeld=config::misc::edge_jump && config::misc::edge_jump_key>0 && config::misc::edge_jump_key<256 &&
+            (GetAsyncKeyState(config::misc::edge_jump_key)&0x8000) && !(GetAsyncKeyState(VK_SPACE)&0x8000);
+        if (!edgeHeld) { s_edge_jump_until=0; s_edge_latched=false; return; }
+        if (!grounded) return;
+        sdk::Vector3 origin{};
+        if (speed<20 || !sdk::read_memory(pawn+sdk::off::C_BasePlayerPawn::m_vOldOrigin,origin) || !sdk::finite(origin)) return;
+        const auto here=ProbeGround(pawn,origin);
+        const auto ahead=here==GroundProbe::Supported ? ProbeGround(pawn,origin+sdk::Vector3{velocity.x,velocity.y,0}*.03125f) : GroundProbe::Invalid;
+        if (ahead==GroundProbe::Supported) s_edge_latched=false;
+        if (here==GroundProbe::Supported && ahead==GroundProbe::Empty && !s_edge_latched) {
+            s_edge_jump_until=GetTickCount64()+25; s_edge_latched=true;
+        }
+    }
+
+    static void ReleaseStrafe() {
+        if (s_strafe_address) {
+            // Hand ownership back to the physical key without releasing a held A/D.
+            sdk::write_memory(s_strafe_address,
+                (GetAsyncKeyState(s_strafe_key) & 0x8000) ? uint32_t{65537} : uint32_t{256});
+        }
+        s_strafe_address = 0;
+        s_strafe_key = 0;
+    }
+
+    void AutoStrafe() {
+        const auto pawn = game_state::GetLocalPawnRaw();
+        uint32_t flags = 0;
+        uint8_t moveType = 0;
+        const bool active = (config::misc::auto_strafe || config::misc::strafe_assist) && !s_input_blocked && game_state::IsInGame() && pawn &&
+            (GetAsyncKeyState(VK_SPACE) & 0x8000) && !(GetAsyncKeyState('A') & 0x8000) &&
+            !(GetAsyncKeyState('D') & 0x8000) &&
+            sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) > 0 &&
+            sdk::read_memory(pawn + sdk::off::C_BaseEntity::m_fFlags, flags) && !(flags & 1u) &&
+            sdk::read_memory(pawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_MoveType, moveType) && moveType == 2;
+        const auto client = active ? reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll")) : 0;
+        sdk::Vector2 view{};
+        if (!client || !sdk::read_memory(client + cs2_dumper::offsets::client_dll::dwViewAngles, view) ||
+            !std::isfinite(view.y)) {
+            ReleaseStrafe(); s_strafe_has_yaw = false; s_strafe_pawn = 0;
+            return;
+        }
+        if (!s_strafe_has_yaw || s_strafe_pawn != pawn) {
+            ReleaseStrafe(); s_strafe_yaw = view.y; s_strafe_has_yaw = true; s_strafe_pawn = pawn;
+            return;
+        }
+        float turn = config::misc::auto_strafe ? sdk::normalize_yaw(view.y - s_strafe_yaw) : 0;
+        s_strafe_yaw = view.y;
+        if (std::fabs(turn)<.02f && config::misc::strafe_assist) {
+            sdk::Vector3 velocity{};
+            if (sdk::read_memory(pawn+cs2_dumper::schemas::client_dll::C_BaseEntity::m_vecAbsVelocity,velocity) &&
+                sdk::finite(velocity) && std::hypot(velocity.x,velocity.y)>30) {
+                const float delta=sdk::normalize_yaw(view.y-std::atan2(velocity.y,velocity.x)*constants::radians_to_degrees);
+                const float speed=std::hypot(velocity.x,velocity.y);
+                // Assist only near the velocity direction, where a lateral wish
+                // direction can add air speed. A large mismatch would brake instead.
+                const float limit=std::asin((std::min)(30.f/speed,1.f))*constants::radians_to_degrees;
+                turn=std::fabs(delta)>=.1f && std::fabs(delta)<limit ? -delta : 0;
+            }
+        }
+        if (std::fabs(turn) < .02f) { ReleaseStrafe(); return; }
+        const int key = turn > 0 ? 'A' : 'D';
+        const auto address = client + (turn > 0 ? cs2_dumper::buttons::left : cs2_dumper::buttons::right);
+        if (s_strafe_address == address) return;
+        ReleaseStrafe();
+        if (sdk::write_memory(address, uint32_t{65537})) { s_strafe_address = address; s_strafe_key = key; }
+    }
+
     void ReleaseInputs() {
+        ReleaseStop(); s_edge_jump_until=0; s_edge_pawn=0; s_edge_latched=false;
+        ReleaseStrafe(); s_strafe_has_yaw = false; s_strafe_pawn = 0;
         RestoreVisualFields();
         PublishFireTarget(0);
         if (s_scope_down) { mouse_event(MOUSEEVENTF_RIGHTUP,0,0,0,0); s_scope_down=false; }
@@ -1681,8 +1872,9 @@ namespace features {
 
     void BunnyHop() {
         const uintptr_t pawn = game_state::GetLocalPawnRaw();
-        const bool active = config::misc::bunny_hop && !s_input_blocked && game_state::IsInGame() && pawn &&
-            (GetAsyncKeyState(VK_SPACE) & 0x8000) && sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) > 0;
+        const bool edge = config::misc::edge_jump && pawn==s_edge_pawn && GetTickCount64()<s_edge_jump_until;
+        const bool active = ((config::misc::bunny_hop && (GetAsyncKeyState(VK_SPACE) & 0x8000)) || edge) &&
+            !s_input_blocked && game_state::IsInGame() && pawn && sdk::read_value<int>(pawn + sdk::off::C_BaseEntity::m_iHealth) > 0;
         if (!active) {
             if (s_jump_address) sdk::write_memory(s_jump_address, uint32_t{256});
             s_jump_address = 0;
@@ -1692,7 +1884,7 @@ namespace features {
         if (!client) return;
         s_jump_address = client + cs2_dumper::buttons::jump;
         const bool grounded = (sdk::read_value<uint32_t>(pawn + sdk::off::C_BaseEntity::m_fFlags) & 1u) != 0;
-        sdk::write_memory(s_jump_address, grounded ? uint32_t{65537} : uint32_t{256});
+        sdk::write_memory(s_jump_address, (grounded || edge) ? uint32_t{65537} : uint32_t{256});
     }
 
     void NoFlash() {

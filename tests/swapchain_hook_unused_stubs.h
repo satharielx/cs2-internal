@@ -40,6 +40,8 @@ void RunSilentAimSubTick(DWORD* input, sdk::C_CSPlayerPawn* pawn) {
 }
 void StartAimbotThread() { std::abort(); }
 void BunnyHop() { std::abort(); }
+void AutoStrafe() { std::abort(); }
+void MovementAssist() { std::abort(); }
 void NoFlash() { std::abort(); }
 void TriggerBot() { std::abort(); }
 void RadarHack() { std::abort(); }
@@ -121,6 +123,13 @@ ScopedColor::~ScopedColor() { std::abort(); }
 bool Initialize() { return false; }
 void OnFrameStage(int) { std::abort(); }
 void RestoreBeforeUnload() {}
+}
+namespace chams {
+uintptr_t Initialize() { return 0; }
+void OnFrameStage(int) { std::abort(); }
+uintptr_t Draw(Generate,uintptr_t,uintptr_t,uintptr_t,uintptr_t) { std::abort(); }
+void BeforeRemove(uintptr_t,uintptr_t,uint32_t) {}
+void Shutdown() {}
 }
 
 // Cursor drawing is exercised with real ImGui in console_regressions.
