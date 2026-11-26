@@ -1,0 +1,20 @@
+Program: libgthread-2.0-0.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 6dea26270e891756ca78422c289cf77c6780194e541598ff91c3b73c124c249c
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=45056 execute=true
+BLOCK .rdata 18000c000 size=28672 execute=false
+BLOCK .data 180013000 size=16384 execute=false
+BLOCK .pdata 180017000 size=4096 execute=false
+BLOCK .rsrc 180018000 size=4096 execute=false
+BLOCK .reloc 180019000 size=4096 execute=false
+EXPORT 180001000 g_thread_init
+EXPORT 180001000 Ordinal_1
+EXPORT 180001020 g_thread_init_with_errorcheck_mutexes
+EXPORT 180001020 Ordinal_2
+EXPORT 180001210 entry
+
+Function count after targeted disassembly: 186

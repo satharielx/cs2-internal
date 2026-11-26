@@ -1,0 +1,30 @@
+Program: cs2.exe
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 140000000
+Format: Portable Executable (PE)
+SHA256: 3020e5ee5d625bebb971e7a853acf9bc3c70f77ade540ffc2a04ee2669280ba2
+BLOCK Headers 140000000 size=1024 execute=false
+BLOCK .text 140001000 size=172032 execute=true
+BLOCK .rdata 14002b000 size=73728 execute=false
+BLOCK .data 14003d000 size=1953792 execute=false
+BLOCK .pdata 14021a000 size=12288 execute=false
+BLOCK .rsrc 14021d000 size=2179072 execute=false
+BLOCK .reloc 140431000 size=4096 execute=false
+EXPORT 140004cb0 GetTotalFilesLoaded
+EXPORT 140004cb0 Ordinal_6
+EXPORT 140004cc0 CountFilesNeedTrustCheck
+EXPORT 140004cc0 Ordinal_4
+EXPORT 140004cd0 CountFilesCompletedTrustCheck
+EXPORT 140004cd0 Ordinal_3
+EXPORT 140004ce0 CountItemsToReport
+EXPORT 140004ce0 Ordinal_5
+EXPORT 140004cf0 BSecureAllowed
+EXPORT 140004cf0 Ordinal_2
+EXPORT 14000ead0 entry
+EXPORT 1400bcde4 NvOptimusEnablement
+EXPORT 1400bcde4 Ordinal_7
+EXPORT 1400bcde8 AmdPowerXpressRequestHighPerformance
+EXPORT 1400bcde8 Ordinal_1
+
+Function count after targeted disassembly: 585

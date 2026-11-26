@@ -1,7 +1,6 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-
 #include <windows.h>
 #include <cstdio>
 #include <stdexcept>
@@ -11,166 +10,129 @@
 #include "core/error_logger.h"
 #include "core/game_state.h"
 #include "core/features.h"
+#include "core/pattern_resolver.h"
+#include "core/runtime_startup.h"
+#include "core/constants/hooks_signatures.h"
+#include "sdk/mem.h"
 
-DWORD WINAPI MainThread(LPVOID instance) {
-// Open a console for startup logs.
-AllocConsole();
-FILE* fp = nullptr;
-freopen_s(&fp, "CONOUT$", "w", stdout);
-freopen_s(&fp, "CONOUT$", "w", stderr);
-freopen_s(&fp, "CONIN$", "r", stdin);  // Redirect console input too.
-SetConsoleTitleA("CS2 Debug Console - Loading...");
-    
-// Show the console.
-HWND consoleWnd = GetConsoleWindow();
-if (consoleWnd) {
-    ShowWindow(consoleWnd, SW_SHOW);
-    SetForegroundWindow(consoleWnd);
-}
-    
-printf("========================================\n");
-printf("  CS2 CHEAT DEBUG CONSOLE\n");
-printf("========================================\n");
-printf("[+] Console allocated successfully\n");
-printf("[+] Injection started...\n");
-printf("========================================\n\n");
+static_assert(sizeof(void*) == 8, "The CS2 runtime requires an x64 DLL");
 
-// Start file logging.
-error_logger::ErrorLogger::Get().Log("MainThread", "CS2 Cheat injection started", 0);
-printf("[LOG] Error logger initialized\n");
-    
-// Show that the module has loaded.
-MessageBoxA(nullptr, 
-    "DLL Injected!\n\n"
-    "Debug console is now open.\n"
-    "Waiting for CS2 modules...\n\n"
-    "This will take 10-15 seconds.", 
-    "CS2 Cheat - Initializing", 
-    MB_ICONINFORMATION);
-    
-// Wait for the required game modules.
-DWORD maxWait = 45000;  // 45 seconds max
-const ULONGLONG waitStarted = GetTickCount64();
-const char* requiredModules[] = {
-    "client.dll", "engine2.dll", "rendersystemdx11.dll", "gameoverlayrenderer64.dll"
-};
-
-error_logger::ErrorLogger::Get().Log("Module Loading", "Waiting for CS2 modules...", 0);
-printf("[WAIT] Waiting for CS2 modules to load...\n");
-    
-    std::string lastMissing;
-    for (;;) {
-        std::string missing;
-        for (const char* module : requiredModules) {
-            if (!GetModuleHandleA(module)) {
-                if (!missing.empty()) missing += ", ";
-                missing += module;
+namespace {
+    class RuntimeSession {
+        bool interfaces_started_ = false;
+        bool hooks_started_ = false;
+        bool state_started_ = false;
+        bool aim_started_ = false;
+        template<class Stop>
+        static bool StopStage(bool& started, const char* name, Stop stop) noexcept {
+            if (!started) return true;
+            try { stop(); started = false; return true; }
+            catch (...) {
+                try { error_logger::ErrorLogger::Get().Log("Cleanup", name, 1); } catch (...) {}
+                return false;
             }
         }
-        if (missing.empty()) break;
-        if (missing != lastMissing) {
-            const std::string message = "Waiting for: " + missing;
-            error_logger::ErrorLogger::Get().Log("Module Loading", message.c_str(), 0);
-            lastMissing = missing;
+    public:
+        void Start() {
+            // Discovery can allocate resources before throwing.
+            interfaces_started_ = true;
+            interfaces::create();
+            // The monitor consumes completed interface discovery and supplies the
+            // snapshot needed by frame callbacks during setup and restoration.
+            state_started_ = true;
+            game_state::Start();
+            // hooks::create rolls back its own partial setup on failure.
+            hooks::create();
+            hooks_started_ = true;
+            // The mutating feature worker starts only after resolver/hook setup.
+            aim_started_ = true;
+            features::StartAimbotThread();
         }
-        if (GetTickCount64() - waitStarted >= maxWait) {
-            const std::string message = "Timed out after 45 seconds. Missing modules:\n" + missing +
-                "\n\nSee cs2_cheat_errors.log for details.";
-            error_logger::ErrorLogger::Get().Log("Module Loading", message.c_str(), 1);
-            MessageBoxA(nullptr, message.c_str(), "Injection Failed", MB_ICONERROR);
-            FreeConsole();
-            FreeLibraryAndExitThread((HMODULE)instance, 0);
-            return 0;
+        bool Stop() noexcept {
+            // Keep dependencies alive if a worker could not be joined.
+            if (!StopStage(aim_started_, "Failed to stop feature worker", features::StopAimbotThread)) return false;
+            if (!StopStage(hooks_started_, "Failed to stop hooks", hooks::destroy)) return false;
+            if (!StopStage(state_started_, "Failed to stop state monitor", game_state::Stop)) return false;
+            if (!StopStage(interfaces_started_, "Failed to release interfaces", interfaces::destroy)) return false;
+            pattern_resolver::Reset();
+            return true;
         }
-        Sleep(200);
-    }
+    };
 
-    // Verify modules are loaded
-    HMODULE client_dll = GetModuleHandleA("client.dll");
-    HMODULE engine2_dll = GetModuleHandleA("engine2.dll");
-    HMODULE render_dll = GetModuleHandleA("rendersystemdx11.dll");
-    
-    error_logger::ErrorLogger::Get().Log("Module Loading", "All modules loaded successfully", 0);
-
-    // Start game state monitor thread
-    game_state::Start();
-
-    // Allow the game modules to finish starting.
-    error_logger::ErrorLogger::Get().Log("Initialization", "Waiting 10 seconds for module initialization...", 0);
-    Sleep(10000);
-
-    try {
-        error_logger::ErrorLogger::Get().Log("Interfaces", "Creating game interfaces...", 0);
-        interfaces::create();
-        error_logger::ErrorLogger::Get().Log("Interfaces", "Game interfaces created successfully", 0);
-        
-        error_logger::ErrorLogger::Get().Log("Hooks", "Creating rendering hooks...", 0);
-        hooks::create();
-        error_logger::ErrorLogger::Get().Log("Hooks", "Rendering hooks created successfully", 0);
-
-        // Start aimbot on its own thread so it never blocks ESP rendering
-        features::StartAimbotThread();
-        
-        error_logger::ErrorLogger::Get().Log("MainThread", "Cheat injected successfully!", 0);
-        MessageBoxA(nullptr, "Injected successfully!\n\nF1 = Toggle Debug Console (auto-open)\nINSERT = Toggle Menu\nEND = Unload\n\nErrors logged to cs2_cheat_errors.log", "CS2 Cheat Ready", MB_ICONINFORMATION);
+    bool WaitForRuntime() {
+        const auto loaded = [](const char* module) { return GetModuleHandleA(module) != nullptr; };
+        const auto began = GetTickCount64();
+        std::string last_status;
+        for (;;) {
+            if (GetAsyncKeyState(VK_END) & 1) return false;
+            auto missing = runtime_startup::MissingModules(loaded);
+            std::string status;
+            if (!missing.empty()) status = "Waiting for: " + missing;
+            else {
+                // Check actual mandatory entry points instead of sleeping ten seconds.
+                // Optional game features are discovered independently afterward.
+                const bool ready = sdk::find_unique_pattern("gameoverlayrenderer64.dll", runtime_patterns::hooks::present) &&
+                    sdk::find_unique_pattern("gameoverlayrenderer64.dll", runtime_patterns::hooks::resize_buffers) &&
+                    sdk::find_unique_pattern("gameoverlayrenderer64.dll", runtime_patterns::hooks::create_swap_chain);
+                if (ready) return true;
+                status = "Required modules loaded; waiting for compatible Steam overlay entry points";
+            }
+            if (status != last_status) {
+                error_logger::ErrorLogger::Get().Log("Startup", status.c_str(), 0);
+                std::printf("[WAIT] %s\n", status.c_str());
+                last_status = status;
+            }
+            if (GetTickCount64() - began >= 45000) {
+                throw std::runtime_error(missing.empty() ?
+                    "Rendering signatures unavailable after 45 seconds; the Steam overlay integration needs revalidation" :
+                    runtime_startup::TimeoutReason(loaded));
+            }
+            Sleep(250);
+        }
     }
-    catch (const std::exception& e) {
-        error_logger::ErrorLogger::Get().LogException("MainThread", e);
-        hooks::destroy();
-        features::StopAimbotThread();
-        game_state::Stop();
-        interfaces::destroy();
-        char buf[1024];
-        sprintf_s(buf, "Initialization failed:\n\n%s\n\nCheck cs2_cheat_errors.log for details\n\nThe cheat will now unload.", e.what());
-        MessageBoxA(nullptr, buf, "Error", MB_ICONERROR);
-        FreeLibraryAndExitThread((HMODULE)instance, 0);
-        return 0;
-    }
-    catch (...) {
-        error_logger::ErrorLogger::Get().Log("MainThread", "Unknown exception during initialization", 1);
-        hooks::destroy();
-        features::StopAimbotThread();
-        game_state::Stop();
-        interfaces::destroy();
-        MessageBoxA(nullptr, "Unknown exception during initialization!\n\nCheck cs2_cheat_errors.log for details\n\nThe cheat will now unload.", "Critical Error", MB_ICONERROR);
-        FreeLibraryAndExitThread((HMODULE)instance, 0);
-        return 0;
-    }
-
-    // Main loop - wait for unload key
-    error_logger::ErrorLogger::Get().Log("MainThread", "Entering main loop. Press END to unload.", 0);
-    while (!(GetAsyncKeyState(VK_END) & 1)) {
-        Sleep(100);
-    }
-
-    // Release resources before unloading.
-    error_logger::ErrorLogger::Get().Log("Cleanup", "Starting cleanup...", 0);
-    try {
-        hooks::destroy();
-        features::StopAimbotThread();
-        game_state::Stop();
-        interfaces::destroy();
-        error_logger::ErrorLogger::Get().Log("Cleanup", "Cleanup completed successfully", 0);
-    }
-    catch (const std::exception& ex) {
-        error_logger::ErrorLogger::Get().LogException("Cleanup", ex);
-    }
-    catch (...) {
-        error_logger::ErrorLogger::Get().Log("Cleanup", "Unknown error during cleanup", 1);
-    }
-
-    FreeConsole();
-    FreeLibraryAndExitThread((HMODULE)instance, 0);
-    return 0;
 }
 
-BOOL APIENTRY DllMain(HINSTANCE hModule, DWORD reason, LPVOID lpReserved) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(hModule);
-        HANDLE hThread = CreateThread(nullptr, 0, MainThread, hModule, 0, nullptr);
-        if (hThread) {
-            CloseHandle(hThread);
+DWORD WINAPI MainThread(LPVOID instance) {
+    const bool owns_console = AllocConsole() != FALSE;
+    FILE* output = nullptr;
+    if (owns_console) {
+        freopen_s(&output, "CONOUT$", "w", stdout);
+        freopen_s(&output, "CONOUT$", "w", stderr);
+        SetConsoleTitleA("NEPHILIMGATE - Startup");
+    }
+    RuntimeSession session;
+    try {
+        error_logger::ErrorLogger::Get().Log("Startup", "Starting x64 runtime", 0);
+        if (WaitForRuntime()) {
+            session.Start();
+            if (owns_console) SetConsoleTitleA("NEPHILIMGATE - Ready");
+            std::puts("[READY] INSERT = menu | F1 = debug console | END = unload");
+            error_logger::ErrorLogger::Get().Log("Startup", "Runtime initialized; rendering awaits Present", 0);
+            while (!(GetAsyncKeyState(VK_END) & 1)) Sleep(100);
         }
+    }
+    catch (const std::exception& error) {
+        std::fprintf(stderr, "[ERROR] %s\n", error.what());
+        try { error_logger::ErrorLogger::Get().LogException("Startup", error); } catch (...) {}
+    }
+    catch (...) {
+        std::fputs("[ERROR] Unexpected runtime initialization failure\n", stderr);
+        try { error_logger::ErrorLogger::Get().Log("Startup", "Unexpected failure", 1); } catch (...) {}
+    }
+    if (!session.Stop()) {
+        std::fputs("[ERROR] Cleanup incomplete; module retained to keep live callbacks valid\n", stderr);
+        return 1;
+    }
+    if (owns_console) FreeConsole();
+    FreeLibraryAndExitThread(static_cast<HMODULE>(instance), 0);
+}
+
+BOOL APIENTRY DllMain(HINSTANCE module, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(module);
+        const HANDLE thread = CreateThread(nullptr, 0, MainThread, module, 0, nullptr);
+        if (!thread) return FALSE;
+        CloseHandle(thread);
     }
     return TRUE;
 }

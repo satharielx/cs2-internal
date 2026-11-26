@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdlib>
+namespace inventory {void Shutdown() {} void OnFrameStage(int) {}}
 
 inline ImGuiContext* test_current_context = nullptr;
 inline unsigned test_menu_resets = 0;
@@ -13,6 +14,7 @@ inline unsigned test_removes = 0;
 inline bool test_silent_callback = false;
 inline bool test_window_input = false;
 inline unsigned test_input_messages = 0;
+inline bool test_hud_in_game = false;
 ImGuiIO::ImGuiIO() {}
 inline ImGuiIO test_input_io;
 
@@ -27,6 +29,7 @@ std::uint8_t* find_pattern(const char* module, const char*) {
         ? &placeholder : nullptr;
 }
 std::uint8_t* resolve_absolute_rip_address(std::uint8_t*, std::size_t, std::size_t) { std::abort(); }
+std::uint8_t* find_unique_pattern(const char* module, const char* pattern) { return find_pattern(module, pattern); }
 }
 namespace features {
 void SetInputBlocked(bool) {}
@@ -40,6 +43,8 @@ void RunSilentAimSubTick(DWORD* input, sdk::C_CSPlayerPawn* pawn) {
 }
 void StartAimbotThread() { std::abort(); }
 void BunnyHop() { std::abort(); }
+void AutoStrafe() { std::abort(); }
+void MovementAssist() { std::abort(); }
 void NoFlash() { std::abort(); }
 void TriggerBot() { std::abort(); }
 void RadarHack() { std::abort(); }
@@ -112,7 +117,7 @@ MH_STATUS WINAPI MH_DisableHook(LPVOID) { return MH_OK; }
 }
 namespace game_state {
 Snapshot GetSnapshot() { return {}; }
-bool IsInGame() { return false; }
+bool IsInGame() { return test_hud_in_game; }
 uintptr_t GetLocalPawnRaw() { return 0; }
 }
 namespace skybox {
@@ -121,6 +126,13 @@ ScopedColor::~ScopedColor() { std::abort(); }
 bool Initialize() { return false; }
 void OnFrameStage(int) { std::abort(); }
 void RestoreBeforeUnload() {}
+}
+namespace chams {
+uintptr_t Initialize() { return 0; }
+void OnFrameStage(int) { std::abort(); }
+uintptr_t Draw(Generate,uintptr_t,uintptr_t,uintptr_t,uintptr_t) { std::abort(); }
+void BeforeRemove(uintptr_t,uintptr_t,uint32_t) {}
+void Shutdown() {}
 }
 
 // Cursor drawing is exercised with real ImGui in console_regressions.

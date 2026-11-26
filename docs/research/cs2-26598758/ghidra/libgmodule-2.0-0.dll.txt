@@ -1,0 +1,32 @@
+Program: libgmodule-2.0-0.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 351d05acc97d19ea348a69a844b3d959a02ed6189357b8d8d65eb70b7f68e537
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=49152 execute=true
+BLOCK .rdata 18000d000 size=28672 execute=false
+BLOCK .data 180014000 size=16384 execute=false
+BLOCK .pdata 180018000 size=4096 execute=false
+BLOCK .rsrc 180019000 size=4096 execute=false
+BLOCK .reloc 18001a000 size=4096 execute=false
+EXPORT 180001310 g_module_supported
+EXPORT 180001310 Ordinal_7
+EXPORT 1800016b0 g_module_open_utf8
+EXPORT 1800016b0 Ordinal_6
+EXPORT 180001bf0 g_module_close
+EXPORT 180001bf0 Ordinal_2
+EXPORT 180001d60 g_module_make_resident
+EXPORT 180001d60 Ordinal_4
+EXPORT 180001d90 g_module_error
+EXPORT 180001d90 Ordinal_3
+EXPORT 180001da0 g_module_symbol
+EXPORT 180001da0 Ordinal_8
+EXPORT 180001f40 g_module_name_utf8
+EXPORT 180001f40 Ordinal_5
+EXPORT 180001f90 g_module_build_path
+EXPORT 180001f90 Ordinal_1
+EXPORT 180002414 entry
+
+Function count after targeted disassembly: 198

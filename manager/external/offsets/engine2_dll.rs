@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-10-11 19:31:11.671150600 UTC
+// 2026-11-24 21:19:01.174552900 UTC
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, unused)]
 
@@ -347,9 +347,10 @@ pub mod cs2_dumper {
                 pub const m_nRenderHeight: usize = 0x24; // int32
             }
             // Parent: None
-            // Field count: 1
+            // Field count: 2
             pub mod EventClientPollNetworking_t {
                 pub const m_nTickCount: usize = 0x0; // int32
+                pub const m_nTotalTicks: usize = 0x4; // int32
             }
             // Parent: None
             // Field count: 1

@@ -23,6 +23,7 @@ void Console::Success(const char*, ...) {}
 }
 namespace sdk {
 std::uint8_t* find_pattern(const char*, const char*) { return nullptr; }
+std::uint8_t* find_unique_pattern(const char*, const char*) { return nullptr; }
 std::uint8_t* resolve_absolute_rip_address(std::uint8_t*, std::size_t, std::size_t) {
     return nullptr;
 }

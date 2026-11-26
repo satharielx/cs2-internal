@@ -35,6 +35,7 @@ namespace menu_advanced {
     void RenderSkinTab();
     void RenderGrenadesTab();
     void RenderConfigsTab();
+    void RenderRuntimeTab();
 
     // Knife changer
     void ApplySelectedKnife(int knife_id);

@@ -9,20 +9,31 @@
 #include <stdexcept>
 #include <format>
 #include <wrl/client.h>
+#include <mutex>
 
 namespace interfaces {
     static uintptr_t entity_system_slot = 0;
+    static HMODULE entity_system_module = nullptr;
+    static ULONGLONG next_entity_scan = 0;
+    static std::mutex entity_system_mutex;
     CGameEntitySystem* GameEntitySystem() {
-        static ULONGLONG next_scan = 0;
-        if (!entity_system_slot && GetTickCount64() >= next_scan) {
-            next_scan = GetTickCount64() + 1000;
-            auto* instruction = sdk::find_pattern("client.dll", runtime_patterns::interfaces::entity_system);
+        std::lock_guard<std::mutex> lock(entity_system_mutex);
+        const auto module = GetModuleHandleA("client.dll");
+        if (module != entity_system_module) {
+            entity_system_module = module;
+            entity_system_slot = 0;
+            next_entity_scan = 0;
+        }
+        if (!module) return nullptr;
+        if (!entity_system_slot && GetTickCount64() >= next_entity_scan) {
+            next_entity_scan = GetTickCount64() + 1000;
+            auto* instruction = sdk::find_unique_pattern("client.dll", runtime_patterns::interfaces::entity_system);
             if (instruction)
                 entity_system_slot = reinterpret_cast<uintptr_t>(sdk::resolve_absolute_rip_address(instruction, 3, 7));
         }
         // The global slot survives map changes; the object stored in it may not.
         if (entity_system_slot) return sdk::read_value<CGameEntitySystem*>(entity_system_slot);
-        const auto client = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
+        const auto client = reinterpret_cast<uintptr_t>(module);
         return client ? sdk::read_value<CGameEntitySystem*>(client +
             cs2_dumper::offsets::client_dll::dwGameEntitySystem) : nullptr;
     }
@@ -147,14 +158,14 @@ namespace interfaces {
         engine_trace::Initialize();
         error_logger::ErrorLogger::Get().Log("Interfaces", "Starting interface creation...", 0);
 
-        sdk::entity_lookup = reinterpret_cast<sdk::EntityLookup>(sdk::find_pattern("client.dll",
+        sdk::entity_lookup = reinterpret_cast<sdk::EntityLookup>(sdk::find_unique_pattern("client.dll",
             runtime_patterns::interfaces::entity_lookup));
         // These optional interfaces currently have no consumers in this build.
         // Missing game signatures must not prevent the independent overlay hooks.
         cs_io = nullptr;
         input_system = nullptr;
-        client = nullptr;
-        auto* input_load = sdk::find_pattern("client.dll", runtime_patterns::interfaces::input_reference);
+        frame_stage_notify = nullptr;
+        auto* input_load = sdk::find_unique_pattern("client.dll", runtime_patterns::interfaces::input_reference);
         if (input_load) {
             auto* slot = sdk::resolve_absolute_rip_address(input_load, 3, 7);
             if (sdk::is_readable_range(reinterpret_cast<uintptr_t>(slot), sizeof(void*))) {
@@ -172,25 +183,24 @@ namespace interfaces {
             error_logger::ErrorLogger::Get().LogException("Optional InputSystem", e);
         }
 
-        // In CS2, client.dll no longer exports a CHLClient interface via CreateInterface.
-        // Instead, scan for FrameStageNotify directly by pattern and store the function
-        // pointer in interfaces::client so hooks.cpp can hook it without a vtable lookup.
+        // client.dll exports CreateInterface, but that factory is distinct from
+        // this internal callback. Keep objects and code addresses separate.
         try {
             error_logger::ErrorLogger::Get().Log("ClientInterface", "Scanning for FrameStageNotify via pattern...", 0);
             // CS2 FrameStageNotify pattern — called with stage index, processes render frames
-            std::uint8_t* fsn = sdk::find_pattern("client.dll",
+            std::uint8_t* fsn = sdk::find_unique_pattern("client.dll",
                 runtime_patterns::interfaces::frame_stage_notify);
             if (fsn) {
-                client = reinterpret_cast<void*>(fsn);
+                frame_stage_notify = reinterpret_cast<void*>(fsn);
                 error_logger::ErrorLogger::Get().Log("ClientInterface", "FrameStageNotify found via pattern", 0);
             }
             else {
-                error_logger::ErrorLogger::Get().Log("ClientInterface", "FrameStageNotify pattern not found — knife subclass queue will not drain", 1);
+                error_logger::ErrorLogger::Get().Log("ClientInterface", "Frame-stage signature missing or ambiguous; dependent features unavailable", 1);
             }
         }
         catch (const std::exception& e) {
             error_logger::ErrorLogger::Get().LogException("ClientInterface", e);
-            // Not fatal; knife subclass queue falls back to render-thread drain
+            // Optional callback failure must not disable the independent renderer.
         }
         catch (...) {
             error_logger::ErrorLogger::Get().Log("ClientInterface", "Unknown exception scanning FrameStageNotify", 1);
@@ -204,7 +214,13 @@ namespace interfaces {
             destroy_d3d11_resources();
             input_system = nullptr;
             cs_io = nullptr;
-            entity_system_slot = 0;
+            frame_stage_notify = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(entity_system_mutex);
+                entity_system_slot = 0;
+                entity_system_module = nullptr;
+                next_entity_scan = 0;
+            }
             sdk::entity_lookup = nullptr;
             hwnd = nullptr;
             error_logger::ErrorLogger::Get().Log("Interfaces", "All interfaces destroyed", 0);

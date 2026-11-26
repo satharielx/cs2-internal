@@ -1,0 +1,31 @@
+Program: csgo_legacy_app.exe
+Language: x86:LE:32:default
+Compiler: windows
+Image base: 00400000
+Format: Portable Executable (PE)
+SHA256: de96c3b37e3aaedcf4d6a24c5f6c30acd60f3593e8d452dd9857d682ea3fb114
+BLOCK Headers 00400000 size=1024 execute=false
+BLOCK .text 00401000 size=368640 execute=true
+BLOCK .rdata 0045b000 size=118784 execute=false
+BLOCK .data 00478000 size=1163264 execute=false
+BLOCK .gfids 00594000 size=4096 execute=false
+BLOCK .tls 00595000 size=4096 execute=false
+BLOCK .rsrc 00596000 size=675840 execute=false
+BLOCK .reloc 0063b000 size=24576 execute=false
+EXPORT 004014d0 GetTotalFilesLoaded
+EXPORT 004014d0 Ordinal_5
+EXPORT 004014e0 CountFilesNeedTrustCheck
+EXPORT 004014e0 Ordinal_4
+EXPORT 004014f0 CountFilesCompletedTrustCheck
+EXPORT 004014f0 Ordinal_3
+EXPORT 00401500 BSecureAllowed
+EXPORT 00401500 Ordinal_2
+EXPORT 00401550 RuntimeCheck
+EXPORT 00401550 Ordinal_7
+EXPORT 0040f3ed entry
+EXPORT 00478888 NvOptimusEnablement
+EXPORT 00478888 Ordinal_6
+EXPORT 0047888c AmdPowerXpressRequestHighPerformance
+EXPORT 0047888c Ordinal_1
+
+Function count after targeted disassembly: 1

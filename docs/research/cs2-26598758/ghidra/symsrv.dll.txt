@@ -1,0 +1,75 @@
+Program: symsrv.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 01d00000
+Format: Portable Executable (PE)
+SHA256: c67be7d3f54d44ac264a18e33909482f1f8ca7b7fbaaf5659ef71ed9f8092c34
+BLOCK Headers 01d00000 size=1024 execute=false
+BLOCK .text 01d01000 size=126976 execute=true
+BLOCK .data 01d20000 size=172032 execute=false
+BLOCK .pdata 01d4a000 size=8192 execute=false
+BLOCK .rsrc 01d4c000 size=4096 execute=false
+BLOCK .reloc 01d4d000 size=4096 execute=false
+EXPORT 01d07670 SymbolServerClose
+EXPORT 01d07670 Ordinal_21
+EXPORT 01d079a0 SymbolServerW
+EXPORT 01d079a0 Ordinal_17
+EXPORT 01d07a90 SymbolServer
+EXPORT 01d07a90 Ordinal_18
+EXPORT 01d07b80 SymbolServerByIndexW
+EXPORT 01d07b80 Ordinal_20
+EXPORT 01d07d50 SymbolServerByIndex
+EXPORT 01d07d50 Ordinal_19
+EXPORT 01d07e40 SymbolServerSetOptionsW
+EXPORT 01d07e40 Ordinal_12
+EXPORT 01d082e0 SymbolServerSetOptions
+EXPORT 01d082e0 Ordinal_25
+EXPORT 01d08380 SymbolServerGetOptions
+EXPORT 01d08380 Ordinal_24
+EXPORT 01d083a0 SymbolServerPingW
+EXPORT 01d083a0 Ordinal_11
+EXPORT 01d08460 SymbolServerPing
+EXPORT 01d08460 Ordinal_10
+EXPORT 01d084c0 SymbolServerGetVersion
+EXPORT 01d084c0 Ordinal_7
+EXPORT 01d08530 SymbolServerDeltaNameW
+EXPORT 01d08530 Ordinal_4
+EXPORT 01d08650 SymbolServerDeltaName
+EXPORT 01d08650 Ordinal_3
+EXPORT 01d08770 SymbolServerGetSupplementW
+EXPORT 01d08770 Ordinal_6
+EXPORT 01d089a0 SymbolServerGetSupplement
+EXPORT 01d089a0 Ordinal_5
+EXPORT 01d08a90 SymbolServerStoreSupplementW
+EXPORT 01d08a90 Ordinal_16
+EXPORT 01d08c20 SymbolServerStoreSupplement
+EXPORT 01d08c20 Ordinal_15
+EXPORT 01d08d30 SymbolServerGetIndexStringW
+EXPORT 01d08d30 Ordinal_23
+EXPORT 01d08db0 SymbolServerGetIndexString
+EXPORT 01d08db0 Ordinal_22
+EXPORT 01d08e50 SymbolServerStoreFileW
+EXPORT 01d08e50 Ordinal_14
+EXPORT 01d09090 SymbolServerStoreFile
+EXPORT 01d09090 Ordinal_13
+EXPORT 01d09190 SymbolServerIsStoreW
+EXPORT 01d09190 Ordinal_9
+EXPORT 01d092b0 SymbolServerIsStore
+EXPORT 01d092b0 Ordinal_8
+EXPORT 01d09340 RunDllEntry
+EXPORT 01d09340 Ordinal_2
+EXPORT 01d13760 httpOpenFileHandleW
+EXPORT 01d13760 Ordinal_28
+EXPORT 01d13aa0 httpOpenFileHandle
+EXPORT 01d13aa0 Ordinal_27
+EXPORT 01d13b30 httpQueryDataAvailable
+EXPORT 01d13b30 Ordinal_29
+EXPORT 01d13b90 httpReadFile
+EXPORT 01d13b90 Ordinal_30
+EXPORT 01d13c00 httpCloseHandle
+EXPORT 01d13c00 Ordinal_26
+EXPORT 01d16990 EulaDlgProc
+EXPORT 01d16990 Ordinal_1
+EXPORT 01d19864 entry
+
+Function count after targeted disassembly: 424

@@ -1,0 +1,86 @@
+Program: Qt5Concurrent.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: d4a01961fff02cc38ab906d3bffaeb49db893edc624f840e06d07985086db29f
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=65536 execute=true
+BLOCK .rdata 180011000 size=45056 execute=false
+BLOCK .data 18001c000 size=8192 execute=false
+BLOCK .pdata 18001e000 size=8192 execute=false
+BLOCK _RDATA 180020000 size=4096 execute=false
+BLOCK .rsrc 180021000 size=4096 execute=false
+BLOCK .reloc 180022000 size=4096 execute=false
+EXPORT 180001050 ??0ThreadEngineBase@QtConcurrent@@QEAA@XZ
+EXPORT 180001050 Ordinal_3
+EXPORT 1800010d0 ??1ThreadEngineBase@QtConcurrent@@UEAA@XZ
+EXPORT 1800010d0 Ordinal_5
+EXPORT 1800011c0 ?acquireBarrierSemaphore@ThreadEngineBase@QtConcurrent@@QEAAXXZ
+EXPORT 1800011c0 Ordinal_7
+EXPORT 1800011f0 _guard_check_icall
+EXPORT 1800011f0 ?finish@ThreadEngineBase@QtConcurrent@@MEAAXXZ
+EXPORT 1800011f0 Ordinal_12
+EXPORT 1800011f0 ?start@ThreadEngineBase@QtConcurrent@@MEAAXXZ
+EXPORT 1800011f0 Ordinal_21
+EXPORT 180001200 ?handleException@ThreadEngineBase@QtConcurrent@@AEAAXAEBVQException@@@Z
+EXPORT 180001200 Ordinal_13
+EXPORT 180001220 ?isCanceled@ThreadEngineBase@QtConcurrent@@QEAA_NXZ
+EXPORT 180001220 Ordinal_14
+EXPORT 180001240 ?isProgressReportingEnabled@ThreadEngineBase@QtConcurrent@@QEAA_NXZ
+EXPORT 180001240 Ordinal_15
+EXPORT 1800012b0 ?run@ThreadEngineBase@QtConcurrent@@EEAAXXZ
+EXPORT 1800012b0 Ordinal_16
+EXPORT 180001350 ?setProgressRange@ThreadEngineBase@QtConcurrent@@QEAAXHH@Z
+EXPORT 180001350 Ordinal_17
+EXPORT 180001370 ?setProgressValue@ThreadEngineBase@QtConcurrent@@QEAAXH@Z
+EXPORT 180001370 Ordinal_18
+EXPORT 180001390 ?shouldStartThread@ThreadEngineBase@QtConcurrent@@MEAA_NXZ
+EXPORT 180001390 Ordinal_19
+EXPORT 1800013c0 ?shouldThrottleThread@ThreadEngineBase@QtConcurrent@@MEAA_NXZ
+EXPORT 1800013c0 Ordinal_20
+EXPORT 1800013e0 ?startBlocking@ThreadEngineBase@QtConcurrent@@QEAAXXZ
+EXPORT 1800013e0 Ordinal_22
+EXPORT 1800014f0 ?startSingleThreaded@ThreadEngineBase@QtConcurrent@@QEAAXXZ
+EXPORT 1800014f0 Ordinal_23
+EXPORT 180001520 ?startThread@ThreadEngineBase@QtConcurrent@@QEAAXXZ
+EXPORT 180001520 Ordinal_24
+EXPORT 180001530 ?startThreadInternal@ThreadEngineBase@QtConcurrent@@AEAA_NXZ
+EXPORT 180001530 Ordinal_25
+EXPORT 1800015b0 ?startThreads@ThreadEngineBase@QtConcurrent@@AEAAXXZ
+EXPORT 1800015b0 Ordinal_26
+EXPORT 180001660 ?threadExit@ThreadEngineBase@QtConcurrent@@AEAAXXZ
+EXPORT 180001660 Ordinal_27
+EXPORT 1800016e0 ?threadFunction@ThreadEngineBase@QtConcurrent@@MEAA?AW4ThreadFunctionResult@2@XZ
+EXPORT 1800016e0 Ordinal_28
+EXPORT 1800016f0 ?threadThrottleExit@ThreadEngineBase@QtConcurrent@@AEAA_NXZ
+EXPORT 1800016f0 Ordinal_29
+EXPORT 180001730 ?waitForResume@ThreadEngineBase@QtConcurrent@@QEAAXXZ
+EXPORT 180001730 Ordinal_34
+EXPORT 180001f60 ??0BlockSizeManager@QtConcurrent@@QEAA@H@Z
+EXPORT 180001f60 Ordinal_1
+EXPORT 180002020 ??0BlockSizeManagerV2@QtConcurrent@@QEAA@H@Z
+EXPORT 180002020 Ordinal_2
+EXPORT 180002110 ??1BlockSizeManager@QtConcurrent@@QEAA@XZ
+EXPORT 180002110 Ordinal_4
+EXPORT 180002300 ?blockSize@BlockSizeManager@QtConcurrent@@QEAAHXZ
+EXPORT 180002300 Ordinal_8
+EXPORT 180002310 ?blockSize@BlockSizeManagerV2@QtConcurrent@@QEAAHXZ
+EXPORT 180002310 Ordinal_9
+EXPORT 180002320 ?blockSizeMaxed@BlockSizeManager@QtConcurrent@@AEAA_NXZ
+EXPORT 180002320 Ordinal_10
+EXPORT 180002330 ?blockSizeMaxed@BlockSizeManagerV2@QtConcurrent@@AEAA_NXZ
+EXPORT 180002330 Ordinal_11
+EXPORT 180002920 ?timeAfterUser@BlockSizeManager@QtConcurrent@@QEAAXXZ
+EXPORT 180002920 Ordinal_30
+EXPORT 1800029e0 ?timeAfterUser@BlockSizeManagerV2@QtConcurrent@@QEAAXXZ
+EXPORT 1800029e0 Ordinal_31
+EXPORT 180002b40 ?timeBeforeUser@BlockSizeManager@QtConcurrent@@QEAAXXZ
+EXPORT 180002b40 Ordinal_32
+EXPORT 180002b90 ?timeBeforeUser@BlockSizeManagerV2@QtConcurrent@@QEAAXXZ
+EXPORT 180002b90 Ordinal_33
+EXPORT 180003114 entry
+EXPORT 1800113b8 ??_7ThreadEngineBase@QtConcurrent@@6B@
+EXPORT 1800113b8 Ordinal_6
+
+Function count after targeted disassembly: 366

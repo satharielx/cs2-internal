@@ -93,9 +93,15 @@ namespace sdk {
         return (*static_cast<Fn**>(thisptr))[Index](thisptr, argList...);
     }
 
-    // Find a byte pattern in a loaded module.
+    // Find a code signature in executable sections of a loaded native image.
     // pattern format: "48 8B 0D ?? ?? ?? ??" (IDA style)
     std::uint8_t* find_pattern(const char* module_name, const char* pattern);
+    // Callback/global discovery must not choose an arbitrary first match.
+    std::uint8_t* find_unique_pattern(const char* module_name, const char* pattern);
+    // mapped_size is the caller-owned mapped image extent, not the raw file size.
+    // Rejects malformed/wrong-architecture images and out-of-bounds sections.
+    std::uint8_t* find_pattern_in_image(std::uint8_t* image, std::size_t mapped_size, const char* pattern,
+        bool require_unique = false);
     // Missing modules/matches and malformed signatures return nullptr.
     // The range scanner skips uncommitted, guard and inaccessible pages.
     std::uint8_t* find_pattern_in_range(std::uint8_t* data, std::size_t size, const char* pattern);
@@ -103,7 +109,8 @@ namespace sdk {
     // Resolve RIP-relative address (x64 instruction addressing)
     // instruction: pointer to the instruction
     // offset_to_displacement: offset to the displacement value in the instruction
-    // instruction_size: total size of the instruction
+    // instruction_size: total size of the instruction. Invalid layouts, unreadable
+    // displacement bytes, and arithmetic overflow return nullptr.
     std::uint8_t* resolve_absolute_rip_address(std::uint8_t* instruction,
         std::size_t offset_to_displacement,
         std::size_t instruction_size);

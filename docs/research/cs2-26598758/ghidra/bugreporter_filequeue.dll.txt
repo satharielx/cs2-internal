@@ -1,0 +1,223 @@
+Program: bugreporter_filequeue.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 03cddfc7db62863a767bce90c62e80c23a4c53cc6280e00018a2c7b0f94a81ce
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=98304 execute=true
+BLOCK .rdata 180019000 size=49152 execute=false
+BLOCK .data 180025000 size=8192 execute=false
+BLOCK .pdata 180027000 size=8192 execute=false
+BLOCK .reloc 180029000 size=4096 execute=false
+EXPORT 180006750 BinaryProperties_GetValue
+EXPORT 180006750 Ordinal_1
+EXPORT 180006b90 ExtractModuleMetadata
+EXPORT 180006b90 Ordinal_3
+EXPORT 180006d60 CreateInterface
+EXPORT 180006d60 Ordinal_2
+EXPORT 18000a478 entry
+
+FUNCTION BinaryProperties_GetValue 180006750 RVA=6750
+180006750 CMP ECX,0x7
+180006753 JA 0x1800067da
+180006759 MOVSXD RAX,ECX
+18000675c LEA R8,[0x180000000]
+180006763 MOV ECX,dword ptr [R8 + RAX*0x4 + 0x67e0]
+18000676b ADD RCX,R8
+18000676e JMP RCX
+1800067da XOR EAX,EAX
+1800067dc RET
+
+undefined8 BinaryProperties_GetValue(undefined4 param_1,undefined8 *param_2)
+
+{
+                    /* 0x6750  1  BinaryProperties_GetValue */
+  switch(param_1) {
+  case 0:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_180020ef8;
+    return 1;
+  case 1:
+  case 4:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 0;
+    return 1;
+  case 2:
+  case 5:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 1;
+    return 1;
+  case 3:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_180020f00;
+    return 1;
+  case 6:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 2;
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+
+
+FUNCTION ExtractModuleMetadata 180006b90 RVA=6b90
+180006b90 PUSH RSI
+180006b92 SUB RSP,0x20
+180006b96 MOV RAX,qword ptr GS:[0x58]
+180006b9f MOV RSI,RCX
+180006ba2 MOV EDX,dword ptr [0x180026180]
+180006ba8 MOV qword ptr [RSP + 0x30],RBX
+180006bad MOV ECX,0x4
+180006bb2 MOV RBX,qword ptr [RAX + RDX*0x8]
+180006bb6 ADD RBX,RCX
+180006bb9 MOV EAX,dword ptr [RBX]
+180006bbb CMP dword ptr [0x180026dd0],EAX
+180006bc1 JG 0x180006c3c
+180006bc3 MOV EAX,dword ptr [RBX]
+180006bc5 CMP dword ptr [0x180026dd8],EAX
+180006bcb JG 0x180006c83
+180006bd1 MOV EAX,dword ptr [RBX]
+180006bd3 CMP dword ptr [0x180026df0],EAX
+180006bd9 JG 0x180006cb9
+180006bdf CMP byte ptr [0x180026dd4],0x0
+180006be6 MOV RBX,qword ptr [RSP + 0x30]
+180006beb JZ 0x180006bfa
+180006bed LEA RAX,[0x180026de0]
+180006bf4 ADD RSP,0x20
+180006bf8 POP RSI
+180006bf9 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 ExtractModuleMetadata(undefined8 *param_1)
+
+{
+  undefined8 *puVar1;
+  char cVar2;
+  char cVar3;
+  char cVar4;
+  undefined *puVar5;
+  int *piVar6;
+  longlong unaff_GS_OFFSET;
+  
+                    /* 0x6b90  3  ExtractModuleMetadata */
+  piVar6 = (int *)(*(longlong *)(*(longlong *)(unaff_GS_OFFSET + 0x58) + (ulonglong)__tls_index * 8)
+                  + 4);
+  if ((*piVar6 < _DAT_180026dd0) && (FUN_18000a0f0(&DAT_180026dd0), _DAT_180026dd0 == -1)) {
+    FUN_180008620(0x180026de0,1,8);
+    FUN_18000a040(&UNK_180018560);
+    FUN_18000a084(&DAT_180026dd0);
+  }
+  if ((*piVar6 < _DAT_180026dd8) && (FUN_18000a0f0(&DAT_180026dd8), _DAT_180026dd8 == -1)) {
+    FUN_18000a040(&UNK_180018550);
+    FUN_18000a084(&DAT_180026dd8);
+  }
+  if ((*piVar6 < _DAT_180026df0) && (FUN_18000a0f0(&DAT_180026df0), _DAT_180026df0 == -1)) {
+    cVar3 = '\x01';
+    puVar1 = _DAT_180026d20;
+    while (cVar2 = cVar3, puVar1 != (undefined8 *)0x0) {
+      cVar4 = (**(code **)*puVar1)(puVar1,0x180026de0,0x180026000);
+      puVar1 = (undefined8 *)puVar1[1];
+      cVar3 = '\0';
+      if (cVar4 != '\0') {
+        cVar3 = cVar2;
+      }
+    }
+    FUN_180009b50(0x180026de0);
+    DAT_180026dd4 = cVar2;
+    FUN_18000a084(&DAT_180026df0);
+  }
+  if (DAT_180026dd4 != '\0') {
+    return 0x180026de0;
+  }
+  if (param_1 != (undefined8 *)0x0) {
+    if ((_DAT_180026004 >> 0x1e & 1) != 0) {
+      *param_1 = &DAT_180026008;
+      return 0;
+    }
+    puVar5 = &UNK_1800209f0;
+    if ((_DAT_180026004 & 0x3fffffff) != 0) {
+      puVar5 = _DAT_180026008;
+    }
+    *param_1 = puVar5;
+  }
+  return 0;
+}
+
+
+
+FUNCTION CreateInterface 180006d60 RVA=6d60
+180006d60 MOV R9,qword ptr [0x180026100]
+180006d67 MOV R10,RDX
+180006d6a MOV R11,RCX
+180006d6d TEST R9,R9
+180006d70 JZ 0x180006da0
+180006d72 MOV RAX,qword ptr [R9 + 0x8]
+180006d76 MOV R8,R11
+180006d79 SUB R8,RAX
+180006d7c NOP dword ptr [RAX]
+180006d80 MOVZX EDX,byte ptr [RAX]
+180006d83 MOVZX ECX,byte ptr [RAX + R8*0x1]
+180006d88 SUB EDX,ECX
+180006d8a JNZ 0x180006d93
+180006d8c INC RAX
+180006d8f TEST ECX,ECX
+180006d91 JNZ 0x180006d80
+180006d93 TEST EDX,EDX
+180006d95 JZ 0x180006daf
+180006d97 MOV R9,qword ptr [R9 + 0x10]
+180006d9b TEST R9,R9
+180006d9e JNZ 0x180006d72
+180006da0 TEST R10,R10
+180006da3 JZ 0x180006dac
+180006da5 MOV dword ptr [R10],0x1
+180006dac XOR EAX,EAX
+180006dae RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 CreateInterface(longlong param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  char cVar2;
+  undefined8 *puVar3;
+  char *pcVar4;
+  undefined8 uVar5;
+  longlong lVar6;
+  
+  puVar3 = _DAT_180026100;
+  do {
+    if (puVar3 == (undefined8 *)0x0) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 1;
+      }
+      return 0;
+    }
+    pcVar4 = (char *)puVar3[1];
+    lVar6 = param_1 - (longlong)pcVar4;
+    do {
+      cVar1 = *pcVar4;
+      cVar2 = pcVar4[lVar6];
+      if (cVar1 != cVar2) break;
+      pcVar4 = pcVar4 + 1;
+    } while (cVar2 != '\0');
+    if (cVar1 == cVar2) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 0;
+      }
+                    /* WARNING: Could not recover jumptable at 0x000180006dbb. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+      uVar5 = (*(code *)*puVar3)();
+      return uVar5;
+    }
+    puVar3 = (undefined8 *)puVar3[2];
+  } while( true );
+}
+
+
+
+Function count after targeted disassembly: 424

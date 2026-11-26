@@ -1,0 +1,705 @@
+Program: vscript.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 4df65c1b4edf39f96e10a976d47ab44aa6cf525695650cb5e8c001f7e4330aab
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=1032192 execute=true
+BLOCK .rdata 1800fd000 size=258048 execute=false
+BLOCK .data 18013c000 size=45056 execute=false
+BLOCK .pdata 180147000 size=40960 execute=false
+BLOCK .reloc 180151000 size=8192 execute=false
+EXPORT 18003f810 BinaryProperties_GetValue
+EXPORT 18003f810 Ordinal_1
+EXPORT 18003fd00 ExtractModuleMetadata
+EXPORT 18003fd00 Ordinal_3
+EXPORT 180063f60 CreateInterface
+EXPORT 180063f60 Ordinal_2
+EXPORT 1800647a0 GetResourceManifestCount
+EXPORT 1800647a0 Ordinal_4
+EXPORT 1800647b0 GetResourceManifests
+EXPORT 1800647b0 Ordinal_5
+EXPORT 180064a00 InstallSchemaBindings
+EXPORT 180064a00 Ordinal_6
+EXPORT 18006f840 __swprintf_l
+EXPORT 18006f840 Ordinal_7
+EXPORT 18006f8a0 __vswprintf_l
+EXPORT 18006f8a0 Ordinal_8
+EXPORT 18006f910 _fprintf_l
+EXPORT 18006f910 Ordinal_9
+EXPORT 18006f960 _fprintf_p
+EXPORT 18006f960 Ordinal_10
+EXPORT 18006f9b0 _fprintf_p_l
+EXPORT 18006f9b0 Ordinal_11
+EXPORT 18006fa00 _fprintf_s_l
+EXPORT 18006fa00 Ordinal_12
+EXPORT 18006fa50 _fscanf_l
+EXPORT 18006fa50 Ordinal_13
+EXPORT 18006faa0 _fscanf_s_l
+EXPORT 18006faa0 Ordinal_14
+EXPORT 18006faf0 _fwprintf_l
+EXPORT 18006faf0 Ordinal_15
+EXPORT 18006fb40 _fwprintf_p
+EXPORT 18006fb40 Ordinal_16
+EXPORT 18006fb90 _fwprintf_p_l
+EXPORT 18006fb90 Ordinal_17
+EXPORT 18006fbe0 _fwprintf_s_l
+EXPORT 18006fbe0 Ordinal_18
+EXPORT 18006fc30 _fwscanf_l
+EXPORT 18006fc30 Ordinal_19
+EXPORT 18006fc80 _fwscanf_s_l
+EXPORT 18006fc80 Ordinal_20
+EXPORT 18006fcd0 _printf_l
+EXPORT 18006fcd0 Ordinal_21
+EXPORT 18006fd30 _printf_p
+EXPORT 18006fd30 Ordinal_22
+EXPORT 18006fd90 _printf_p_l
+EXPORT 18006fd90 Ordinal_23
+EXPORT 18006fdf0 _printf_s_l
+EXPORT 18006fdf0 Ordinal_24
+EXPORT 18006fe50 _scanf_l
+EXPORT 18006fe50 Ordinal_25
+EXPORT 18006fea0 _scanf_s_l
+EXPORT 18006fea0 Ordinal_26
+EXPORT 18006ff00 _scprintf
+EXPORT 18006ff00 Ordinal_27
+EXPORT 18006ff60 _scprintf_l
+EXPORT 18006ff60 Ordinal_28
+EXPORT 18006ffc0 _scprintf_p
+EXPORT 18006ffc0 Ordinal_29
+EXPORT 180070020 _scprintf_p_l
+EXPORT 180070020 Ordinal_30
+EXPORT 180070080 _scwprintf
+EXPORT 180070080 Ordinal_31
+EXPORT 1800700e0 _scwprintf_l
+EXPORT 1800700e0 Ordinal_32
+EXPORT 180070140 _scwprintf_p
+EXPORT 180070140 Ordinal_33
+EXPORT 1800701a0 _scwprintf_p_l
+EXPORT 1800701a0 Ordinal_34
+EXPORT 180070200 _snprintf
+EXPORT 180070200 Ordinal_35
+EXPORT 180070260 _snprintf_c
+EXPORT 180070260 Ordinal_36
+EXPORT 1800702c0 _snprintf_c_l
+EXPORT 1800702c0 Ordinal_37
+EXPORT 180070320 _snprintf_l
+EXPORT 180070320 Ordinal_38
+EXPORT 180070380 _snprintf_s
+EXPORT 180070380 Ordinal_39
+EXPORT 1800703f0 _snprintf_s_l
+EXPORT 1800703f0 Ordinal_40
+EXPORT 180070460 _snscanf
+EXPORT 180070460 Ordinal_41
+EXPORT 1800704b0 _snscanf_l
+EXPORT 1800704b0 Ordinal_42
+EXPORT 180070500 _snscanf_s
+EXPORT 180070500 Ordinal_43
+EXPORT 180070560 _snscanf_s_l
+EXPORT 180070560 Ordinal_44
+EXPORT 1800705c0 _snwprintf
+EXPORT 1800705c0 Ordinal_45
+EXPORT 180070620 _snwprintf_l
+EXPORT 180070620 Ordinal_46
+EXPORT 180070680 _snwprintf_s
+EXPORT 180070680 Ordinal_47
+EXPORT 1800706f0 _snwprintf_s_l
+EXPORT 1800706f0 Ordinal_48
+EXPORT 180070760 _snwscanf
+EXPORT 180070760 Ordinal_49
+EXPORT 1800707b0 _snwscanf_l
+EXPORT 1800707b0 Ordinal_50
+EXPORT 180070800 _snwscanf_s
+EXPORT 180070800 Ordinal_51
+EXPORT 180070860 _snwscanf_s_l
+EXPORT 180070860 Ordinal_52
+EXPORT 1800708c0 _sprintf_l
+EXPORT 1800708c0 Ordinal_53
+EXPORT 180070920 _sprintf_p
+EXPORT 180070920 Ordinal_54
+EXPORT 180070980 _sprintf_p_l
+EXPORT 180070980 Ordinal_55
+EXPORT 1800709e0 _sprintf_s_l
+EXPORT 1800709e0 Ordinal_56
+EXPORT 180070a40 _sscanf_l
+EXPORT 180070a40 Ordinal_57
+EXPORT 180070a90 _sscanf_s_l
+EXPORT 180070a90 Ordinal_58
+EXPORT 180070af0 _swprintf
+EXPORT 180070af0 Ordinal_59
+EXPORT 180070b50 _swprintf_c
+EXPORT 180070b50 Ordinal_60
+EXPORT 180070b50 swprintf
+EXPORT 180070b50 Ordinal_150
+EXPORT 180070bb0 _swprintf_c_l
+EXPORT 180070bb0 Ordinal_61
+EXPORT 180070bb0 _swprintf_l
+EXPORT 180070bb0 Ordinal_62
+EXPORT 180070c10 _swprintf_p
+EXPORT 180070c10 Ordinal_63
+EXPORT 180070c70 _swprintf_p_l
+EXPORT 180070c70 Ordinal_64
+EXPORT 180070cd0 _swprintf_s_l
+EXPORT 180070cd0 Ordinal_65
+EXPORT 180070d30 _swscanf_l
+EXPORT 180070d30 Ordinal_66
+EXPORT 180070d80 _swscanf_s_l
+EXPORT 180070d80 Ordinal_67
+EXPORT 180070de0 _vfprintf_l
+EXPORT 180070de0 Ordinal_68
+EXPORT 180070e30 _vfprintf_p
+EXPORT 180070e30 Ordinal_69
+EXPORT 180070e80 _vfprintf_p_l
+EXPORT 180070e80 Ordinal_70
+EXPORT 180070ed0 _vfprintf_s_l
+EXPORT 180070ed0 Ordinal_71
+EXPORT 180070f20 _vfscanf_l
+EXPORT 180070f20 Ordinal_72
+EXPORT 180070f70 _vfscanf_s_l
+EXPORT 180070f70 Ordinal_73
+EXPORT 180070fd0 _vfwprintf_l
+EXPORT 180070fd0 Ordinal_74
+EXPORT 180071020 _vfwprintf_p
+EXPORT 180071020 Ordinal_75
+EXPORT 180071070 _vfwprintf_p_l
+EXPORT 180071070 Ordinal_76
+EXPORT 1800710c0 _vfwprintf_s_l
+EXPORT 1800710c0 Ordinal_77
+EXPORT 180071110 _vfwscanf_l
+EXPORT 180071110 Ordinal_78
+EXPORT 180071160 _vfwscanf_s_l
+EXPORT 180071160 Ordinal_79
+EXPORT 1800711c0 _vprintf_l
+EXPORT 1800711c0 Ordinal_80
+EXPORT 180071220 _vprintf_p
+EXPORT 180071220 Ordinal_81
+EXPORT 180071270 _vprintf_p_l
+EXPORT 180071270 Ordinal_82
+EXPORT 1800712d0 _vprintf_s_l
+EXPORT 1800712d0 Ordinal_83
+EXPORT 180071330 _vscanf_l
+EXPORT 180071330 Ordinal_84
+EXPORT 180071390 _vscanf_s_l
+EXPORT 180071390 Ordinal_85
+EXPORT 1800713f0 _vscprintf
+EXPORT 1800713f0 Ordinal_86
+EXPORT 180071440 _vscprintf_l
+EXPORT 180071440 Ordinal_87
+EXPORT 1800714a0 _vscprintf_p
+EXPORT 1800714a0 Ordinal_88
+EXPORT 1800714f0 _vscprintf_p_l
+EXPORT 1800714f0 Ordinal_89
+EXPORT 180071550 _vscwprintf
+EXPORT 180071550 Ordinal_90
+EXPORT 1800715a0 _vscwprintf_l
+EXPORT 1800715a0 Ordinal_91
+EXPORT 180071600 _vscwprintf_p
+EXPORT 180071600 Ordinal_92
+EXPORT 180071650 _vscwprintf_p_l
+EXPORT 180071650 Ordinal_93
+EXPORT 1800716b0 _vsnprintf
+EXPORT 1800716b0 Ordinal_94
+EXPORT 180071720 _vsnprintf_c
+EXPORT 180071720 Ordinal_95
+EXPORT 180071790 _vsnprintf_c_l
+EXPORT 180071790 Ordinal_96
+EXPORT 180071800 _vsnprintf_l
+EXPORT 180071800 Ordinal_97
+EXPORT 180071870 _vsnprintf_s
+EXPORT 180071870 Ordinal_98
+EXPORT 180071870 vsnprintf_s
+EXPORT 180071870 Ordinal_167
+EXPORT 1800718e0 _vsnprintf_s_l
+EXPORT 1800718e0 Ordinal_99
+EXPORT 180071950 _vsnwprintf
+EXPORT 180071950 Ordinal_100
+EXPORT 1800719c0 _vsnwprintf_l
+EXPORT 1800719c0 Ordinal_101
+EXPORT 180071a30 _vsnwprintf_s
+EXPORT 180071a30 Ordinal_102
+EXPORT 180071aa0 _vsnwprintf_s_l
+EXPORT 180071aa0 Ordinal_103
+EXPORT 180071b10 _vsnwscanf_l
+EXPORT 180071b10 Ordinal_104
+EXPORT 180071b70 _vsnwscanf_s_l
+EXPORT 180071b70 Ordinal_105
+EXPORT 180071bd0 _vsprintf_l
+EXPORT 180071bd0 Ordinal_106
+EXPORT 180071c40 _vsprintf_p
+EXPORT 180071c40 Ordinal_107
+EXPORT 180071cb0 _vsprintf_p_l
+EXPORT 180071cb0 Ordinal_108
+EXPORT 180071d20 _vsprintf_s_l
+EXPORT 180071d20 Ordinal_109
+EXPORT 180071d90 _vsscanf_l
+EXPORT 180071d90 Ordinal_110
+EXPORT 180071df0 _vsscanf_s_l
+EXPORT 180071df0 Ordinal_111
+EXPORT 180071e50 _vswprintf
+EXPORT 180071e50 Ordinal_112
+EXPORT 180071eb0 _vswprintf_c
+EXPORT 180071eb0 Ordinal_113
+EXPORT 180071eb0 vswprintf
+EXPORT 180071eb0 Ordinal_172
+EXPORT 180071f20 _vswprintf_c_l
+EXPORT 180071f20 Ordinal_114
+EXPORT 180071f20 _vswprintf_l
+EXPORT 180071f20 Ordinal_115
+EXPORT 180071f90 _vswprintf_p
+EXPORT 180071f90 Ordinal_116
+EXPORT 180072000 _vswprintf_p_l
+EXPORT 180072000 Ordinal_117
+EXPORT 180072070 _vswprintf_s_l
+EXPORT 180072070 Ordinal_118
+EXPORT 1800720e0 _vswscanf_l
+EXPORT 1800720e0 Ordinal_119
+EXPORT 180072140 _vswscanf_s_l
+EXPORT 180072140 Ordinal_120
+EXPORT 1800721a0 _vwprintf_l
+EXPORT 1800721a0 Ordinal_121
+EXPORT 180072200 _vwprintf_p
+EXPORT 180072200 Ordinal_122
+EXPORT 180072250 _vwprintf_p_l
+EXPORT 180072250 Ordinal_123
+EXPORT 1800722b0 _vwprintf_s_l
+EXPORT 1800722b0 Ordinal_124
+EXPORT 180072310 _vwscanf_l
+EXPORT 180072310 Ordinal_125
+EXPORT 180072370 _vwscanf_s_l
+EXPORT 180072370 Ordinal_126
+EXPORT 1800723d0 _wprintf_l
+EXPORT 1800723d0 Ordinal_127
+EXPORT 180072430 _wprintf_p
+EXPORT 180072430 Ordinal_128
+EXPORT 180072490 _wprintf_p_l
+EXPORT 180072490 Ordinal_129
+EXPORT 1800724f0 _wprintf_s_l
+EXPORT 1800724f0 Ordinal_130
+EXPORT 180072550 _wscanf_l
+EXPORT 180072550 Ordinal_131
+EXPORT 1800725a0 _wscanf_s_l
+EXPORT 1800725a0 Ordinal_132
+EXPORT 1800726a0 fprintf
+EXPORT 1800726a0 Ordinal_133
+EXPORT 1800726f0 fprintf_s
+EXPORT 1800726f0 Ordinal_134
+EXPORT 180072740 fscanf
+EXPORT 180072740 Ordinal_135
+EXPORT 180072790 fscanf_s
+EXPORT 180072790 Ordinal_136
+EXPORT 1800727e0 fwprintf
+EXPORT 1800727e0 Ordinal_137
+EXPORT 180072830 fwprintf_s
+EXPORT 180072830 Ordinal_138
+EXPORT 180072880 fwscanf
+EXPORT 180072880 Ordinal_139
+EXPORT 1800728d0 fwscanf_s
+EXPORT 1800728d0 Ordinal_140
+EXPORT 180073630 printf
+EXPORT 180073630 Ordinal_141
+EXPORT 180073690 printf_s
+EXPORT 180073690 Ordinal_142
+EXPORT 1800736f0 scanf
+EXPORT 1800736f0 Ordinal_143
+EXPORT 180073740 scanf_s
+EXPORT 180073740 Ordinal_144
+EXPORT 1800737a0 snprintf
+EXPORT 1800737a0 Ordinal_145
+EXPORT 180073800 sprintf
+EXPORT 180073800 Ordinal_146
+EXPORT 180073860 sprintf_s
+EXPORT 180073860 Ordinal_147
+EXPORT 1800738c0 sscanf
+EXPORT 1800738c0 Ordinal_148
+EXPORT 180073920 sscanf_s
+EXPORT 180073920 Ordinal_149
+EXPORT 180073980 swprintf_s
+EXPORT 180073980 Ordinal_151
+EXPORT 1800739e0 swscanf
+EXPORT 1800739e0 Ordinal_152
+EXPORT 180073a40 swscanf_s
+EXPORT 180073a40 Ordinal_153
+EXPORT 180073aa0 vfprintf
+EXPORT 180073aa0 Ordinal_154
+EXPORT 180073af0 vfprintf_s
+EXPORT 180073af0 Ordinal_155
+EXPORT 180073b40 vfscanf
+EXPORT 180073b40 Ordinal_156
+EXPORT 180073b90 vfscanf_s
+EXPORT 180073b90 Ordinal_157
+EXPORT 180073be0 vfwprintf
+EXPORT 180073be0 Ordinal_158
+EXPORT 180073c30 vfwprintf_s
+EXPORT 180073c30 Ordinal_159
+EXPORT 180073c80 vfwscanf
+EXPORT 180073c80 Ordinal_160
+EXPORT 180073cd0 vfwscanf_s
+EXPORT 180073cd0 Ordinal_161
+EXPORT 180073d20 vprintf
+EXPORT 180073d20 Ordinal_162
+EXPORT 180073d70 vprintf_s
+EXPORT 180073d70 Ordinal_163
+EXPORT 180073dc0 vscanf
+EXPORT 180073dc0 Ordinal_164
+EXPORT 180073e10 vscanf_s
+EXPORT 180073e10 Ordinal_165
+EXPORT 180073e60 vsnprintf
+EXPORT 180073e60 Ordinal_166
+EXPORT 180073ed0 vsprintf
+EXPORT 180073ed0 Ordinal_168
+EXPORT 180073f30 vsprintf_s
+EXPORT 180073f30 Ordinal_169
+EXPORT 180073fa0 vsscanf
+EXPORT 180073fa0 Ordinal_170
+EXPORT 180073ff0 vsscanf_s
+EXPORT 180073ff0 Ordinal_171
+EXPORT 180074050 vswprintf_s
+EXPORT 180074050 Ordinal_173
+EXPORT 1800740c0 vswscanf
+EXPORT 1800740c0 Ordinal_174
+EXPORT 180074110 vswscanf_s
+EXPORT 180074110 Ordinal_175
+EXPORT 180074170 vwprintf
+EXPORT 180074170 Ordinal_176
+EXPORT 1800741c0 vwprintf_s
+EXPORT 1800741c0 Ordinal_177
+EXPORT 180074210 vwscanf
+EXPORT 180074210 Ordinal_178
+EXPORT 180074260 vwscanf_s
+EXPORT 180074260 Ordinal_179
+EXPORT 1800742b0 wprintf
+EXPORT 1800742b0 Ordinal_180
+EXPORT 180074310 wprintf_s
+EXPORT 180074310 Ordinal_181
+EXPORT 180074370 wscanf
+EXPORT 180074370 Ordinal_182
+EXPORT 1800743c0 wscanf_s
+EXPORT 1800743c0 Ordinal_183
+EXPORT 1800bbc14 entry
+EXPORT 1800bbcc0 tls_callback_0
+
+FUNCTION BinaryProperties_GetValue 18003f810 RVA=3f810
+18003f810 CMP ECX,0x7
+18003f813 JA 0x18003f89a
+18003f819 MOVSXD RAX,ECX
+18003f81c LEA R8,[0x180000000]
+18003f823 MOV ECX,dword ptr [R8 + RAX*0x4 + 0x3f8a0]
+18003f82b ADD RCX,R8
+18003f82e JMP RCX
+18003f89a XOR EAX,EAX
+18003f89c RET
+
+undefined8 BinaryProperties_GetValue(undefined4 param_1,undefined8 *param_2)
+
+{
+                    /* 0x3f810  1  BinaryProperties_GetValue */
+  switch(param_1) {
+  case 0:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_18012b208;
+    return 1;
+  case 1:
+  case 4:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 0;
+    return 1;
+  case 2:
+  case 5:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 1;
+    return 1;
+  case 3:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_180129340;
+    return 1;
+  case 6:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 2;
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+
+
+FUNCTION ExtractModuleMetadata 18003fd00 RVA=3fd00
+18003fd00 MOV qword ptr [RSP + 0x8],RBX
+18003fd05 MOV qword ptr [RSP + 0x10],RSI
+18003fd0a PUSH RDI
+18003fd0b SUB RSP,0x20
+18003fd0f MOV RSI,RCX
+18003fd12 MOV EDX,dword ptr [0x180145a64]
+18003fd18 MOV RAX,qword ptr GS:[0x58]
+18003fd21 MOV ECX,0x10
+18003fd26 MOV RBX,qword ptr [RAX + RDX*0x8]
+18003fd2a ADD RBX,RCX
+18003fd2d MOV EAX,dword ptr [RBX]
+18003fd2f CMP dword ptr [0x180146bf8],EAX
+18003fd35 JG 0x18003fdde
+18003fd3b MOV EAX,dword ptr [RBX]
+18003fd3d CMP dword ptr [0x180146c00],EAX
+18003fd43 JG 0x18003fe26
+18003fd49 MOV EAX,dword ptr [RBX]
+18003fd4b CMP dword ptr [0x180146c18],EAX
+18003fd51 JG 0x18003fe7c
+18003fd57 CMP byte ptr [0x180146bfc],0x0
+18003fd5e JZ 0x18003fd77
+18003fd60 LEA RAX,[0x180146c08]
+18003fd67 MOV RBX,qword ptr [RSP + 0x30]
+18003fd6c MOV RSI,qword ptr [RSP + 0x38]
+18003fd71 ADD RSP,0x20
+18003fd75 POP RDI
+18003fd76 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 ExtractModuleMetadata(undefined8 *param_1)
+
+{
+  undefined8 *puVar1;
+  char cVar2;
+  char cVar3;
+  undefined *puVar4;
+  char cVar5;
+  int *piVar6;
+  longlong unaff_GS_OFFSET;
+  
+                    /* 0x3fd00  3  ExtractModuleMetadata */
+  piVar6 = (int *)(*(longlong *)(*(longlong *)(unaff_GS_OFFSET + 0x58) + (ulonglong)__tls_index * 8)
+                  + 0x10);
+  if ((*piVar6 < _DAT_180146bf8) && (FUN_1800bb070(&DAT_180146bf8), _DAT_180146bf8 == -1)) {
+    FUN_18005db20(0x180146c08,1,8);
+    FUN_1800bb70c(&UNK_1800fc660);
+    FUN_1800bb004(&DAT_180146bf8);
+  }
+  if ((*piVar6 < _DAT_180146c00) && (FUN_1800bb070(&DAT_180146c00), _DAT_180146c00 == -1)) {
+    _DAT_180146c24 = 0xc0000008;
+    _DAT_180146c20 = 0;
+    _DAT_180146c28 = (undefined *)0x0;
+    FUN_1800bb70c(&UNK_1800fc650);
+    FUN_1800bb004(&DAT_180146c00);
+  }
+  if ((*piVar6 < _DAT_180146c18) && (FUN_1800bb070(&DAT_180146c18), _DAT_180146c18 == -1)) {
+    cVar2 = '\x01';
+    for (puVar1 = _DAT_180146870; puVar1 != (undefined8 *)0x0; puVar1 = (undefined8 *)puVar1[1]) {
+      cVar3 = (**(code **)*puVar1)(puVar1,0x180146c08,&DAT_180146c20);
+      cVar5 = '\0';
+      if (cVar3 != '\0') {
+        cVar5 = cVar2;
+      }
+      cVar2 = cVar5;
+    }
+    FUN_180063de0(0x180146c08);
+    DAT_180146bfc = cVar2;
+    FUN_1800bb004(&DAT_180146c18);
+  }
+  if (DAT_180146bfc != '\0') {
+    return 0x180146c08;
+  }
+  if (param_1 != (undefined8 *)0x0) {
+    if ((_DAT_180146c24 >> 0x1e & 1) == 0) {
+      puVar4 = &UNK_180126ca0;
+      if ((_DAT_180146c24 & 0x3fffffff) != 0) {
+        puVar4 = _DAT_180146c28;
+      }
+    }
+    else {
+      puVar4 = &DAT_180146c28;
+    }
+    *param_1 = puVar4;
+  }
+  return 0;
+}
+
+
+
+FUNCTION CreateInterface 180063f60 RVA=63f60
+180063f60 MOV R9,qword ptr [0x1801458c0]
+180063f67 MOV R10,RDX
+180063f6a MOV R11,RCX
+180063f6d TEST R9,R9
+180063f70 JZ 0x180063fa0
+180063f72 MOV RAX,qword ptr [R9 + 0x8]
+180063f76 MOV R8,R11
+180063f79 SUB R8,RAX
+180063f7c NOP dword ptr [RAX]
+180063f80 MOVZX EDX,byte ptr [RAX]
+180063f83 MOVZX ECX,byte ptr [RAX + R8*0x1]
+180063f88 SUB EDX,ECX
+180063f8a JNZ 0x180063f93
+180063f8c INC RAX
+180063f8f TEST ECX,ECX
+180063f91 JNZ 0x180063f80
+180063f93 TEST EDX,EDX
+180063f95 JZ 0x180063faf
+180063f97 MOV R9,qword ptr [R9 + 0x10]
+180063f9b TEST R9,R9
+180063f9e JNZ 0x180063f72
+180063fa0 TEST R10,R10
+180063fa3 JZ 0x180063fac
+180063fa5 MOV dword ptr [R10],0x1
+180063fac XOR EAX,EAX
+180063fae RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 CreateInterface(longlong param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  char cVar2;
+  undefined8 *puVar3;
+  char *pcVar4;
+  undefined8 uVar5;
+  longlong lVar6;
+  
+  puVar3 = _DAT_1801458c0;
+  do {
+    if (puVar3 == (undefined8 *)0x0) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 1;
+      }
+      return 0;
+    }
+    pcVar4 = (char *)puVar3[1];
+    lVar6 = param_1 - (longlong)pcVar4;
+    do {
+      cVar1 = *pcVar4;
+      cVar2 = pcVar4[lVar6];
+      if (cVar1 != cVar2) break;
+      pcVar4 = pcVar4 + 1;
+    } while (cVar2 != '\0');
+    if (cVar1 == cVar2) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 0;
+      }
+                    /* WARNING: Could not recover jumptable at 0x000180063fbb. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+      uVar5 = (*(code *)*puVar3)();
+      return uVar5;
+    }
+    puVar3 = (undefined8 *)puVar3[2];
+  } while( true );
+}
+
+
+
+FUNCTION GetResourceManifestCount 1800647a0 RVA=647a0
+1800647a0 MOV EAX,dword ptr [0x180145900]
+1800647a6 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 GetResourceManifestCount(void)
+
+{
+                    /* 0x647a0  4  GetResourceManifestCount */
+  return _DAT_180145900;
+}
+
+
+
+FUNCTION GetResourceManifests 1800647b0 RVA=647b0
+1800647b0 MOV qword ptr [RSP + 0x8],RBX
+1800647b5 MOV qword ptr [RSP + 0x10],RBP
+1800647ba MOV qword ptr [RSP + 0x18],RSI
+1800647bf MOV qword ptr [RSP + 0x20],RDI
+1800647c4 PUSH R12
+1800647c6 PUSH R14
+1800647c8 PUSH R15
+1800647ca SUB RSP,0x20
+1800647ce MOV RDI,qword ptr [0x1801458f8]
+1800647d5 XOR R12D,R12D
+1800647d8 MOV R14,R8
+1800647db MOV R15,RDX
+1800647de MOV EBP,ECX
+1800647e0 MOV ESI,R12D
+1800647e3 MOV EBX,R12D
+1800647e6 TEST RDI,RDI
+1800647e9 JZ 0x180064829
+1800647eb NOP dword ptr [RAX + RAX*0x1]
+1800647f0 CMP ESI,EBP
+1800647f2 JL 0x18006481f
+1800647f4 MOV RAX,qword ptr [RDI + 0x8]
+1800647f8 TEST RAX,RAX
+1800647fb JNZ 0x180064813
+1800647fd MOV RCX,qword ptr [RDI + 0x10]
+180064801 MOV RAX,R12
+180064804 TEST RCX,RCX
+180064807 JZ 0x180064813
+180064809 CALL RCX
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+ulonglong GetResourceManifests(int param_1,longlong param_2,ulonglong param_3)
+
+{
+  undefined8 *puVar1;
+  longlong lVar2;
+  ulonglong uVar3;
+  int iVar4;
+  
+                    /* 0x647b0  5  GetResourceManifests */
+  iVar4 = 0;
+  uVar3 = 0;
+  for (puVar1 = _DAT_1801458f8; puVar1 != (undefined8 *)0x0; puVar1 = (undefined8 *)*puVar1) {
+    if (param_1 <= iVar4) {
+      lVar2 = puVar1[1];
+      if (lVar2 == 0) {
+        lVar2 = 0;
+        if ((code *)puVar1[2] != (code *)0x0) {
+          lVar2 = (*(code *)puVar1[2])();
+          puVar1[1] = lVar2;
+          puVar1[2] = 0;
+        }
+      }
+      *(longlong *)(param_2 + uVar3 * 8) = lVar2;
+      uVar3 = uVar3 + 1;
+      if (param_3 <= uVar3) break;
+    }
+    iVar4 = iVar4 + 1;
+  }
+  return uVar3 & 0xffffffff;
+}
+
+
+
+FUNCTION InstallSchemaBindings 180064a00 RVA=64a00
+180064a00 PUSH RBX
+180064a02 SUB RSP,0x20
+180064a06 MOV RBX,RDX
+180064a09 MOV RDX,RCX
+180064a0c LEA RCX,[0x18012aa90]
+180064a13 CALL 0x1800c1410
+180064a18 TEST EAX,EAX
+180064a1a JZ 0x180064a24
+180064a1c XOR AL,AL
+180064a1e ADD RSP,0x20
+180064a22 POP RBX
+180064a23 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 InstallSchemaBindings(undefined8 param_1,undefined8 param_2)
+
+{
+  int iVar1;
+  
+                    /* 0x64a00  6  InstallSchemaBindings */
+  iVar1 = FUN_1800c1410(&UNK_18012aa90,param_1);
+  if (iVar1 != 0) {
+    return 0;
+  }
+  if (DAT_180145920 == '\0') {
+    _DAT_180144e30 = param_2;
+    FUN_180064880(param_2);
+    DAT_180145920 = '\x01';
+  }
+  return 1;
+}
+
+
+
+Function count after targeted disassembly: 2527

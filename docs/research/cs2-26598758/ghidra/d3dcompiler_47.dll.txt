@@ -1,0 +1,75 @@
+Program: d3dcompiler_47.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=3239936 execute=true
+BLOCK .rdata 180318000 size=888832 execute=false
+BLOCK .data 1803f1000 size=77824 execute=false
+BLOCK .pdata 180404000 size=131072 execute=false
+BLOCK .rsrc 180424000 size=4096 execute=false
+BLOCK .reloc 180425000 size=36864 execute=false
+EXPORT 180006f80 D3DDisassemble
+EXPORT 180006f80 Ordinal_11
+EXPORT 180006fc0 D3DDisassembleRegion
+EXPORT 180006fc0 Ordinal_14
+EXPORT 180007010 D3DGetTraceInstructionOffsets
+EXPORT 180007010 Ordinal_20
+EXPORT 180007050 D3DDisassemble11Trace
+EXPORT 180007050 Ordinal_13
+EXPORT 180007090 D3DReflect
+EXPORT 180007090 Ordinal_24
+EXPORT 180007200 D3DReflectLibrary
+EXPORT 180007200 Ordinal_25
+EXPORT 180007390 D3DCreateBlob
+EXPORT 180007390 Ordinal_7
+EXPORT 1800073b0 D3DCreateLinker
+EXPORT 1800073b0 Ordinal_9
+EXPORT 180007440 D3DLoadModule
+EXPORT 180007440 Ordinal_21
+EXPORT 180007540 D3DCreateFunctionLinkingGraph
+EXPORT 180007540 Ordinal_8
+EXPORT 1800169a0 D3DDisassemble10Effect
+EXPORT 1800169a0 Ordinal_12
+EXPORT 180017820 D3DReturnFailure1
+EXPORT 180017820 Ordinal_26
+EXPORT 1800620b0 _guard_check_icall
+EXPORT 1800620b0 DebugSetMute
+EXPORT 1800620b0 Ordinal_2
+EXPORT 1800e9460 D3DReadFileToBlob
+EXPORT 1800e9460 Ordinal_23
+EXPORT 1800e9680 D3DWriteBlobToFile
+EXPORT 1800e9680 Ordinal_29
+EXPORT 1800eb1e0 D3DCompile
+EXPORT 1800eb1e0 Ordinal_3
+EXPORT 1800eb260 D3DCompile2
+EXPORT 1800eb260 Ordinal_4
+EXPORT 1800eb360 D3DCompileFromFile
+EXPORT 1800eb360 Ordinal_5
+EXPORT 1800eb4e0 D3DAssemble
+EXPORT 1800eb4e0 Ordinal_1
+EXPORT 1800ec6f0 D3DPreprocess
+EXPORT 1800ec6f0 Ordinal_22
+EXPORT 1800ecf60 D3DGetBlobPart
+EXPORT 1800ecf60 Ordinal_15
+EXPORT 1800ecfa0 D3DSetBlobPart
+EXPORT 1800ecfa0 Ordinal_27
+EXPORT 1800ed580 D3DGetDebugInfo
+EXPORT 1800ed580 Ordinal_16
+EXPORT 1800ed5b0 D3DGetInputSignatureBlob
+EXPORT 1800ed5b0 Ordinal_18
+EXPORT 1800ed5e0 D3DGetOutputSignatureBlob
+EXPORT 1800ed5e0 Ordinal_19
+EXPORT 1800ed610 D3DGetInputAndOutputSignatureBlob
+EXPORT 1800ed610 Ordinal_17
+EXPORT 1800ed640 D3DStripShader
+EXPORT 1800ed640 Ordinal_28
+EXPORT 1800ee310 D3DCompressShaders
+EXPORT 1800ee310 Ordinal_6
+EXPORT 1800ee680 D3DDecompressShaders
+EXPORT 1800ee680 Ordinal_10
+EXPORT 18025e6b0 entry
+
+Function count after targeted disassembly: 6327

@@ -8,6 +8,8 @@
 #include "game_state.h"
 #include "skybox.h"
 #include "lighting.h"
+#include "chams.h"
+#include "scene_visuals.h"
 #include "viewmodel.h"
 #include "camera_view.h"
 #include "skin_hud.h"
@@ -15,6 +17,7 @@
 #include "../external/offsets/offsets.hpp"
 #include "menu_advanced.h"
 #include "skins.h"
+#include "inventory.h"
 #include "debug_console.h"
 #include "error_logger.h"
 #include "Hook_FrameStageNotify.hpp"
@@ -156,6 +159,18 @@ namespace {
     bool initialize_renderer(IDXGISwapChain* chain);
 }
 using SkyboxDrawArrayFn = void(__fastcall*)(uintptr_t, uintptr_t, uintptr_t, int, int, uintptr_t, uintptr_t);
+scene_visuals::DrawArray oBaseDrawArray=nullptr;
+void __fastcall hkBaseDrawArray(uintptr_t desc,uintptr_t context,uintptr_t list,int count,uintptr_t view,uintptr_t layer,uintptr_t unknown) {
+    CallbackScope callback;
+    if(s_stopping) oBaseDrawArray(desc,context,list,count,view,layer,unknown);
+    else scene_visuals::Draw(oBaseDrawArray,desc,context,list,count,view,layer,unknown);
+}
+chams::Generate oGeneratePrimitives = nullptr;
+uintptr_t __fastcall hkGeneratePrimitives(uintptr_t desc,uintptr_t object,uintptr_t context,uintptr_t output) {
+    CallbackScope callback;
+    return s_stopping ? oGeneratePrimitives(desc,object,context,output) :
+        chams::Draw(oGeneratePrimitives,desc,object,context,output);
+}
 using UpdateLightObjectFn = void(__fastcall*)(void*, void*, void*);
 UpdateLightObjectFn oUpdateLightObject = nullptr;
 void __fastcall hkUpdateLightObject(void* context, void* light, void* data) {
@@ -175,6 +190,7 @@ SkyboxDrawArrayFn oSkyboxDrawArray = nullptr;
 void __fastcall hkSkyboxDrawArray(uintptr_t a1, uintptr_t a2, uintptr_t data, int count,
     int a5, uintptr_t a6, uintptr_t a7) {
     CallbackScope callback;
+    if(!s_stopping && (scene_visuals::flags.load(std::memory_order_relaxed)&scene_visuals::Sky)) return;
     skybox::ScopedColor color(s_stopping ? 0 : data, count);
     oSkyboxDrawArray(a1, a2, data, count, a5, a6, a7);
 }
@@ -207,8 +223,10 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
         if (!settings_lock.owns_lock()) {
             aim_profiler::Mark(aim_profiler::SkipBusy);
             ++features::silent_settings_skips;
+            features::silent_callback_state = "Skipped: settings mutex busy";
         } else if (!s_stopping && !globals::menu_open && !globals::console_open &&
             config::aimbot::enabled && config::aimbot::silent_aim) {
+            features::silent_callback_state = "Evaluating";
             aim_profiler::Mark(aim_profiler::Evaluated);
             const auto before = features::silent_aim_writes.load();
             // The serializer consumes source floats at +0x10/+0x14/+0x18.
@@ -216,6 +234,7 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
             // Limit the angle substitution to this serialization call.
             if (source && sdk::read_memory(reinterpret_cast<uintptr_t>(source + 4), originalAngles))
                 features::RunSilentAimSubTick(source, game_state::GetLocalPawn());
+            else features::silent_aim_status = "Subtick source angles unreadable";
             applied = features::silent_aim_writes.load() != before;
             aim_profiler::Mark(applied ? aim_profiler::Applied : aim_profiler::NoWrite);
             static thread_local ULONGLONG next_verification = 0;
@@ -226,7 +245,12 @@ void __fastcall hkSubTickAngle(DWORD* source, void* history, char mode, float fr
         } else {
             aim_profiler::Mark(s_stopping ? aim_profiler::SkipStopping :
                 globals::menu_open || globals::console_open ? aim_profiler::SkipMenu : aim_profiler::SkipDisabled);
-            features::silent_aim_status = "Disabled or menu/console open";
+            features::silent_callback_state = s_stopping ? "Stopping" :
+                globals::menu_open ? "Paused: menu open" : globals::console_open ? "Paused: console open" :
+                !config::aimbot::enabled ? "Master aim switch off" : "Silent mode switch off";
+            // Opening diagnostics must not erase the last gameplay result.
+            if (!globals::menu_open && !globals::console_open)
+                features::silent_aim_status = features::silent_callback_state.load();
         }
     }
     {
@@ -253,14 +277,16 @@ static WeaponHudTickFn oWeaponHudTick = nullptr;
 static void __fastcall hkWeaponHudTick(void* hud) {
     CallbackScope callback;
     ++skin_hud::ticks;
-    oWeaponHudTick(hud); // Populate selection entries before attempting cleanup.
-    static unsigned applied = 0;
     const auto requested = skin_hud::revision.load();
-    if (!s_stopping && requested != applied && game_state::IsInGame()) {
-        if (skin_hud::GuardedRefresh(reinterpret_cast<uintptr_t>(hud))) {
-            applied = requested;
-            skin_hud::status = "Loadout HUD icon and label refresh requested";
-        }
+    const bool refresh = !s_stopping && game_state::IsInGame() &&
+        skin_hud::tracker.Pending(reinterpret_cast<uintptr_t>(hud), requested) &&
+        skin_hud::GuardedRefresh(reinterpret_cast<uintptr_t>(hud));
+    // Invalidate before the native tick so its changed-active-weapon path updates
+    // the label in this callback; forward exactly once, even if cleanup failed.
+    oWeaponHudTick(hud);
+    if (refresh) {
+        skin_hud::tracker.Acknowledge(requested);
+        skin_hud::status = "Native weapon HUD update requested; selection entries preserved";
     }
 }
 static OverrideViewFn oOverrideView = nullptr;
@@ -303,7 +329,7 @@ void HookCreateMove() {
         return;
     }
 
-    auto addr = sdk::find_pattern("client.dll",
+    auto addr = sdk::find_unique_pattern("client.dll",
         runtime_patterns::hooks::create_move);
     if (!addr) {
         error_logger::ErrorLogger::Get().Log("CreateMove", "Pattern not found", 1);
@@ -341,7 +367,7 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
             return;
         }
 
-        std::lock_guard<std::recursive_mutex> settings_lock(config::mutex);
+        std::unique_lock<std::recursive_mutex> settings_lock(config::mutex, std::defer_lock);
         features::SetInputBlocked(globals::menu_open || globals::console_open);
         RenderTargetScope render_targets(interfaces::d3d11_device_context);
 
@@ -350,6 +376,11 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
 
+            settings_lock.lock();
+            scene_visuals::flags.store(game_state::IsInGame() ?
+                (config::lighting::remove_sun ? scene_visuals::Sun : 0u) |
+                (config::skybox::remove_clouds ? scene_visuals::Clouds : 0u) |
+                (config::skybox::hide_background ? scene_visuals::Sky : 0u) : 0u,std::memory_order_relaxed);
             // Run features every frame
             if (config::esp::enabled) {
                 try {
@@ -363,7 +394,9 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
 
             // Misc features ? run every frame
             try { features::TriggerBot(); } catch (...) {}
+            try { features::MovementAssist(); } catch (...) {}
             try { features::BunnyHop(); } catch (...) {}
+            try { features::AutoStrafe(); } catch (...) {}
             try { features::NoFlash(); } catch (...) {}
             try { features::RadarHack(); } catch (...) {}
 
@@ -394,6 +427,10 @@ static void render_overlay(IDXGISwapChain* swap_chain) {
                 }
             }
 
+            features::SetInputBlocked(globals::menu_open || globals::console_open);
+            // Draw data no longer reads settings. GPU uploads must not suppress
+            // game callbacks that use try_lock on the settings mutex.
+            settings_lock.unlock();
             menu_advanced::DrawWorkspaceCursor(globals::menu_open || globals::console_open);
             ImGui::EndFrame();
             ImGui::Render();
@@ -765,6 +802,7 @@ namespace hooks {
 
     void* __fastcall Hook_OnRemoveEntity(void* system, void* entity, uint32_t handle) {
         CallbackScope callback;
+        if(!s_stopping) chams::BeforeRemove(reinterpret_cast<uintptr_t>(system),reinterpret_cast<uintptr_t>(entity),handle);
         if(!s_stopping) entity_events::Removed(reinterpret_cast<uintptr_t>(system),reinterpret_cast<uintptr_t>(entity),handle);
         return OnRemoveEntity_o(system, entity, handle);
     }
@@ -776,7 +814,7 @@ namespace hooks {
             {"OnRemoveEntity", runtime_patterns::hooks::entity_removed, &Hook_OnRemoveEntity, &OnRemoveEntity_o}
         };
         for(const auto& entry:entries) {
-            const auto target=sdk::find_pattern("client.dll",entry.signature);
+            const auto target=sdk::find_unique_pattern("client.dll",entry.signature);
             if(!target) {
                 error_logger::ErrorLogger::Get().Log(entry.name,"Optional entity hook signature not found",1);
                 continue;
@@ -832,7 +870,7 @@ namespace hooks {
             error_logger::ErrorLogger::Get().Log("MinHook", "Initialized successfully", 0);
 
             // Create Present hook
-            void* present_target = sdk::find_pattern("gameoverlayrenderer64.dll",
+            void* present_target = sdk::find_unique_pattern("gameoverlayrenderer64.dll",
                 runtime_patterns::hooks::present);
             if (!present_target) {
                 error_logger::ErrorLogger::Get().LogPointerError("Present target", reinterpret_cast<uintptr_t>(present_target));
@@ -847,7 +885,7 @@ namespace hooks {
             error_logger::ErrorLogger::Get().Log("MinHook", "Present hook created successfully", 0);
 
             // Create ResizeBuffers hook
-            void* resize_target = sdk::find_pattern("gameoverlayrenderer64.dll",
+            void* resize_target = sdk::find_unique_pattern("gameoverlayrenderer64.dll",
                 runtime_patterns::hooks::resize_buffers);
             if (!resize_target) {
                 error_logger::ErrorLogger::Get().LogPointerError("ResizeBuffers target", reinterpret_cast<uintptr_t>(resize_target));
@@ -861,7 +899,7 @@ namespace hooks {
             }
             error_logger::ErrorLogger::Get().Log("MinHook", "ResizeBuffers hook created successfully", 0);
 
-            void* create_target = sdk::find_pattern("gameoverlayrenderer64.dll",
+            void* create_target = sdk::find_unique_pattern("gameoverlayrenderer64.dll",
                 runtime_patterns::hooks::create_swap_chain);
             if (!create_target)
                 throw std::runtime_error("Steam overlay CreateSwapChain pattern not found");
@@ -872,29 +910,17 @@ namespace hooks {
 
             CreateEntityLifecycleHooks();
 
-            // FrameStageNotify hook - offset-based address resolution from client.dll
+            // Optional internal callback resolved in the interface discovery phase.
 
             void* client_base = reinterpret_cast<void*>(GetModuleHandleA("client.dll"));
             if (client_base) {
-                // FrameStageNotify offset from cs2-dumper (function at client.dll + offset)
-
-                void* framestagnotify_addr = reinterpret_cast<void*>(
-                    reinterpret_cast<uintptr_t>(client_base) + 0x0 // Offset placeholder - use pattern scan as fallback
-                );
-
-                // Fallback to pattern scan if offset method fails
-                if (!framestagnotify_addr || framestagnotify_addr == client_base) {
-                    if (interfaces::client) {
-                        framestagnotify_addr = interfaces::client;
-                        debug_console::Console::Get().Info("[KNIFE] Using pattern-scanned FrameStageNotify address");
-                    }
-                }
-
-                if (framestagnotify_addr && framestagnotify_addr != client_base) {
+                void* framestagnotify_addr = interfaces::frame_stage_notify;
+                if (framestagnotify_addr) {
                     status = MH_CreateHook(framestagnotify_addr, &hkFrameStageNotify, reinterpret_cast<LPVOID*>(&FrameStageNotify_o));
                     if (status == MH_OK) {
                         debug_console::Console::Get().Success("[KNIFE] FrameStageNotify hook created successfully");
                         error_logger::ErrorLogger::Get().Log("MinHook", "FrameStageNotify hook created", 0);
+                        RegisterOnFrameStageNotify(&inventory::OnFrameStage);
 
                         if (skybox::Initialize())
                             RegisterOnFrameStageNotify(&skybox::OnFrameStage);
@@ -935,12 +961,12 @@ namespace hooks {
             }
             HookCreateMove();
             {
-                const auto tick = sdk::find_pattern("client.dll",
+                const auto tick = sdk::find_unique_pattern("client.dll",
                     runtime_patterns::hooks::weapon_hud_tick);
-                const auto clear = sdk::find_pattern("client.dll",
+                const auto clear = sdk::find_unique_pattern("client.dll",
                     runtime_patterns::hooks::clear_weapon_hud);
-                skin_hud::status = "Unavailable: weapon HUD signatures missing";
-                if (tick && clear) {
+                skin_hud::status = "Unavailable: weapon HUD signatures or inspected layout do not match";
+                if (tick && clear && skin_hud::LayoutVerified(reinterpret_cast<uintptr_t>(tick))) {
                     skin_hud::clear = reinterpret_cast<skin_hud::Clear>(clear);
                     const auto result = MH_CreateHook(tick, &hkWeaponHudTick,
                         reinterpret_cast<void**>(&oWeaponHudTick));
@@ -948,10 +974,10 @@ namespace hooks {
                 }
             }
             {
-                const auto target = sdk::find_pattern("client.dll",
+                const auto target = sdk::find_unique_pattern("client.dll",
                     runtime_patterns::hooks::override_view);
-                const auto getter = sdk::find_pattern("client.dll", runtime_patterns::hooks::get_view_angles);
-                const auto inputRef = sdk::find_pattern("client.dll",
+                const auto getter = sdk::find_unique_pattern("client.dll", runtime_patterns::hooks::get_view_angles);
+                const auto inputRef = sdk::find_unique_pattern("client.dll",
                     runtime_patterns::hooks::input_reference);
                 camera_view::status = "Unavailable: camera signatures missing";
                 if (target && getter && inputRef) {
@@ -968,7 +994,7 @@ namespace hooks {
             }
 
             {
-                auto subtick_addr = sdk::find_pattern("client.dll", runtime_patterns::hooks::subtick);
+                auto subtick_addr = sdk::find_unique_pattern("client.dll", runtime_patterns::hooks::subtick);
                 if (subtick_addr) {
                     MH_STATUS status = MH_CreateHook(subtick_addr, &hkSubTickAngle,
                         reinterpret_cast<void**>(&oSubTickAngle));
@@ -990,14 +1016,30 @@ namespace hooks {
                 }
             }
 
-            auto sky_target = sdk::find_pattern("scenesystem.dll", runtime_patterns::hooks::sky_draw);
+            if(FrameStageNotify_o) {
+                const auto target=chams::Initialize();
+                if(target) {
+                    const auto result=MH_CreateHook(reinterpret_cast<void*>(target),&hkGeneratePrimitives,
+                        reinterpret_cast<void**>(&oGeneratePrimitives));
+                    chams::hook_ready=result==MH_OK;
+                    chams::status=result==MH_OK ? "Chams hook prepared" : "Unavailable: GeneratePrimitives hook failed";
+                    if(result==MH_OK) RegisterOnFrameStageNotify(&chams::OnFrameStage);
+                }
+            } else chams::status="Unavailable: frame-stage hook required for chams";
+            auto sky_target = sdk::find_unique_pattern("scenesystem.dll", runtime_patterns::hooks::sky_draw);
+            const auto base_draw=sdk::find_unique_pattern("scenesystem.dll",runtime_patterns::hooks::base_draw_array);
+            scene_visuals::status="Unavailable: sun/cloud draw hook did not resolve";
+            if(base_draw) {
+                const auto result=MH_CreateHook(base_draw,&hkBaseDrawArray,reinterpret_cast<void**>(&oBaseDrawArray));
+                scene_visuals::status=result==MH_OK ? "Sun/cloud geometry filter ready" : "Unavailable: sun/cloud draw hook failed";
+            }
             skybox::color_status = "Unavailable: sky draw signature not found";
             if (sky_target) {
                 const auto sky_status = MH_CreateHook(sky_target, &hkSkyboxDrawArray,
                     reinterpret_cast<void**>(&oSkyboxDrawArray));
                 skybox::color_status = sky_status == MH_OK ? "Sky color ready" : "Unavailable: sky draw hook failed";
             }
-            auto light_target = sdk::find_pattern("scenesystem.dll", runtime_patterns::hooks::light_update);
+            auto light_target = sdk::find_unique_pattern("scenesystem.dll", runtime_patterns::hooks::light_update);
             lighting::status = "Unavailable: light update signature not found";
             if (light_target) {
                 const auto light_status = MH_CreateHook(light_target, &hkUpdateLightObject,
@@ -1032,6 +1074,10 @@ namespace hooks {
     }
 
     void destroy() {
+        inventory::Shutdown();
+        scene_visuals::flags=0;
+        // Restore while GeneratePrimitives still pins each draw's owned snapshot.
+        chams::Shutdown();
         skybox::RestoreBeforeUnload();
         if (s_restore_mouse_message && s_hooked_window && IsWindow(s_hooked_window)) {
             DWORD_PTR result = 0;
@@ -1057,9 +1103,12 @@ namespace hooks {
             features::ReleaseInputs();
         }
         MH_RemoveHook(MH_ALL_HOOKS);
+        oGeneratePrimitives = nullptr;
+        oBaseDrawArray = nullptr;
         oOverrideView = nullptr;
         oWeaponHudTick = nullptr;
         skin_hud::clear = nullptr;
+        skin_hud::tracker = {};
         camera_view::get_angles = nullptr;
         camera_view::input_slot = 0;
         s_relative2 = nullptr; s_relative3 = nullptr; s_mouse_window = nullptr;

@@ -1,0 +1,22 @@
+Program: qwindowsvistastyle.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: be29d91c9eac2bb826a011357d13593f216a68b55d8914effc480b61ea4348a5
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=143360 execute=true
+BLOCK .rdata 180024000 size=73728 execute=false
+BLOCK .data 180036000 size=12288 execute=false
+BLOCK .pdata 180039000 size=8192 execute=false
+BLOCK .qtmetad 18003b000 size=4096 execute=false
+BLOCK _RDATA 18003c000 size=4096 execute=false
+BLOCK .rsrc 18003d000 size=4096 execute=false
+BLOCK .reloc 18003e000 size=4096 execute=false
+EXPORT 1800011b0 qt_plugin_instance
+EXPORT 1800011b0 Ordinal_1
+EXPORT 1800012c0 qt_plugin_query_metadata
+EXPORT 1800012c0 Ordinal_2
+EXPORT 18001615c entry
+
+Function count after targeted disassembly: 413

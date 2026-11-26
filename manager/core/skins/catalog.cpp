@@ -1,5 +1,6 @@
 #include "catalog_sources.h"
 #include "../skins.h"
+#include "rarity.h"
 #include "../debug_console.h"
 #include <wininet.h>
 #include <algorithm>
@@ -68,7 +69,9 @@ namespace skins {
                     auto wd = GetWeaponName(wid);
                     auto sep = pn.find(" | ");
                     if (sep != std::string::npos) sn = pn.substr(sep + 3);
-                    SkinInfo sk(pk, sn, wd, wid, RARITY_COMMON, true);
+                    const int native_rarity=rarity::Native(wid,pk);
+                    SkinInfo sk(pk, sn, wd, wid, native_rarity>=1&&native_rarity<=7?
+                        static_cast<SkinRarity>(native_rarity-1):RARITY_COMMON, true);
                     skin_database.push_back(sk);
                     skins_by_weapon[wd].push_back(sk);
                 }
@@ -104,11 +107,11 @@ namespace skins {
         skin_database.clear(); skins_by_weapon.clear(); glove_database.clear();
         skin_database.push_back(SkinInfo(282, "Redline", "AK-47", WEAPON_AK47, RARITY_LEGENDARY, true));
         skin_database.push_back(SkinInfo(180, "Vulcan", "AK-47", WEAPON_AK47, RARITY_ANCIENT, true));
-        skin_database.push_back(SkinInfo(344, "Dragon Lore", "AWP", WEAPON_AWP, RARITY_CONTRABAND, true));
+        skin_database.push_back(SkinInfo(344, "Dragon Lore", "AWP", WEAPON_AWP, RARITY_ANCIENT, true));
         skin_database.push_back(SkinInfo(279, "Asiimov", "AWP", WEAPON_AWP, RARITY_ANCIENT, true));
         skin_database.push_back(SkinInfo(309, "Howl", "M4A4", WEAPON_M4A1, RARITY_CONTRABAND, true));
         skin_database.push_back(SkinInfo(360, "Cyrex", "M4A1-S", WEAPON_M4A1_SILENCER, RARITY_LEGENDARY, true));
-        skin_database.push_back(SkinInfo(37, "Blaze", "Desert Eagle", WEAPON_DEAGLE, RARITY_ANCIENT, false));
+        skin_database.push_back(SkinInfo(37, "Blaze", "Desert Eagle", WEAPON_DEAGLE, RARITY_MYTHICAL, false));
         skin_database.push_back(SkinInfo(277, "Orion", "USP-S", WEAPON_USP_SILENCER, RARITY_LEGENDARY, true));
         skin_database.push_back(SkinInfo(38, "Fade", "Glock-18", WEAPON_GLOCK, RARITY_ANCIENT, false));
         for (const auto& s : skin_database) skins_by_weapon[s.weapon_name].push_back(s);

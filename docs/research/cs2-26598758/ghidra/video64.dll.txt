@@ -1,0 +1,202 @@
+Program: video64.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: bd0b26c5ce10647ab04bdedc8d33d7850e678f1a285748b46290c669e2f187fb
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=3223552 execute=true
+BLOCK .rdata 180314000 size=1118208 execute=false
+BLOCK .data 180425000 size=1318912 execute=false
+BLOCK .pdata 180567000 size=147456 execute=false
+BLOCK _RDATA 18058b000 size=4096 execute=false
+BLOCK .reloc 18058c000 size=40960 execute=false
+EXPORT 180001000 XMLVector_Create
+EXPORT 180001000 Ordinal_50
+EXPORT 1800010c0 XMLVector_Free
+EXPORT 1800010c0 Ordinal_51
+EXPORT 1800010f0 XMLVector_Resize
+EXPORT 1800010f0 Ordinal_56
+EXPORT 1800011c0 XMLVector_Get
+EXPORT 1800011c0 Ordinal_52
+EXPORT 1800011e0 XMLVector_Append
+EXPORT 1800011e0 Ordinal_49
+EXPORT 180001280 XMLVector_InsertBefore
+EXPORT 180001280 Ordinal_53
+EXPORT 180001410 XMLVector_Replace
+EXPORT 180001410 Ordinal_55
+EXPORT 180001460 XMLVector_Remove
+EXPORT 180001460 Ordinal_54
+EXPORT 1800016a0 XMLNormalizeBuf
+EXPORT 1800016a0 Ordinal_26
+EXPORT 180001740 XMLParser_Free
+EXPORT 180001740 Ordinal_28
+EXPORT 180001850 XMLParser_GetNamedItem
+EXPORT 180001850 Ordinal_32
+EXPORT 180001890 XMLParser_GetPrefixMapping
+EXPORT 180001890 Ordinal_33
+EXPORT 1800018b0 XMLParser_GetCurrentEntity
+EXPORT 1800018b0 Ordinal_30
+EXPORT 1800018f0 XMLParser_GetSystemID
+EXPORT 1800018f0 Ordinal_35
+EXPORT 180001910 XMLParser_GetPublicID
+EXPORT 180001910 Ordinal_34
+EXPORT 180001930 XMLParser_GetCurrentLine
+EXPORT 180001930 Ordinal_31
+EXPORT 180001950 XMLParser_GetCurrentColumn
+EXPORT 180001950 Ordinal_29
+EXPORT 180001970 XMLParser_GetVersionString
+EXPORT 180001970 Ordinal_36
+EXPORT 180002ad0 XMLParser_Create
+EXPORT 180002ad0 Ordinal_27
+EXPORT 18000b1e0 XMLParser_Parse
+EXPORT 18000b1e0 Ordinal_37
+EXPORT 18000bf70 XMLPool_Create
+EXPORT 18000bf70 Ordinal_39
+EXPORT 18000bfd0 XMLPool_FreePool
+EXPORT 18000bfd0 Ordinal_41
+EXPORT 18000c010 XMLPool_Alloc
+EXPORT 18000c010 Ordinal_38
+EXPORT 18000c090 XMLPool_Free
+EXPORT 18000c090 Ordinal_40
+EXPORT 18000c7a0 XMLStringbuf_Append
+EXPORT 18000c7a0 Ordinal_42
+EXPORT 18000c8c0 XMLStringbuf_AppendCh
+EXPORT 18000c8c0 Ordinal_43
+EXPORT 18000c9c0 XMLStringbuf_Init
+EXPORT 18000c9c0 Ordinal_45
+EXPORT 18000ca00 XMLStringbuf_InitUsePool
+EXPORT 18000ca00 Ordinal_46
+EXPORT 18000ca60 XMLStringbuf_Free
+EXPORT 18000ca60 Ordinal_44
+EXPORT 18000cac0 XMLStringbuf_SetLength
+EXPORT 18000cac0 Ordinal_47
+EXPORT 18000cb40 XMLStringbuf_ToString
+EXPORT 18000cb40 Ordinal_48
+EXPORT 18007f7b0 CreateAudioFileDecoder
+EXPORT 18007f7b0 Ordinal_5
+EXPORT 18007f880 DeleteAudioFileDecoder
+EXPORT 18007f880 Ordinal_10
+EXPORT 18007f880 DeleteRTMPStream
+EXPORT 18007f880 Ordinal_12
+EXPORT 18007f880 DeleteVideoPlayer
+EXPORT 18007f880 Ordinal_15
+EXPORT 18007fcf0 DeleteVideoDecoder
+EXPORT 18007fcf0 Ordinal_13
+EXPORT 18007fcf0 DeleteVideoEncoder
+EXPORT 18007fcf0 Ordinal_14
+EXPORT 1800837e0 VideoValidateStatics
+EXPORT 1800837e0 Ordinal_25
+EXPORT 18008ee40 CreateVideoPlayer
+EXPORT 18008ee40 Ordinal_9
+EXPORT 1800903d0 VideoPauseForValidation
+EXPORT 1800903d0 Ordinal_19
+EXPORT 180090430 VideoPlaybackInitialize
+EXPORT 180090430 Ordinal_20
+EXPORT 1800905b0 VideoPlaybackRunFrame
+EXPORT 1800905b0 Ordinal_21
+EXPORT 180090720 VideoPlaybackShutdown
+EXPORT 180090720 Ordinal_22
+EXPORT 180090850 VideoResumeFromValidation
+EXPORT 180090850 Ordinal_23
+EXPORT 1800908a0 VideoValidate
+EXPORT 1800908a0 Ordinal_24
+EXPORT 180090f20 CreateRTMPStream
+EXPORT 180090f20 Ordinal_8
+EXPORT 180091390 AllocImageYUV
+EXPORT 180091390 Ordinal_1
+EXPORT 180091440 BConvertYUVtoRGB
+EXPORT 180091440 Ordinal_2
+EXPORT 180091620 BScaleImageNV12
+EXPORT 180091620 Ordinal_3
+EXPORT 180091b00 BScaleImageYUV
+EXPORT 180091b00 Ordinal_4
+EXPORT 180091ce0 CreateAudioResampler
+EXPORT 180091ce0 Ordinal_6
+EXPORT 180091da0 DeleteAudioResampler
+EXPORT 180091da0 Ordinal_11
+EXPORT 180091e00 FreeImageYUV
+EXPORT 180091e00 Ordinal_16
+EXPORT 180091e50 RescaleBase
+EXPORT 180091e50 Ordinal_17
+EXPORT 180091e60 ValidateImageYUV
+EXPORT 180091e60 Ordinal_18
+EXPORT 18009aeb0 CreateInterface
+EXPORT 18009aeb0 Ordinal_7
+EXPORT 180129e00 entry
+EXPORT 180309380 tls_callback_0
+EXPORT 18055cd68 g_dwDllEntryThreadId
+EXPORT 18055cd68 Ordinal_57
+
+FUNCTION CreateInterface 18009aeb0 RVA=9aeb0
+18009aeb0 MOV R9,qword ptr [0x180437f18]
+18009aeb7 MOV R10,RDX
+18009aeba MOV R11,RCX
+18009aebd TEST R9,R9
+18009aec0 JZ 0x18009aef0
+18009aec2 MOV RAX,qword ptr [R9 + 0x8]
+18009aec6 MOV R8,R11
+18009aec9 SUB R8,RAX
+18009aecc NOP dword ptr [RAX]
+18009aed0 MOVZX EDX,byte ptr [RAX]
+18009aed3 MOVZX ECX,byte ptr [RAX + R8*0x1]
+18009aed8 SUB EDX,ECX
+18009aeda JNZ 0x18009aee3
+18009aedc INC RAX
+18009aedf TEST ECX,ECX
+18009aee1 JNZ 0x18009aed0
+18009aee3 TEST EDX,EDX
+18009aee5 JZ 0x18009aeff
+18009aee7 MOV R9,qword ptr [R9 + 0x10]
+18009aeeb TEST R9,R9
+18009aeee JNZ 0x18009aec2
+18009aef0 TEST R10,R10
+18009aef3 JZ 0x18009aefc
+18009aef5 MOV dword ptr [R10],0x1
+18009aefc XOR EAX,EAX
+18009aefe RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 CreateInterface(longlong param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  char cVar2;
+  undefined8 *puVar3;
+  char *pcVar4;
+  undefined8 uVar5;
+  longlong lVar6;
+  
+  puVar3 = _DAT_180437f18;
+  do {
+    if (puVar3 == (undefined8 *)0x0) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 1;
+      }
+      return 0;
+    }
+    pcVar4 = (char *)puVar3[1];
+    lVar6 = param_1 - (longlong)pcVar4;
+    do {
+      cVar1 = *pcVar4;
+      cVar2 = pcVar4[lVar6];
+      if (cVar1 != cVar2) break;
+      pcVar4 = pcVar4 + 1;
+    } while (cVar2 != '\0');
+    if (cVar1 == cVar2) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 0;
+      }
+                    /* WARNING: Could not recover jumptable at 0x00018009af0b. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+      uVar5 = (*(code *)*puVar3)();
+      return uVar5;
+    }
+    puVar3 = (undefined8 *)puVar3[2];
+  } while( true );
+}
+
+
+
+Function count after targeted disassembly: 7960

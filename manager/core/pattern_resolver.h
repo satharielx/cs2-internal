@@ -26,6 +26,7 @@ namespace pattern_resolver {
 
     // ---------- INITIALIZATION ----------
     bool Initialize();
+    void Reset();
 
     // Helper: resolve RIP-relative address
     uintptr_t GetAbsoluteAddress(uintptr_t instruction, int offset, int size);

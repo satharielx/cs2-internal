@@ -1,0 +1,347 @@
+Program: schemasystem.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: f88667df86e23531813e28a0fbd3b8cd66bb9f25e4a689f810c03dd328243479
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=299008 execute=true
+BLOCK .rdata 18004a000 size=102400 execute=false
+BLOCK .data 180063000 size=81920 execute=false
+BLOCK .pdata 180077000 size=20480 execute=false
+BLOCK .rsrc 18007c000 size=4096 execute=false
+BLOCK .reloc 18007d000 size=8192 execute=false
+EXPORT 1800267a0 BinaryProperties_GetValue
+EXPORT 1800267a0 Ordinal_1
+EXPORT 180026bf0 ExtractModuleMetadata
+EXPORT 180026bf0 Ordinal_3
+EXPORT 180037560 CreateInterface
+EXPORT 180037560 Ordinal_2
+EXPORT 180038de0 InstallSchemaBindings
+EXPORT 180038de0 Ordinal_6
+EXPORT 1800391f0 GetResourceManifestCount
+EXPORT 1800391f0 Ordinal_4
+EXPORT 180039200 GetResourceManifests
+EXPORT 180039200 Ordinal_5
+EXPORT 180039b3c entry
+EXPORT 180039be0 tls_callback_0
+
+FUNCTION BinaryProperties_GetValue 1800267a0 RVA=267a0
+1800267a0 CMP ECX,0x7
+1800267a3 JA 0x18002682a
+1800267a9 MOVSXD RAX,ECX
+1800267ac LEA R8,[0x180000000]
+1800267b3 MOV ECX,dword ptr [R8 + RAX*0x4 + 0x26830]
+1800267bb ADD RCX,R8
+1800267be JMP RCX
+18002682a XOR EAX,EAX
+18002682c RET
+
+undefined8 BinaryProperties_GetValue(undefined4 param_1,undefined8 *param_2)
+
+{
+                    /* 0x267a0  1  BinaryProperties_GetValue */
+  switch(param_1) {
+  case 0:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_180058c88;
+    return 1;
+  case 1:
+  case 4:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 0;
+    return 1;
+  case 2:
+  case 5:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 1;
+    return 1;
+  case 3:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_180055a90;
+    return 1;
+  case 6:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 2;
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+
+
+FUNCTION ExtractModuleMetadata 180026bf0 RVA=26bf0
+180026bf0 PUSH RSI
+180026bf2 SUB RSP,0x20
+180026bf6 MOV RAX,qword ptr GS:[0x58]
+180026bff MOV RSI,RCX
+180026c02 MOV EDX,dword ptr [0x180072124]
+180026c08 MOV qword ptr [RSP + 0x30],RBX
+180026c0d MOV ECX,0x10
+180026c12 MOV RBX,qword ptr [RAX + RDX*0x8]
+180026c16 ADD RBX,RCX
+180026c19 MOV EAX,dword ptr [RBX]
+180026c1b CMP dword ptr [0x180076fdc],EAX
+180026c21 JG 0x180026c9c
+180026c23 MOV EAX,dword ptr [RBX]
+180026c25 CMP dword ptr [0x180076fe4],EAX
+180026c2b JG 0x180026ce3
+180026c31 MOV EAX,dword ptr [RBX]
+180026c33 CMP dword ptr [0x180076ff8],EAX
+180026c39 JG 0x180026d19
+180026c3f CMP byte ptr [0x180076fe0],0x0
+180026c46 MOV RBX,qword ptr [RSP + 0x30]
+180026c4b JZ 0x180026c5a
+180026c4d LEA RAX,[0x180076fe8]
+180026c54 ADD RSP,0x20
+180026c58 POP RSI
+180026c59 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 ExtractModuleMetadata(undefined8 *param_1)
+
+{
+  undefined8 *puVar1;
+  char cVar2;
+  char cVar3;
+  char cVar4;
+  undefined *puVar5;
+  int *piVar6;
+  longlong unaff_GS_OFFSET;
+  
+                    /* 0x26bf0  3  ExtractModuleMetadata */
+  piVar6 = (int *)(*(longlong *)(*(longlong *)(unaff_GS_OFFSET + 0x58) + (ulonglong)__tls_index * 8)
+                  + 0x10);
+  if ((*piVar6 < _DAT_180076fdc) && (FUN_180039418(&DAT_180076fdc), _DAT_180076fdc == -1)) {
+    FUN_18002fd40(0x180076fe8,1,8);
+    FUN_1800397e8(&UNK_1800491b0);
+    FUN_1800393ac(&DAT_180076fdc);
+  }
+  if ((*piVar6 < _DAT_180076fe4) && (FUN_180039418(&DAT_180076fe4), _DAT_180076fe4 == -1)) {
+    FUN_1800397e8(&UNK_1800491a0);
+    FUN_1800393ac(&DAT_180076fe4);
+  }
+  if ((*piVar6 < _DAT_180076ff8) && (FUN_180039418(&DAT_180076ff8), _DAT_180076ff8 == -1)) {
+    cVar3 = '\x01';
+    puVar1 = _DAT_180072cd0;
+    while (cVar2 = cVar3, puVar1 != (undefined8 *)0x0) {
+      cVar4 = (**(code **)*puVar1)(puVar1,0x180076fe8,0x1800657e0);
+      puVar1 = (undefined8 *)puVar1[1];
+      cVar3 = '\0';
+      if (cVar4 != '\0') {
+        cVar3 = cVar2;
+      }
+    }
+    FUN_180036be0(0x180076fe8);
+    DAT_180076fe0 = cVar2;
+    FUN_1800393ac(&DAT_180076ff8);
+  }
+  if (DAT_180076fe0 != '\0') {
+    return 0x180076fe8;
+  }
+  if (param_1 != (undefined8 *)0x0) {
+    if ((_DAT_1800657e4 >> 0x1e & 1) != 0) {
+      *param_1 = &DAT_1800657e8;
+      return 0;
+    }
+    puVar5 = &UNK_180055a52;
+    if ((_DAT_1800657e4 & 0x3fffffff) != 0) {
+      puVar5 = _DAT_1800657e8;
+    }
+    *param_1 = puVar5;
+  }
+  return 0;
+}
+
+
+
+FUNCTION CreateInterface 180037560 RVA=37560
+180037560 MOV R9,qword ptr [0x180072030]
+180037567 MOV R10,RDX
+18003756a MOV R11,RCX
+18003756d TEST R9,R9
+180037570 JZ 0x1800375a0
+180037572 MOV RAX,qword ptr [R9 + 0x8]
+180037576 MOV R8,R11
+180037579 SUB R8,RAX
+18003757c NOP dword ptr [RAX]
+180037580 MOVZX EDX,byte ptr [RAX]
+180037583 MOVZX ECX,byte ptr [RAX + R8*0x1]
+180037588 SUB EDX,ECX
+18003758a JNZ 0x180037593
+18003758c INC RAX
+18003758f TEST ECX,ECX
+180037591 JNZ 0x180037580
+180037593 TEST EDX,EDX
+180037595 JZ 0x1800375af
+180037597 MOV R9,qword ptr [R9 + 0x10]
+18003759b TEST R9,R9
+18003759e JNZ 0x180037572
+1800375a0 TEST R10,R10
+1800375a3 JZ 0x1800375ac
+1800375a5 MOV dword ptr [R10],0x1
+1800375ac XOR EAX,EAX
+1800375ae RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 CreateInterface(longlong param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  char cVar2;
+  undefined8 *puVar3;
+  char *pcVar4;
+  undefined8 uVar5;
+  longlong lVar6;
+  
+  puVar3 = _DAT_180072030;
+  do {
+    if (puVar3 == (undefined8 *)0x0) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 1;
+      }
+      return 0;
+    }
+    pcVar4 = (char *)puVar3[1];
+    lVar6 = param_1 - (longlong)pcVar4;
+    do {
+      cVar1 = *pcVar4;
+      cVar2 = pcVar4[lVar6];
+      if (cVar1 != cVar2) break;
+      pcVar4 = pcVar4 + 1;
+    } while (cVar2 != '\0');
+    if (cVar1 == cVar2) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 0;
+      }
+                    /* WARNING: Could not recover jumptable at 0x0001800375bb. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+      uVar5 = (*(code *)*puVar3)();
+      return uVar5;
+    }
+    puVar3 = (undefined8 *)puVar3[2];
+  } while( true );
+}
+
+
+
+FUNCTION InstallSchemaBindings 180038de0 RVA=38de0
+180038de0 PUSH RBX
+180038de2 SUB RSP,0x20
+180038de6 MOV RBX,RDX
+180038de9 MOV RDX,RCX
+180038dec LEA RCX,[0x180056cb0]
+180038df3 CALL 0x18003f190
+180038df8 TEST EAX,EAX
+180038dfa JZ 0x180038e04
+180038dfc XOR AL,AL
+180038dfe ADD RSP,0x20
+180038e02 POP RBX
+180038e03 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 InstallSchemaBindings(undefined8 param_1,undefined8 param_2)
+
+{
+  int iVar1;
+  
+                    /* 0x38de0  6  InstallSchemaBindings */
+  iVar1 = FUN_18003f190(&UNK_180056cb0,param_1);
+  if (iVar1 != 0) {
+    return 0;
+  }
+  if (DAT_180072088 == '\0') {
+    _DAT_1800715e0 = param_2;
+    FUN_180038c60(param_2);
+    DAT_180072088 = '\x01';
+  }
+  return 1;
+}
+
+
+
+FUNCTION GetResourceManifestCount 1800391f0 RVA=391f0
+1800391f0 MOV EAX,dword ptr [0x180072098]
+1800391f6 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 GetResourceManifestCount(void)
+
+{
+                    /* 0x391f0  4  GetResourceManifestCount */
+  return _DAT_180072098;
+}
+
+
+
+FUNCTION GetResourceManifests 180039200 RVA=39200
+180039200 MOV qword ptr [RSP + 0x8],RBX
+180039205 MOV qword ptr [RSP + 0x10],RBP
+18003920a MOV qword ptr [RSP + 0x18],RSI
+18003920f MOV qword ptr [RSP + 0x20],RDI
+180039214 PUSH R12
+180039216 PUSH R14
+180039218 PUSH R15
+18003921a SUB RSP,0x20
+18003921e MOV RDI,qword ptr [0x180072090]
+180039225 XOR R12D,R12D
+180039228 MOV R14,R8
+18003922b MOV R15,RDX
+18003922e MOV EBP,ECX
+180039230 MOV ESI,R12D
+180039233 MOV EBX,R12D
+180039236 TEST RDI,RDI
+180039239 JZ 0x180039279
+18003923b NOP dword ptr [RAX + RAX*0x1]
+180039240 CMP ESI,EBP
+180039242 JL 0x18003926f
+180039244 MOV RAX,qword ptr [RDI + 0x8]
+180039248 TEST RAX,RAX
+18003924b JNZ 0x180039263
+18003924d MOV RCX,qword ptr [RDI + 0x10]
+180039251 MOV RAX,R12
+180039254 TEST RCX,RCX
+180039257 JZ 0x180039263
+180039259 CALL RCX
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+ulonglong GetResourceManifests(int param_1,longlong param_2,ulonglong param_3)
+
+{
+  undefined8 *puVar1;
+  longlong lVar2;
+  ulonglong uVar3;
+  int iVar4;
+  
+                    /* 0x39200  5  GetResourceManifests */
+  iVar4 = 0;
+  uVar3 = 0;
+  for (puVar1 = _DAT_180072090; puVar1 != (undefined8 *)0x0; puVar1 = (undefined8 *)*puVar1) {
+    if (param_1 <= iVar4) {
+      lVar2 = puVar1[1];
+      if (lVar2 == 0) {
+        lVar2 = 0;
+        if ((code *)puVar1[2] != (code *)0x0) {
+          lVar2 = (*(code *)puVar1[2])();
+          puVar1[1] = lVar2;
+          puVar1[2] = 0;
+        }
+      }
+      *(longlong *)(param_2 + uVar3 * 8) = lVar2;
+      uVar3 = uVar3 + 1;
+      if (param_3 <= uVar3) break;
+    }
+    iVar4 = iVar4 + 1;
+  }
+  return uVar3 & 0xffffffff;
+}
+
+
+
+Function count after targeted disassembly: 828

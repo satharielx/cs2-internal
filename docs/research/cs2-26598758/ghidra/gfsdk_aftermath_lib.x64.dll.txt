@@ -1,0 +1,105 @@
+Program: gfsdk_aftermath_lib.x64.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: d3fa76f1928d3914a8a2a0f9e55a8077c1253e8f9d64cba9e1d3760cfd5fa25e
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=3878912 execute=true
+BLOCK .rdata 1803b4000 size=1425408 execute=false
+BLOCK .data 180510000 size=327680 execute=false
+BLOCK .pdata 180560000 size=118784 execute=false
+BLOCK _RDATA 18057d000 size=4096 execute=false
+BLOCK .rsrc 18057e000 size=4096 execute=false
+BLOCK .reloc 18057f000 size=36864 execute=false
+EXPORT 180075970 GetShaderDebugName
+EXPORT 180075970 Ordinal_39
+EXPORT 180075a80 GetShaderDebugNameSpirv
+EXPORT 180075a80 Ordinal_40
+EXPORT 180075bc0 GetShaderHashForShaderInfo
+EXPORT 180075bc0 Ordinal_41
+EXPORT 180075c30 GetShaderHashSpirv
+EXPORT 180075c30 Ordinal_42
+EXPORT 180076190 GFSDK_Aftermath_DX11_CreateContextHandle
+EXPORT 180076190 Ordinal_1
+EXPORT 1800761a0 GFSDK_Aftermath_DX11_Initialize
+EXPORT 1800761a0 Ordinal_2
+EXPORT 1800761b0 GFSDK_Aftermath_DX12_CreateContextHandle
+EXPORT 1800761b0 Ordinal_3
+EXPORT 1800761c0 GFSDK_Aftermath_DX12_Initialize
+EXPORT 1800761c0 Ordinal_4
+EXPORT 1800761e0 GFSDK_Aftermath_DX12_RegisterResource
+EXPORT 1800761e0 Ordinal_5
+EXPORT 1800761f0 GFSDK_Aftermath_DX12_UnregisterResource
+EXPORT 1800761f0 Ordinal_6
+EXPORT 180076200 GFSDK_Aftermath_DisableGpuCrashDumps
+EXPORT 180076200 Ordinal_7
+EXPORT 180076210 GFSDK_Aftermath_EnableGpuCrashDumps
+EXPORT 180076210 Ordinal_8
+EXPORT 180076220 GFSDK_Aftermath_GetContextError
+EXPORT 180076220 Ordinal_9
+EXPORT 180076230 GFSDK_Aftermath_GetCrashDumpStatus
+EXPORT 180076230 Ordinal_10
+EXPORT 180076240 GFSDK_Aftermath_GetData
+EXPORT 180076240 Ordinal_11
+EXPORT 180076250 GFSDK_Aftermath_GetDeviceStatus
+EXPORT 180076250 Ordinal_12
+EXPORT 180076260 GFSDK_Aftermath_GetPageFaultInformation
+EXPORT 180076260 Ordinal_13
+EXPORT 180076270 GFSDK_Aftermath_GetShaderDebugInfoIdentifier
+EXPORT 180076270 Ordinal_14
+EXPORT 180076280 GFSDK_Aftermath_GetShaderDebugName
+EXPORT 180076280 Ordinal_15
+EXPORT 180076290 GFSDK_Aftermath_GetShaderDebugNameSpirv
+EXPORT 180076290 Ordinal_16
+EXPORT 1800762a0 GFSDK_Aftermath_GetShaderHash
+EXPORT 1800762a0 Ordinal_17
+EXPORT 1800762b0 GFSDK_Aftermath_GetShaderHashForShaderInfo
+EXPORT 1800762b0 Ordinal_18
+EXPORT 1800762c0 GFSDK_Aftermath_GetShaderHashSpirv
+EXPORT 1800762c0 Ordinal_19
+EXPORT 1800762d0 GFSDK_Aftermath_GpuCrashDump_CreateDecoder
+EXPORT 1800762d0 Ordinal_20
+EXPORT 1800762e0 GFSDK_Aftermath_GpuCrashDump_DestroyDecoder
+EXPORT 1800762e0 Ordinal_21
+EXPORT 1800762f0 GFSDK_Aftermath_GpuCrashDump_GenerateJSON
+EXPORT 1800762f0 Ordinal_22
+EXPORT 180076300 GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfo
+EXPORT 180076300 Ordinal_23
+EXPORT 180076310 GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfoCount
+EXPORT 180076310 Ordinal_24
+EXPORT 180076320 GFSDK_Aftermath_GpuCrashDump_GetBaseInfo
+EXPORT 180076320 Ordinal_25
+EXPORT 180076330 GFSDK_Aftermath_GpuCrashDump_GetDescription
+EXPORT 180076330 Ordinal_26
+EXPORT 180076340 GFSDK_Aftermath_GpuCrashDump_GetDescriptionSize
+EXPORT 180076340 Ordinal_27
+EXPORT 180076350 GFSDK_Aftermath_GpuCrashDump_GetDeviceInfo
+EXPORT 180076350 Ordinal_28
+EXPORT 180076360 GFSDK_Aftermath_GpuCrashDump_GetEventMarkersInfo
+EXPORT 180076360 Ordinal_29
+EXPORT 180076370 GFSDK_Aftermath_GpuCrashDump_GetEventMarkersInfoCount
+EXPORT 180076370 Ordinal_30
+EXPORT 180076380 GFSDK_Aftermath_GpuCrashDump_GetGpuInfo
+EXPORT 180076380 Ordinal_31
+EXPORT 180076390 GFSDK_Aftermath_GpuCrashDump_GetGpuInfoCount
+EXPORT 180076390 Ordinal_32
+EXPORT 1800763a0 GFSDK_Aftermath_GpuCrashDump_GetJSON
+EXPORT 1800763a0 Ordinal_33
+EXPORT 1800763b0 GFSDK_Aftermath_GpuCrashDump_GetPageFaultInfo
+EXPORT 1800763b0 Ordinal_34
+EXPORT 1800763c0 GFSDK_Aftermath_GpuCrashDump_GetPageFaultResourceInfo
+EXPORT 1800763c0 Ordinal_35
+EXPORT 1800763d0 GFSDK_Aftermath_GpuCrashDump_GetSystemInfo
+EXPORT 1800763d0 Ordinal_36
+EXPORT 1800763e0 GFSDK_Aftermath_ReleaseContextHandle
+EXPORT 1800763e0 Ordinal_37
+EXPORT 1800763f0 GFSDK_Aftermath_SetEventMarker
+EXPORT 1800763f0 Ordinal_38
+EXPORT 18017e180 queryWrapper
+EXPORT 18017e180 Ordinal_43
+EXPORT 18021a01c tls_callback_0
+EXPORT 18021a094 tls_callback_1
+EXPORT 18021a500 entry
+
+Function count after targeted disassembly: 6696

@@ -26,6 +26,6 @@ namespace menu_advanced::ui_constants {
     inline constexpr const char* page_names[] = {
         "Aimbot", "Triggerbot", "Players ESP", "Items ESP",
         "View & Camera", "HUD Overlays", "General", "Movement",
-        "Skin Changer", "Grenade Helper", "Configs", "Overview"
+        "Skin Changer", "Grenade Helper", "Configs", "Overview", "Runtime Inspector"
     };
 }

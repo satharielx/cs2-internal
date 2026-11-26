@@ -1,4 +1,5 @@
 #pragma once
+#include "hooks_signatures.h"
 
 // These patterns depend on the game build.
 namespace runtime_patterns::pattern_resolver {
@@ -8,6 +9,6 @@ namespace runtime_patterns::pattern_resolver {
     inline constexpr char view_angles_legacy[] = "F3 0F 11 86 ? ? ? ? F3 0F 10 44 24";
     inline constexpr char global_vars_legacy[] = "48 8B 05 ? ? ? ? 8B 38 E8 00";
     inline constexpr char csgo_input[] = "48 8B 0D ? ? ? ? 8B 10 E8 ? ? ? ? 45 32 FF";
-    inline constexpr char create_move[] = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F9 48 8B";
+    inline constexpr auto& create_move = runtime_patterns::hooks::create_move;
     inline constexpr char network_game_client[] = "48 89 3D ? ? ? ? FF 87";
 }

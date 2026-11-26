@@ -1,0 +1,20 @@
+{
+  "client_sha256": "99a6720b29d8b477d55f0a2d7fd4333b5df13f354ba723804e996bead1231aa8",
+  "patterns": [
+    {
+      "name": "factory_pattern",
+      "matches": [
+        "0x10d7800"
+      ]
+    },
+    {
+      "name": "manager_pattern",
+      "matches": [
+        "0xac050"
+      ]
+    }
+  ],
+  "hud_tick": "0xEA9800",
+  "hud_clear": "0xEA5CA0",
+  "hud_primary_adjustment": "-0x98"
+}

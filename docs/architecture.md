@@ -34,6 +34,22 @@ Run `powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_all.ps1` from
 
 `features.cpp`, `hooks.cpp`, `skins.cpp` and `menu_advanced.cpp` still hold several responsibilities. Future extraction should move state together with its operations behind explicit interfaces and preserve callback ordering, lock ownership, handle validation and restoration. Splitting these files into textual includes would change file sizes without fixing dependencies. The current refactor establishes independent components and one settings schema; it is not a complete rewrite of those runtime systems.
 
+## Runtime discovery and lifecycle
+
+`dllmain.cpp` owns a staged runtime session: interface discovery, state monitor, hook setup, then feature worker. Teardown joins the feature worker, restores/removes hooks while the monitor still supplies state, then stops the monitor and releases interfaces. A failed stop retains its dependencies and prevents unloading the DLL. `core/runtime_startup.h` owns the required module list and dependency diagnostics. Startup waits for actual mandatory overlay entry points instead of a fixed initialization sleep.
+
+`sdk/mem.cpp` validates loaded PE architecture and section extents, scans code sections, and resolves RIP-relative displacements with checked reads and arithmetic. Use `find_unique_pattern` for callback/global discovery; the existing first-match API remains for explicitly chosen legacy callers. `pattern_resolver::Reset` clears published addresses before initialization and after stopped teardown. `interfaces::frame_stage_notify` is a code address, not a factory-created object.
+
+See [runtime redesign](runtime-redesign.md) for the concrete failure modes, installed-binary signature audit, confidence limits, and verification commands.
+
+## Runtime Inspector
+
+`core/runtime_inspector.cpp` owns bounded inspection of mapped PE images, PDB identities, export metadata, module snapshots and diagnostic reports. It does not invoke engine functions or load missing libraries. `core/runtime_research_baseline.inc` is generated from the saved binary inventory. `core/ui/runtime_page.cpp` owns the Inspector menu page, snapshot refresh, search state, clipped export tables, and explicit clipboard actions. Module enumeration and export inspection occur on demand; no inspector work runs in frame callbacks while the page is closed. See [Runtime Inspector](runtime-inspector.md) for usage and baseline maintenance.
+
+## Cosmetic inventory and model inspection
+
+`core/inventory.h` owns the local item collection and transactional persistence under `config::mutex`; `core/inventory.cpp` owns researched-build-gated native cache operations queued to frame callbacks. Never invoke native inventory methods from ImGui callbacks. The HUD refresh primary base for build 26598758 is tick this -0x98, guarded by the inspected tick layout; older validation notes use a different build's adjustment. `core/model_inspector.h` owns bounded OBJ parsing/geometry math; `ui/model_preview.h` owns standalone preview drawing and controls. It does not extract or render native game-model resources. See [inventory/HUD/chams](inventory-hud-chams.md).
+
 ## Constants and signatures
 
 `core/constants` groups hook, game-state, interface, resolver and engine-trace patterns by subsystem. They retain the previous byte patterns and call-site/entry resolution behavior. `constants/features.h` owns shared geometry constants; `ui/catalog.h` owns weapon categories and navigation labels; `ui/icons.h` owns font codepoints. Skin catalog source URLs and cache filenames live in `skins/catalog_sources.h`. Mutable state does not belong in these definition headers. Leave short, local implementation constants close to their use when sharing them would add an unnecessary dependency.

@@ -1,0 +1,16 @@
+{
+  "modules": 102,
+  "bytes": 543849720,
+  "architectures": {
+    "x86-64": 101,
+    "x86": 1
+  },
+  "exports": 104948,
+  "named_exports": 104948,
+  "rtti_occurrences": 71622,
+  "distinct_rtti": 39465,
+  "pdb_references": 99,
+  "coff_symbols": 86,
+  "create_interface_modules": 53,
+  "installed_dependency_edges": 171
+}

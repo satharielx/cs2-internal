@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-10-11 19:31:11.671150600 UTC
+// 2026-11-24 21:19:01.174552900 UTC
 
 #pragma once
 
@@ -348,9 +348,10 @@ namespace cs2_dumper {
                 constexpr std::ptrdiff_t m_nRenderHeight = 0x24; // int32
             }
             // Parent: None
-            // Field count: 1
+            // Field count: 2
             namespace EventClientPollNetworking_t {
                 constexpr std::ptrdiff_t m_nTickCount = 0x0; // int32
+                constexpr std::ptrdiff_t m_nTotalTicks = 0x4; // int32
             }
             // Parent: None
             // Field count: 1

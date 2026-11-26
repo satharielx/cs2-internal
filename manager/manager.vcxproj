@@ -161,6 +161,10 @@
     <ClInclude Include="core\features.h" />
     <ClInclude Include="core\skybox.h" />
     <ClInclude Include="core\lighting.h" />
+    <ClInclude Include="core\chams.h" />
+    <ClInclude Include="core\scene_visuals.h" />
+    <ClInclude Include="core\constants\chams_signatures.h" />
+    <ClInclude Include="sdk\pe_rtti.h" />
     <ClInclude Include="core\viewmodel.h" />
     <ClInclude Include="core\game_state.h" />
     <ClInclude Include="core\hooks.h" />
@@ -168,6 +172,14 @@
     <ClInclude Include="core\interfaces.h" />
     <ClInclude Include="core\menu_advanced.h" />
     <ClInclude Include="core\pattern_resolver.h" />
+    <ClInclude Include="core\runtime_startup.h" />
+    <ClInclude Include="core\runtime_inspector.h" />
+    <ClInclude Include="core\inventory.h" />
+    <ClInclude Include="core\model_inspector.h" />
+    <ClInclude Include="core\ui\model_preview.h" />
+    <ClInclude Include="core\ui\inventory_page.h" />
+    <ClInclude Include="core\ui\file_path.h" />
+    <ClInclude Include="core\runtime_research_baseline.inc" />
     <ClInclude Include="core\skins\catalog_sources.h" />
     <ClInclude Include="core\skins.h" />
     <ClInclude Include="core\skins\signatures.h" />
@@ -3673,14 +3685,18 @@
     <ClCompile Include="core\debug_console.cpp" />
     <ClCompile Include="core\error_logger.cpp" />
     <ClCompile Include="core\features.cpp" />
+    <ClCompile Include="core\chams.cpp" />
     <ClCompile Include="core\skybox.cpp" />
     <ClCompile Include="core\game_state.cpp" />
     <ClCompile Include="core\hooks.cpp" />
     <ClCompile Include="core\Hook_FrameStageNotify.cpp" />
     <ClCompile Include="core\interfaces.cpp" />
+    <ClCompile Include="core\runtime_inspector.cpp" />
+    <ClCompile Include="core\inventory.cpp" />
     <ClCompile Include="core\menu_advanced.cpp" />
     <ClCompile Include="core\ui\widgets.cpp" />
     <ClCompile Include="core\ui\settings_pages.cpp" />
+    <ClCompile Include="core\ui\runtime_page.cpp" />
     <ClCompile Include="core\skins\catalog.cpp" />
     <ClCompile Include="core\skins\names.cpp" />
 
@@ -3743,6 +3759,9 @@
   <Target Name="CopySkinImages" AfterTargets="Build">
     <ItemGroup><SkinImageFiles Include="$(ProjectDir)core\skins_images\**\*.jsonl;$(ProjectDir)core\skins_images\**\*.png" /></ItemGroup>
     <Copy SourceFiles="@(SkinImageFiles)" DestinationFiles="@(SkinImageFiles->'$(OutDir)skins_images\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyAgentPreview" AfterTargets="Build" Condition="Exists('$(ProjectDir)..\build\agent-assets\seal_team_6.obj')">
+    <Copy SourceFiles="$(ProjectDir)..\build\agent-assets\seal_team_6.obj;$(ProjectDir)..\build\agent-assets\seal_team_6.json" DestinationFolder="$(OutDir)models" SkipUnchangedFiles="true" />
   </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

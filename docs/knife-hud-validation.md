@@ -1,3 +1,5 @@
+Historical build notes. The current build's selection base is **tick this -0x98**, superseding the old adjustment below. See [current inventory/HUD/chams research](inventory-hud-chams.md).
+
 Installed client inspected read-only on 2026-10-07, SHA-256 `7081d87fd49961a5d82e45abd0f0b8f8f05deeb3cb849837c1759716221c6977`.
 
 The existing call-site signature uniquely matches RVA `0xED2B07`, calling `0xEA82F0`. ClearWeaponHUD takes RCX selection storage and EDX entry index, removes a 0x48-byte entry, decrements count +0x50, and returns index minus one in EAX. It is `int(void*, int)`, not the project's old three-argument void declaration.

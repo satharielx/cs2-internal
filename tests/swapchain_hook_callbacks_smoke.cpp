@@ -38,6 +38,32 @@ static void CheckHR(HRESULT result, const char* message) {
     }
 }
 
+static void CheckHudRefresh() {
+    static unsigned forwards=0;
+    std::array<unsigned char,0x200> memory{};
+    const auto primary=reinterpret_cast<uintptr_t>(memory.data()),tick=primary+0x98;
+    skin_hud::clear=+[](void* object,int index)->int {
+        Check(index==0,"Native HUD clear uses index zero");
+        const auto address=reinterpret_cast<uintptr_t>(object)+0x50;
+        sdk::write_memory(address,sdk::read_value<int>(address)-1);return -1;
+    };
+    oWeaponHudTick=+[](void* hud) {
+        ++forwards;const auto tick=reinterpret_cast<uintptr_t>(hud);
+        Check(sdk::read_value<uint32_t>(tick+0x50)==UINT32_MAX,"Invalidation occurs before native tick");
+        sdk::write_memory(tick-0x98+0x50,2);
+    };
+    skin_hud::tracker={};skin_hud::Request();test_hud_in_game=true;s_stopping=false;
+    const auto cleared=skin_hud::clear_calls.load();
+    hkWeaponHudTick(reinterpret_cast<void*>(tick));
+    Check(forwards==1&&skin_hud::clear_calls==cleared&&skin_hud::completed==skin_hud::revision,"Empty HUD forwards once and completes invalidation");
+    skin_hud::Request();
+    hkWeaponHudTick(reinterpret_cast<void*>(tick));
+    Check(forwards==2&&skin_hud::clear_calls==cleared&&skin_hud::completed==skin_hud::revision&&sdk::read_value<int>(primary+0x50)==2,
+        "Populated HUD preserves entries and updates in one native callback");
+    test_hud_in_game=false;skin_hud::clear=nullptr;oWeaponHudTick=nullptr;skin_hud::tracker={};
+    std::puts("PASS: HUD selection preservation, pre-tick invalidation and exactly-once native forwarding");
+}
+
 struct HiddenWindow {
     HWND handle = CreateWindowExW(0, L"STATIC", L"Swap-chain callback smoke test",
         WS_OVERLAPPEDWINDOW, 0, 0, 640, 480, nullptr, nullptr,
@@ -365,6 +391,24 @@ int main() {
         };
         hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
         Check(history[4] == 42, "Disabled aim preserves original input mutations");
+        Check(std::strcmp(features::silent_callback_state.load(), "Master aim switch off") == 0,
+            "Master switch has a distinct diagnostic");
+        config::aimbot::enabled = true;
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(std::strcmp(features::silent_callback_state.load(), "Silent mode switch off") == 0,
+            "Silent mode has a distinct diagnostic");
+        config::aimbot::enabled = false;
+        features::silent_aim_status = "Last gameplay result";
+        globals::menu_open = true;
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(std::strcmp(features::silent_aim_status.load(), "Last gameplay result") == 0,
+            "Opening diagnostics preserves the gameplay failure reason");
+        globals::menu_open = false;
+        globals::console_open = true;
+        hkSubTickAngle(history, nullptr, 0, 0, 0, nullptr);
+        Check(std::strcmp(features::silent_aim_status.load(), "Last gameplay result") == 0,
+            "Opening console preserves the gameplay failure reason");
+        globals::console_open = false;
         std::puts("PASS: CreateMove ABI and unlocked subtick forwarding");
         HiddenWindow selected_window;
         HiddenWindow foreign_window;
@@ -412,6 +456,7 @@ int main() {
         CheckCreation(selected_window.handle, foreign_window.handle, selected.Get());
         interfaces::destroy_d3d11_resources();
         CheckHookSetup();
+        CheckHudRefresh();
         std::puts("PASS: production ResizeBuffers success/failure, exactly-once forwarding, foreign-chain isolation, and unlocked original DXGI call");
         return 0;
     }

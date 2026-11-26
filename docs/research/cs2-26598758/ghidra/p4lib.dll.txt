@@ -1,0 +1,223 @@
+Program: p4lib.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 656411736048b94928ec7813109203f3f1fd5ce307aa2e4a53396c95d9cf05eb
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=77824 execute=true
+BLOCK .rdata 180014000 size=49152 execute=false
+BLOCK .data 180020000 size=12288 execute=false
+BLOCK .pdata 180023000 size=8192 execute=false
+BLOCK .reloc 180025000 size=4096 execute=false
+EXPORT 180002300 BinaryProperties_GetValue
+EXPORT 180002300 Ordinal_1
+EXPORT 180002740 ExtractModuleMetadata
+EXPORT 180002740 Ordinal_3
+EXPORT 180002910 CreateInterface
+EXPORT 180002910 Ordinal_2
+EXPORT 180006288 entry
+
+FUNCTION BinaryProperties_GetValue 180002300 RVA=2300
+180002300 CMP ECX,0x7
+180002303 JA 0x18000238a
+180002309 MOVSXD RAX,ECX
+18000230c LEA R8,[0x180000000]
+180002313 MOV ECX,dword ptr [R8 + RAX*0x4 + 0x2390]
+18000231b ADD RCX,R8
+18000231e JMP RCX
+18000238a XOR EAX,EAX
+18000238c RET
+
+undefined8 BinaryProperties_GetValue(undefined4 param_1,undefined8 *param_2)
+
+{
+                    /* 0x2300  1  BinaryProperties_GetValue */
+  switch(param_1) {
+  case 0:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_18001d2e0;
+    return 1;
+  case 1:
+  case 4:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 0;
+    return 1;
+  case 2:
+  case 5:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 1;
+    return 1;
+  case 3:
+    *(undefined4 *)(param_2 + 1) = 0;
+    *param_2 = &UNK_18001d2e8;
+    return 1;
+  case 6:
+    *(undefined4 *)(param_2 + 1) = 1;
+    *param_2 = 2;
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+
+
+FUNCTION ExtractModuleMetadata 180002740 RVA=2740
+180002740 PUSH RSI
+180002742 SUB RSP,0x20
+180002746 MOV RAX,qword ptr GS:[0x58]
+18000274f MOV RSI,RCX
+180002752 MOV EDX,dword ptr [0x180021794]
+180002758 MOV qword ptr [RSP + 0x30],RBX
+18000275d MOV ECX,0x4
+180002762 MOV RBX,qword ptr [RAX + RDX*0x8]
+180002766 ADD RBX,RCX
+180002769 MOV EAX,dword ptr [RBX]
+18000276b CMP dword ptr [0x18002252c],EAX
+180002771 JG 0x1800027ec
+180002773 MOV EAX,dword ptr [RBX]
+180002775 CMP dword ptr [0x180022534],EAX
+18000277b JG 0x180002833
+180002781 MOV EAX,dword ptr [RBX]
+180002783 CMP dword ptr [0x180022548],EAX
+180002789 JG 0x180002869
+18000278f CMP byte ptr [0x180022530],0x0
+180002796 MOV RBX,qword ptr [RSP + 0x30]
+18000279b JZ 0x1800027aa
+18000279d LEA RAX,[0x180022538]
+1800027a4 ADD RSP,0x20
+1800027a8 POP RSI
+1800027a9 RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 ExtractModuleMetadata(undefined8 *param_1)
+
+{
+  undefined8 *puVar1;
+  char cVar2;
+  char cVar3;
+  char cVar4;
+  undefined *puVar5;
+  int *piVar6;
+  longlong unaff_GS_OFFSET;
+  
+                    /* 0x2740  3  ExtractModuleMetadata */
+  piVar6 = (int *)(*(longlong *)(*(longlong *)(unaff_GS_OFFSET + 0x58) + (ulonglong)__tls_index * 8)
+                  + 4);
+  if ((*piVar6 < _DAT_18002252c) && (FUN_180005b64(&DAT_18002252c), _DAT_18002252c == -1)) {
+    FUN_180004430(0x180022538,1,8);
+    FUN_180005f34(&UNK_180013340);
+    FUN_180005af8(&DAT_18002252c);
+  }
+  if ((*piVar6 < _DAT_180022534) && (FUN_180005b64(&DAT_180022534), _DAT_180022534 == -1)) {
+    FUN_180005f34(&UNK_180013330);
+    FUN_180005af8(&DAT_180022534);
+  }
+  if ((*piVar6 < _DAT_180022548) && (FUN_180005b64(&DAT_180022548), _DAT_180022548 == -1)) {
+    cVar3 = '\x01';
+    puVar1 = _DAT_1800223d0;
+    while (cVar2 = cVar3, puVar1 != (undefined8 *)0x0) {
+      cVar4 = (**(code **)*puVar1)(puVar1,0x180022538,0x180020aa0);
+      puVar1 = (undefined8 *)puVar1[1];
+      cVar3 = '\0';
+      if (cVar4 != '\0') {
+        cVar3 = cVar2;
+      }
+    }
+    FUN_180005960(0x180022538);
+    DAT_180022530 = cVar2;
+    FUN_180005af8(&DAT_180022548);
+  }
+  if (DAT_180022530 != '\0') {
+    return 0x180022538;
+  }
+  if (param_1 != (undefined8 *)0x0) {
+    if ((_DAT_180020aa4 >> 0x1e & 1) != 0) {
+      *param_1 = &DAT_180020aa8;
+      return 0;
+    }
+    puVar5 = &UNK_18001d400;
+    if ((_DAT_180020aa4 & 0x3fffffff) != 0) {
+      puVar5 = _DAT_180020aa8;
+    }
+    *param_1 = puVar5;
+  }
+  return 0;
+}
+
+
+
+FUNCTION CreateInterface 180002910 RVA=2910
+180002910 MOV R9,qword ptr [0x180020c00]
+180002917 MOV R10,RDX
+18000291a MOV R11,RCX
+18000291d TEST R9,R9
+180002920 JZ 0x180002950
+180002922 MOV RAX,qword ptr [R9 + 0x8]
+180002926 MOV R8,R11
+180002929 SUB R8,RAX
+18000292c NOP dword ptr [RAX]
+180002930 MOVZX EDX,byte ptr [RAX]
+180002933 MOVZX ECX,byte ptr [RAX + R8*0x1]
+180002938 SUB EDX,ECX
+18000293a JNZ 0x180002943
+18000293c INC RAX
+18000293f TEST ECX,ECX
+180002941 JNZ 0x180002930
+180002943 TEST EDX,EDX
+180002945 JZ 0x18000295f
+180002947 MOV R9,qword ptr [R9 + 0x10]
+18000294b TEST R9,R9
+18000294e JNZ 0x180002922
+180002950 TEST R10,R10
+180002953 JZ 0x18000295c
+180002955 MOV dword ptr [R10],0x1
+18000295c XOR EAX,EAX
+18000295e RET
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 CreateInterface(longlong param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  char cVar2;
+  undefined8 *puVar3;
+  char *pcVar4;
+  undefined8 uVar5;
+  longlong lVar6;
+  
+  puVar3 = _DAT_180020c00;
+  do {
+    if (puVar3 == (undefined8 *)0x0) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 1;
+      }
+      return 0;
+    }
+    pcVar4 = (char *)puVar3[1];
+    lVar6 = param_1 - (longlong)pcVar4;
+    do {
+      cVar1 = *pcVar4;
+      cVar2 = pcVar4[lVar6];
+      if (cVar1 != cVar2) break;
+      pcVar4 = pcVar4 + 1;
+    } while (cVar2 != '\0');
+    if (cVar1 == cVar2) {
+      if (param_2 != (undefined4 *)0x0) {
+        *param_2 = 0;
+      }
+                    /* WARNING: Could not recover jumptable at 0x00018000296b. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+      uVar5 = (*(code *)*puVar3)();
+      return uVar5;
+    }
+    puVar3 = (undefined8 *)puVar3[2];
+  } while( true );
+}
+
+
+
+Function count after targeted disassembly: 399

@@ -1,0 +1,86 @@
+Program: libswscale-5.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 0ef8ffe68f41957b36a3f0390e8fb13e400b41cc7e0f63c2bb43d18ab8c5419c
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=1056768 execute=true
+BLOCK .rdata 180103000 size=159744 execute=false
+BLOCK .data 18012a000 size=53248 execute=false
+BLOCK .pdata 180137000 size=45056 execute=false
+BLOCK .idata 180142000 size=8192 execute=false
+BLOCK _RDATA 180144000 size=4096 execute=false
+BLOCK .00cfg 180145000 size=4096 execute=false
+BLOCK .reloc 180146000 size=8192 execute=false
+EXPORT 1800013a2 sws_subVec
+EXPORT 1800013a2 Ordinal_31
+EXPORT 18000141a sws_freeContext
+EXPORT 18000141a Ordinal_9
+EXPORT 180001492 sws_init_context
+EXPORT 180001492 Ordinal_21
+EXPORT 1800015f0 sws_setColorspaceDetails
+EXPORT 1800015f0 Ordinal_29
+EXPORT 180001618 sws_getCoefficients
+EXPORT 180001618 Ordinal_13
+EXPORT 180001622 sws_shiftVec
+EXPORT 180001622 Ordinal_30
+EXPORT 1800016cc sws_convVec
+EXPORT 1800016cc Ordinal_6
+EXPORT 1800017f8 sws_alloc_set_opts
+EXPORT 1800017f8 Ordinal_4
+EXPORT 1800019f1 sws_isSupportedOutput
+EXPORT 1800019f1 Ordinal_24
+EXPORT 180001a3c sws_getCachedContext
+EXPORT 180001a3c Ordinal_12
+EXPORT 180001c3f sws_alloc_context
+EXPORT 180001c3f Ordinal_3
+EXPORT 180001e24 sws_scaleVec
+EXPORT 180001e24 Ordinal_28
+EXPORT 1800022ed sws_printVec2
+EXPORT 1800022ed Ordinal_26
+EXPORT 180002338 sws_isSupportedEndiannessConversion
+EXPORT 180002338 Ordinal_22
+EXPORT 1800026d5 sws_scale
+EXPORT 1800026d5 Ordinal_27
+EXPORT 18000272f sws_allocVec
+EXPORT 18000272f Ordinal_2
+EXPORT 1800027d9 sws_isSupportedInput
+EXPORT 1800027d9 Ordinal_23
+EXPORT 18000290f sws_getColorspaceDetails
+EXPORT 18000290f Ordinal_14
+EXPORT 180002c57 sws_normalizeVec
+EXPORT 180002c57 Ordinal_25
+EXPORT 180002cd4 sws_convertPalette8ToPacked32
+EXPORT 180002cd4 Ordinal_8
+EXPORT 180002cf2 swscale_version
+EXPORT 180002cf2 Ordinal_34
+EXPORT 180002d65 sws_getDefaultFilter
+EXPORT 180002d65 Ordinal_17
+EXPORT 180003193 sws_getContext
+EXPORT 180003193 Ordinal_16
+EXPORT 1800031b1 sws_getGaussianVec
+EXPORT 1800031b1 Ordinal_18
+EXPORT 18000326f swscale_configuration
+EXPORT 18000326f Ordinal_32
+EXPORT 1800033c8 sws_addVec
+EXPORT 1800033c8 Ordinal_1
+EXPORT 1800034c2 sws_getIdentityVec
+EXPORT 1800034c2 Ordinal_19
+EXPORT 1800037d3 sws_getConstVec
+EXPORT 1800037d3 Ordinal_15
+EXPORT 180003a12 sws_freeVec
+EXPORT 180003a12 Ordinal_11
+EXPORT 180003a21 swscale_license
+EXPORT 180003a21 Ordinal_33
+EXPORT 180003ad0 sws_convertPalette8ToPacked24
+EXPORT 180003ad0 Ordinal_7
+EXPORT 180003c4c sws_get_class
+EXPORT 180003c4c Ordinal_20
+EXPORT 180003db4 sws_cloneVec
+EXPORT 180003db4 Ordinal_5
+EXPORT 180003e7c sws_freeFilter
+EXPORT 180003e7c Ordinal_10
+EXPORT 180003f85 entry
+
+Function count after targeted disassembly: 2160

@@ -1,0 +1,7 @@
+{
+  "expected_modules": 102,
+  "ghidra_reports": 102,
+  "ghidra_completion_records": 102,
+  "inspected_exports": 313,
+  "failures": []
+}

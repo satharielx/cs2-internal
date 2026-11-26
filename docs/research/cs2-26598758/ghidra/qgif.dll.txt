@@ -1,0 +1,22 @@
+Program: qgif.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: df50647b02abf30cda040460e9be6d903cc7a3d07fd79c229ce136997beafd96
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=57344 execute=true
+BLOCK .rdata 18000f000 size=45056 execute=false
+BLOCK .data 18001a000 size=8192 execute=false
+BLOCK .pdata 18001c000 size=8192 execute=false
+BLOCK .qtmetad 18001e000 size=4096 execute=false
+BLOCK _RDATA 18001f000 size=4096 execute=false
+BLOCK .rsrc 180020000 size=4096 execute=false
+BLOCK .reloc 180021000 size=4096 execute=false
+EXPORT 180003ab0 qt_plugin_instance
+EXPORT 180003ab0 Ordinal_1
+EXPORT 180003bb0 qt_plugin_query_metadata
+EXPORT 180003bb0 Ordinal_2
+EXPORT 18000460c entry
+
+Function count after targeted disassembly: 312

@@ -14,8 +14,8 @@ namespace interfaces {
     inline sdk::interface_input_system* input_system = nullptr;
     // Owned COM reference captured from the Present callback.
     inline IDXGISwapChain* swap_chain = nullptr;
-    // Client interface pointer (IBaseClientDLL / CHLClient) captured via CreateInterface
-    inline void* client = nullptr;
+    // Code address discovered by signature; never a CreateInterface object/vtable.
+    inline void* frame_stage_notify = nullptr;
 
     inline ID3D11Device* d3d11_device = nullptr;
     inline ID3D11DeviceContext* d3d11_device_context = nullptr;

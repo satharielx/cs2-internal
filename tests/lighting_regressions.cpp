@@ -21,6 +21,7 @@ static BOOL CountWrite(HANDLE process, LPVOID address, LPCVOID source, SIZE_T si
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <thread>
 
 int main() {
     std::array<unsigned char, 0x200> light{};
@@ -58,8 +59,22 @@ int main() {
         lighting::ScopedColor night(object);
         const auto rgb = sdk::read_value<sdk::Vector3>(object + lighting::color_offset);
         assert(rgb.x == 1 && rgb.y == 1.25f && rgb.z == 1.5f);
+        assert(sdk::read_value<float>(object + lighting::alpha_offset) == .5f);
+        { lighting::ScopedColor nested(object);
+          assert(sdk::read_value<sdk::Vector3>(object + lighting::color_offset).x == 1); }
     }
     assert(light == original);
+    const auto stable = lighting::CaptureSettings();
+    std::atomic<bool> locked{false}, release{false};
+    std::thread holder([&] {
+        std::lock_guard<std::recursive_mutex> lock(config::mutex);
+        locked = true;
+        while (!release) std::this_thread::yield();
+    });
+    while (!locked) std::this_thread::yield();
+    const auto contended = lighting::CaptureSettings();
+    release = true; holder.join();
+    assert(contended.active && contended.night == stable.night && contended.use_original);
     config::lighting::night_mode = false;
     config::lighting::enabled = true;
     config::lighting::color[0] = .2f;
@@ -75,7 +90,7 @@ int main() {
     const auto settings = lighting::CaptureSettings();
     queries = reads = writes = 0;
     for (int i = 0; i < 10000; ++i) { lighting::ScopedColor cached(object, settings); }
-    assert(queries == 10000 && reads == 0 && writes == 0);
+    assert(queries < 100 && reads == 0 && writes == 0);
     assert(light == original);
     auto* readOnly = VirtualAlloc(nullptr, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     assert(readOnly);

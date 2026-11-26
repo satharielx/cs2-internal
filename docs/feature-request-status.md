@@ -46,7 +46,7 @@ Bone settings invalidate target caches immediately. The default head path retain
 | Radar | Existing in-game spotted radar retained. |
 | External | Separate radar panel inside the existing DX11 overlay; no external executable/window. |
 | Scale, alpha | ESP label/arrow/bar size and opacity; independent radar scale/alpha. Bounds remain tied to projected geometry. |
-| Chams | Pending verified material construction and draw-object override integration. |
+| Chams | RTTI/signature-resolved persistent material overrides, cache-key correction, live binding diagnostics, and standalone OBJ/diagnostic 3D inspection. Live appearance remains unverified. |
 | Grenade trajectory | Pending collision traces, bounce response, and grenade-specific detonation rules. |
 
 World discovery runs at most every 100 ms. Cached entities are serial-validated before use. Glow/smoke restoration preserves newer engine values and recycled entities. Cleanup also runs on input release and hook shutdown.
@@ -62,7 +62,7 @@ World discovery runs at most every 100 ms. Cached entities are serial-validated 
 | Taser/knife range | Projected reference circles with the corresponding weapon equipped; no obstacle/reach tracing. |
 | Hit marker/hit effect | Confirmed hits drive crosshair marks and expanding rings; confirmed kills use a separate color. |
 | Removals | Existing no-flash and visual aim-punch removal retained; other removal types remain pending. |
-| Inventory Changer | Existing weapon/knife/glove skin changer retained; actual inventory-item creation remains pending. |
+| Inventory Changer | Saved local cosmetic collection/loadouts plus experimental, researched-build-gated native client-cache creation/removal. Native presentation and coordinator refresh behavior need live validation; see inventory-hud-chams.md. |
 | Viewmodel/hand/glove/sleeve/weapon chams | Pending material and model-part identification/override hooks. |
 | Auto Accept | Pending a verified lobby-ready event and accept callback. |
 | Spread circle | Pending verified runtime weapon spread/inaccuracy evaluation. |

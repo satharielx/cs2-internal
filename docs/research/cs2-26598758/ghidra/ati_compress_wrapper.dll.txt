@@ -1,0 +1,20 @@
+Program: ati_compress_wrapper.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 59b8e6afa8bd163213b63bbc8b7af18e495ddebee801ebda39ef62fd559901c3
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=352256 execute=true
+BLOCK .rdata 180057000 size=352256 execute=false
+BLOCK .data 1800ad000 size=24576 execute=false
+BLOCK .pdata 1800b3000 size=24576 execute=false
+BLOCK .rsrc 1800b9000 size=4096 execute=false
+BLOCK .reloc 1800ba000 size=8192 execute=false
+EXPORT 180001000 ATI_TC_ConvertTexture_Wrapper
+EXPORT 180001000 Ordinal_2
+EXPORT 180001030 ATI_TC_CalculateBufferSize_Wrapper
+EXPORT 180001030 Ordinal_1
+EXPORT 1800408f0 entry
+
+Function count after targeted disassembly: 1057

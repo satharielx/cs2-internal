@@ -150,6 +150,7 @@ namespace skins {
     bool IsDatabaseLoaded();
 
     void ApplySkin(void* weapon, int weapon_id);
+    bool DecorateInventoryView(uintptr_t item_view, const PlayerSkinConfig& skin);
     void ApplyAllSkins();
     void ApplyWeaponSkins();
     void ApplyKnifeSkins();

@@ -157,8 +157,28 @@ namespace skins {
             con.Warning("[SKINS] Native material functions missing: weapon=%d glove=%d body=%d regen=%d",
                 !!g_fnBuildSkin, !!g_fnCreatePaintKit, !!g_fnSetBodyGroup, !!g_fnRegenerateSkins);
         g_fnSetMeshGroupMask = reinterpret_cast<fnSetMeshGroupMask>(sdk::find_pattern("client.dll", signatures::SET_MESH_GROUP_MASK_SIGNATURE));
-        if (auto call = sdk::find_pattern("client.dll", signatures::set_attribute_call))
-            g_fnSetAttribute = reinterpret_cast<fnSetAttribute>(sdk::GetCA(reinterpret_cast<uintptr_t>(call)));
+        if (auto call = sdk::find_unique_pattern("client.dll", signatures::set_attribute_call))
+            if (*call == 0xE8) g_fnSetAttribute = reinterpret_cast<fnSetAttribute>(sdk::resolve_absolute_rip_address(call,1,5));
+    }
+
+    static bool SetInventoryAttributesGuarded(uintptr_t view,const PlayerSkinConfig& skin) {
+        __try {
+            g_fnSetAttribute(reinterpret_cast<void*>(view),"set item texture prefab",static_cast<float>(skin.paint_kit));
+            g_fnSetAttribute(reinterpret_cast<void*>(view),"set item texture wear",skin.wear);
+            g_fnSetAttribute(reinterpret_cast<void*>(view),"set item texture seed",static_cast<float>(skin.seed));
+            return true;
+        } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION||GetExceptionCode()==EXCEPTION_IN_PAGE_ERROR?
+            EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH) {return false;}
+    }
+    bool DecorateInventoryView(uintptr_t view,const PlayerSkinConfig& skin) {
+        ResolveEngineFunctions();
+        if(!g_fnSetAttribute||!sdk::is_readable_range(view,cs2_dumper::schemas::client_dll::C_EconItemView::m_szCustomName+161)) return false;
+        char name[161]{};
+        std::memcpy(name,skin.name_tag.data(),(std::min)(skin.name_tag.size(),sizeof(name)-1));
+        if(!sdk::write_memory(view+cs2_dumper::schemas::client_dll::C_EconItemView::m_szCustomName,name)) return false;
+        // Use the same item-view attribute path as the existing weapon cosmetics.
+        // The backing shared object remains owned by the native cache.
+        return SetInventoryAttributesGuarded(view,skin);
     }
 
     // Entity flags.
@@ -888,6 +908,9 @@ namespace skins {
         if (it == user_skins.end()) {
             if (saved == saved_skins.end()) return;
             const auto& original = saved->second;
+            char currentName[sizeof(original.name)]{};
+            const bool nameRestored = !sdk::read_memory(w + OFF_CUSTOM_NAME,currentName)||
+                std::memcmp(currentName,original.name,sizeof(currentName))!=0;
             bool restored = sdk::write_memory(w + OFF_FALLBACK_PAINT, original.paint) &&
                 sdk::write_memory(w + OFF_FALLBACK_SEED, original.seed) &&
                 sdk::write_memory(w + OFF_FALLBACK_WEAR, original.wear) &&
@@ -897,6 +920,7 @@ namespace skins {
                 sdk::write_memory(w + OFF_DISALLOW_SOC, original.disallow) &&
                 sdk::write_memory(w + OFF_RESTORE_MATERIAL, original.restore);
             if (!restored) return;
+            if (nameRestored) skin_hud::Request();
             if (g_fnSetAttribute) {
                 auto* view = reinterpret_cast<void*>(w + ECON_ITEM_VIEW_BASE);
                 g_fnSetAttribute(view, "set item texture prefab", static_cast<float>(original.paint));
@@ -905,7 +929,7 @@ namespace skins {
             }
             if (!RefreshWeaponMaterials(w)) return;
             saved_skins.erase(saved);
-            skin_hud::Request();
+            if (!nameRestored) skin_hud::Request();
             return;
         }
         if (saved == saved_skins.end()) {
@@ -929,15 +953,21 @@ namespace skins {
         std::memcpy(name, cfg.name_tag.data(), (std::min)(cfg.name_tag.size(), sizeof(name) - 1));
         char previous[sizeof(name)]{};
         const bool name_read = sdk::read_memory(w + OFF_CUSTOM_NAME, previous);
-        const bool changed = sdk::read_value<int>(w + OFF_FALLBACK_PAINT) != paint ||
+        const bool nameChanged = !name_read || std::memcmp(name, previous, sizeof(name)) != 0;
+        const bool materialChanged = sdk::read_value<int>(w + OFF_FALLBACK_PAINT) != paint ||
             sdk::read_value<int>(w + OFF_FALLBACK_SEED) != seed ||
             sdk::read_value<float>(w + OFF_FALLBACK_WEAR) != wear ||
             sdk::read_value<int>(w + OFF_FALLBACK_STATTRAK) != stat ||
-            sdk::read_value<uint32_t>(w + OFF_ITEM_ID_HIGH) != UINT32_MAX ||
-            !name_read || std::memcmp(name, previous, sizeof(name)) != 0;
+            sdk::read_value<uint32_t>(w + OFF_ITEM_ID_HIGH) != UINT32_MAX;
         auto& state = saved_skins.at(w);
         const auto hud = FindHudWeapon(w);
-        if (!changed && state.materialReady && state.hudWeapon == hud) return;
+        // Labels do not depend on paint-kit/material availability. Publish their
+        // revision as soon as the name is written, including clearing a name tag.
+        if (nameChanged) {
+            if (!sdk::write_memory(w + OFF_CUSTOM_NAME, name)) return;
+            skin_hud::Request();
+        }
+        if (!materialChanged && state.materialReady && state.hudWeapon == hud) return;
         if (!g_fnSetAttribute || !g_fnBuildSkin || !g_fnRegenerateSkins) return;
         sdk::write_memory(w + ECON_ITEM_VIEW_BASE + cs2_dumper::schemas::client_dll::C_EconItemView::m_bInitialized, true);
         if (!sdk::write_memory(w + OFF_FALLBACK_PAINT, paint) ||
@@ -954,9 +984,9 @@ namespace skins {
             g_fnSetAttribute(view, "set item texture wear", wear);
             g_fnSetAttribute(view, "set item texture seed", static_cast<float>(seed));
         }
-        const bool refreshNeeded = changed || !state.materialReady || state.hudWeapon != hud;
+        const bool refreshNeeded = materialChanged || !state.materialReady || state.hudWeapon != hud;
         state.materialReady = RefreshWeaponMaterials(w);
         state.hudWeapon = hud;
-        if (state.materialReady && refreshNeeded) skin_hud::Request();
+        if (state.materialReady && refreshNeeded && !nameChanged) skin_hud::Request();
     }
 }

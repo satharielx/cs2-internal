@@ -1,0 +1,81 @@
+Program: steamnetworkingsockets.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 4e3b672036cf3a158ba9d27fb41281a2c7945b1ac9b3c20a6271f60e3593fe46
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=3137536 execute=true
+BLOCK .rdata 1802ff000 size=925696 execute=false
+BLOCK .data 1803e1000 size=94208 execute=false
+BLOCK .pdata 1803f8000 size=139264 execute=false
+BLOCK .fptable 18041a000 size=4096 execute=false
+BLOCK .reloc 18041b000 size=32768 execute=false
+EXPORT 18007f8d0 SteamNetworkingUtils_LibV4
+EXPORT 18007f8d0 Ordinal_32
+EXPORT 18007f920 SteamDatagramClient_Init
+EXPORT 18007f920 Ordinal_1
+EXPORT 18007f990 SteamDatagramClient_Kill
+EXPORT 18007f990 Ordinal_3
+EXPORT 18007f9d0 SteamDatagramServer_Init
+EXPORT 18007f9d0 Ordinal_5
+EXPORT 18007fa40 SteamDatagramServer_Kill
+EXPORT 18007fa40 Ordinal_7
+EXPORT 18007fa80 SteamDatagram_SetAppID
+EXPORT 18007fa80 Ordinal_10
+EXPORT 18007fb10 SteamDatagram_SetUniverse
+EXPORT 18007fb10 Ordinal_12
+EXPORT 18007fbb0 SteamGameServerNetworkingMessages_LibV2
+EXPORT 18007fbb0 Ordinal_13
+EXPORT 18007fbf0 SteamGameServerNetworkingSockets_LibV12
+EXPORT 18007fbf0 Ordinal_14
+EXPORT 18007fc00 SteamNetworkingMessages_LibV2
+EXPORT 18007fc00 Ordinal_20
+EXPORT 18007fc40 SteamNetworkingSockets_LibV12
+EXPORT 18007fc40 Ordinal_22
+EXPORT 18007fc50 SteamNetworkingSockets_SetEnvironmentVariable
+EXPORT 18007fc50 Ordinal_24
+EXPORT 180088570 SteamNetworkingUtils_GetIPv4FakeIPType
+EXPORT 180088570 Ordinal_31
+EXPORT 180088c70 SteamDatagramClient_InitSteam_InternalV1
+EXPORT 180088c70 Ordinal_2
+EXPORT 180088d70 SteamDatagramServer_InitSteam_InternalV1
+EXPORT 180088d70 Ordinal_6
+EXPORT 180088e70 SteamDatagram_Internal_SteamAPIKludge
+EXPORT 180088e70 Ordinal_9
+EXPORT 1800aee20 SteamNetworkingSockets_SetLockAcquiredCallback
+EXPORT 1800aee20 Ordinal_25
+EXPORT 1800aee30 SteamNetworkingSockets_SetLockHeldCallback
+EXPORT 1800aee30 Ordinal_26
+EXPORT 1800aee40 SteamNetworkingSockets_SetLockWaitWarningThreshold
+EXPORT 1800aee40 Ordinal_27
+EXPORT 1800bb2b0 SteamNetworkingIPAddr_GetFakeIPType
+EXPORT 1800bb2b0 Ordinal_15
+EXPORT 1800bb310 SteamNetworkingIPAddr_ParseString
+EXPORT 1800bb310 Ordinal_16
+EXPORT 1800bb430 SteamNetworkingIPAddr_ToString
+EXPORT 1800bb430 Ordinal_17
+EXPORT 1800bb540 SteamNetworkingIdentity_ParseString
+EXPORT 1800bb540 Ordinal_18
+EXPORT 1800bb910 SteamNetworkingIdentity_ToString
+EXPORT 1800bb910 Ordinal_19
+EXPORT 1800d12f0 SteamNetworkingSockets_Poll
+EXPORT 1800d12f0 Ordinal_23
+EXPORT 1800d1390 SteamNetworkingSockets_SetManualPollMode
+EXPORT 1800d1390 Ordinal_28
+EXPORT 1800d1480 SteamNetworkingSockets_SetServiceThreadInitCallback
+EXPORT 1800d1480 Ordinal_30
+EXPORT 1800d14d0 SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler
+EXPORT 1800d14d0 Ordinal_21
+EXPORT 1800d1cd0 SteamNetworkingSockets_SetPreFormatDebugOutputHandler
+EXPORT 1800d1cd0 Ordinal_29
+EXPORT 18014cee0 SteamDatagramClient_SetCredentialsDurableCacheCallbacks
+EXPORT 18014cee0 Ordinal_4
+EXPORT 18014cef0 SteamDatagram_GetNetworkConfigURL
+EXPORT 18014cef0 Ordinal_8
+EXPORT 18014cfe0 SteamDatagram_SetNetworkConfig
+EXPORT 18014cfe0 Ordinal_11
+EXPORT 1802cdae4 entry
+EXPORT 1802cdc7c tls_callback_0
+
+Function count after targeted disassembly: 7464

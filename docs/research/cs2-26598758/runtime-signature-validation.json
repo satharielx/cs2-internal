@@ -1,0 +1,201 @@
+{
+  "modules": {
+    "scenesystem.dll": {
+      "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Counter-Strike Global Offensive\\game\\bin\\win64\\scenesystem.dll",
+      "sha256": "03525e62f9ccdc00a9e53c64c50cbc0601c26e33d052466bee02d64a21c9d5c1"
+    },
+    "client.dll": {
+      "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Counter-Strike Global Offensive\\game\\csgo\\bin\\win64\\client.dll",
+      "sha256": "99a6720b29d8b477d55f0a2d7fd4333b5df13f354ba723804e996bead1231aa8"
+    },
+    "gameoverlayrenderer64.dll": {
+      "path": "C:\\Program Files (x86)\\Steam\\gameoverlayrenderer64.dll",
+      "sha256": "21c0c1ddb4259c1156356bdfe8432dff504d52c7b96d19718688cff2d5a6e52f"
+    },
+    "engine2.dll": {
+      "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Counter-Strike Global Offensive\\game\\bin\\win64\\engine2.dll",
+      "sha256": "dcb5fe13f60f0db9faa365c7b48c3ca107ce56783748bf9ed9ca41fd892af63c"
+    }
+  },
+  "patterns": [
+    {
+      "pattern": "hooks.base_draw_array",
+      "module": "scenesystem.dll",
+      "matches": [
+        "0x7a540"
+      ]
+    },
+    {
+      "pattern": "hooks.create_move",
+      "module": "client.dll",
+      "matches": [
+        "0xb5af90"
+      ]
+    },
+    {
+      "pattern": "hooks.entity_added",
+      "module": "client.dll",
+      "matches": [
+        "0x9f24b0"
+      ]
+    },
+    {
+      "pattern": "hooks.entity_removed",
+      "module": "client.dll",
+      "matches": [
+        "0x9f2f30"
+      ]
+    },
+    {
+      "pattern": "hooks.present",
+      "module": "gameoverlayrenderer64.dll",
+      "matches": [
+        "0x9c130"
+      ]
+    },
+    {
+      "pattern": "hooks.resize_buffers",
+      "module": "gameoverlayrenderer64.dll",
+      "matches": [
+        "0x9c520"
+      ]
+    },
+    {
+      "pattern": "hooks.create_swap_chain",
+      "module": "gameoverlayrenderer64.dll",
+      "matches": [
+        "0x9d060"
+      ]
+    },
+    {
+      "pattern": "hooks.weapon_hud_tick",
+      "module": "client.dll",
+      "matches": [
+        "0xea9800"
+      ]
+    },
+    {
+      "pattern": "hooks.clear_weapon_hud",
+      "module": "client.dll",
+      "matches": [
+        "0xea5ca0"
+      ]
+    },
+    {
+      "pattern": "hooks.override_view",
+      "module": "client.dll",
+      "matches": [
+        "0xb91f10"
+      ]
+    },
+    {
+      "pattern": "hooks.get_view_angles",
+      "module": "client.dll",
+      "matches": [
+        "0xb66450"
+      ]
+    },
+    {
+      "pattern": "hooks.input_reference",
+      "module": "client.dll",
+      "matches": [
+        "0xbe934d"
+      ]
+    },
+    {
+      "pattern": "hooks.subtick",
+      "module": "client.dll",
+      "matches": [
+        "0xcf2250"
+      ]
+    },
+    {
+      "pattern": "hooks.sky_draw",
+      "module": "scenesystem.dll",
+      "matches": [
+        "0x154fb0"
+      ]
+    },
+    {
+      "pattern": "hooks.light_update",
+      "module": "scenesystem.dll",
+      "matches": [
+        "0x19f300"
+      ]
+    },
+    {
+      "pattern": "interfaces.entity_system",
+      "module": "client.dll",
+      "matches": [
+        "0x15b5d39"
+      ]
+    },
+    {
+      "pattern": "interfaces.entity_lookup",
+      "module": "client.dll",
+      "matches": [
+        "0x9f1300"
+      ]
+    },
+    {
+      "pattern": "interfaces.input_reference",
+      "module": "client.dll",
+      "matches": [
+        "0xcf1fd2"
+      ]
+    },
+    {
+      "pattern": "interfaces.frame_stage_notify",
+      "module": "client.dll",
+      "matches": [
+        "0xb628b0"
+      ]
+    },
+    {
+      "pattern": "pattern_resolver.entity_system",
+      "module": "client.dll",
+      "matches": [
+        "0x15b5d39"
+      ]
+    },
+    {
+      "pattern": "pattern_resolver.view_matrix",
+      "module": "client.dll",
+      "matches": [
+        "0xc09f23"
+      ]
+    },
+    {
+      "pattern": "pattern_resolver.local_controller",
+      "module": "client.dll",
+      "matches": [
+        "0x92f5c0"
+      ]
+    },
+    {
+      "pattern": "pattern_resolver.csgo_input",
+      "module": "client.dll",
+      "matches": [
+        "0xa5e578"
+      ]
+    },
+    {
+      "pattern": "pattern_resolver.network_game_client",
+      "module": "engine2.dll",
+      "matches": [
+        "0x1cead0"
+      ]
+    },
+    {
+      "pattern": "pattern_resolver.create_move",
+      "module": "client.dll",
+      "matches": [
+        "0xb5af90"
+      ]
+    }
+  ],
+  "frame_vtable_rva": "0x1c5aa90",
+  "frame_slot": 36,
+  "frame_callback_rva": "0xb628b0",
+  "failures": []
+}

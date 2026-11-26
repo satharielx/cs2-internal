@@ -1,0 +1,59 @@
+Program: libavresample-4.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: b2a72526916f00748fc8957d8186d1756c8eb2d0628102135d0244bed2773c45
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=602112 execute=true
+BLOCK .rdata 180094000 size=106496 execute=false
+BLOCK .data 1800ae000 size=16384 execute=false
+BLOCK .pdata 1800b2000 size=28672 execute=false
+BLOCK .idata 1800b9000 size=8192 execute=false
+BLOCK .00cfg 1800bb000 size=4096 execute=false
+BLOCK .reloc 1800bc000 size=8192 execute=false
+EXPORT 180001294 avresample_get_out_samples
+EXPORT 180001294 Ordinal_13
+EXPORT 1800017c1 avresample_build_matrix
+EXPORT 1800017c1 Ordinal_3
+EXPORT 180001b9f avresample_close
+EXPORT 180001b9f Ordinal_4
+EXPORT 180001ce4 avresample_set_channel_mapping
+EXPORT 180001ce4 Ordinal_18
+EXPORT 180002004 avresample_configuration
+EXPORT 180002004 Ordinal_6
+EXPORT 18000202c avresample_read
+EXPORT 18000202c Ordinal_17
+EXPORT 1800020b8 avresample_version
+EXPORT 1800020b8 Ordinal_21
+EXPORT 1800027c0 avresample_set_matrix
+EXPORT 1800027c0 Ordinal_20
+EXPORT 180002b3f avresample_get_matrix
+EXPORT 180002b3f Ordinal_12
+EXPORT 180002e69 avresample_available
+EXPORT 180002e69 Ordinal_2
+EXPORT 180002e78 avresample_is_open
+EXPORT 180002e78 Ordinal_14
+EXPORT 180002e9b avresample_get_class
+EXPORT 180002e9b Ordinal_10
+EXPORT 180002f04 avresample_free
+EXPORT 180002f04 Ordinal_9
+EXPORT 180003189 avresample_convert_frame
+EXPORT 180003189 Ordinal_8
+EXPORT 1800031f2 avresample_get_delay
+EXPORT 1800031f2 Ordinal_11
+EXPORT 1800033a0 avresample_convert
+EXPORT 1800033a0 Ordinal_7
+EXPORT 180003639 avresample_set_compensation
+EXPORT 180003639 Ordinal_19
+EXPORT 1800037bf avresample_license
+EXPORT 1800037bf Ordinal_15
+EXPORT 18000389b avresample_open
+EXPORT 18000389b Ordinal_16
+EXPORT 180003e0e avresample_config
+EXPORT 180003e0e Ordinal_5
+EXPORT 180003e2c avresample_alloc_context
+EXPORT 180003e2c Ordinal_1
+EXPORT 180003e90 entry
+
+Function count after targeted disassembly: 1632

@@ -1,0 +1,94 @@
+Program: amd_ags_x64.dll
+Language: x86:LE:64:default
+Compiler: windows
+Image base: 180000000
+Format: Portable Executable (PE)
+SHA256: 2449e8339e0f031bc4f954398f5917b8eb5a2d20c32d4688a083d5dd9f637ab8
+BLOCK Headers 180000000 size=1024 execute=false
+BLOCK .text 180001000 size=106496 execute=true
+BLOCK .rdata 18001b000 size=49152 execute=false
+BLOCK .data 180027000 size=8192 execute=false
+BLOCK .pdata 180029000 size=8192 execute=false
+BLOCK .gxfg 18002b000 size=8192 execute=false
+BLOCK .gehcont 18002d000 size=4096 execute=false
+BLOCK .rsrc 18002e000 size=4096 execute=false
+BLOCK .reloc 18002f000 size=4096 execute=false
+EXPORT 180001000 agsDriverExtensionsDX11_CreateBuffer
+EXPORT 180001000 Ordinal_4
+EXPORT 180001090 agsDriverExtensionsDX11_CreateTexture1D
+EXPORT 180001090 Ordinal_7
+EXPORT 180001120 agsDriverExtensionsDX11_CreateTexture2D
+EXPORT 180001120 Ordinal_8
+EXPORT 1800011b0 agsDriverExtensionsDX11_CreateTexture3D
+EXPORT 1800011b0 Ordinal_9
+EXPORT 180001240 agsDriverExtensionsDX11_NotifyResourceBeginAllAccess
+EXPORT 180001240 Ordinal_19
+EXPORT 180001280 agsDriverExtensionsDX11_NotifyResourceEndAllAccess
+EXPORT 180001280 Ordinal_20
+EXPORT 1800012c0 agsDriverExtensionsDX11_NotifyResourceEndWrites
+EXPORT 1800012c0 Ordinal_21
+EXPORT 180001ab0 agsSetDisplayMode
+EXPORT 180001ab0 Ordinal_38
+EXPORT 180001e70 agsCheckDriverVersion
+EXPORT 180001e70 Ordinal_1
+EXPORT 1800026b0 agsDriverExtensionsDX11_BeginUAVOverlap
+EXPORT 1800026b0 Ordinal_3
+EXPORT 180002730 agsDriverExtensionsDX11_CreateDevice
+EXPORT 180002730 Ordinal_5
+EXPORT 180002af0 agsDriverExtensionsDX11_CreateFromDevice
+EXPORT 180002af0 Ordinal_6
+EXPORT 180002b80 agsDriverExtensionsDX11_Destroy
+EXPORT 180002b80 Ordinal_10
+EXPORT 180002ba0 agsDriverExtensionsDX11_DestroyDevice
+EXPORT 180002ba0 Ordinal_11
+EXPORT 180002c90 agsDriverExtensionsDX11_EndUAVOverlap
+EXPORT 180002c90 Ordinal_12
+EXPORT 180002d10 agsDriverExtensionsDX11_GetMaxClipRects
+EXPORT 180002d10 Ordinal_13
+EXPORT 180002d60 agsDriverExtensionsDX11_IASetPrimitiveTopology
+EXPORT 180002d60 Ordinal_14
+EXPORT 180002dc0 agsDriverExtensionsDX11_MultiDrawIndexedInstancedIndirect
+EXPORT 180002dc0 Ordinal_15
+EXPORT 180002e90 agsDriverExtensionsDX11_MultiDrawIndexedInstancedIndirectCountIndirect
+EXPORT 180002e90 Ordinal_16
+EXPORT 180002f90 agsDriverExtensionsDX11_MultiDrawInstancedIndirect
+EXPORT 180002f90 Ordinal_17
+EXPORT 180003060 agsDriverExtensionsDX11_MultiDrawInstancedIndirectCountIndirect
+EXPORT 180003060 Ordinal_18
+EXPORT 180003160 agsDriverExtensionsDX11_NumPendingAsyncCompileJobs
+EXPORT 180003160 Ordinal_22
+EXPORT 1800031b0 agsDriverExtensionsDX11_SetClipRects
+EXPORT 1800031b0 Ordinal_23
+EXPORT 180003340 agsDriverExtensionsDX11_SetDepthBounds
+EXPORT 180003340 Ordinal_24
+EXPORT 1800033e0 agsDriverExtensionsDX11_SetDiskShaderCacheEnabled
+EXPORT 1800033e0 Ordinal_25
+EXPORT 180003430 agsDriverExtensionsDX11_SetMaxAsyncCompileThreadCount
+EXPORT 180003430 Ordinal_26
+EXPORT 180003470 agsDriverExtensionsDX11_SetViewBroadcastMasks
+EXPORT 180003470 Ordinal_27
+EXPORT 1800034c0 agsDriverExtensionsDX11_WriteBreadcrumb
+EXPORT 1800034c0 Ordinal_28
+EXPORT 180003c50 agsDriverExtensionsDX12_CreateDevice
+EXPORT 180003c50 Ordinal_29
+EXPORT 180003e60 agsDriverExtensionsDX12_CreateFromDevice
+EXPORT 180003e60 Ordinal_30
+EXPORT 180003f00 agsDriverExtensionsDX12_Destroy
+EXPORT 180003f00 Ordinal_31
+EXPORT 180003f20 agsDriverExtensionsDX12_DestroyDevice
+EXPORT 180003f20 Ordinal_32
+EXPORT 180003fe0 agsDriverExtensionsDX12_PopMarker
+EXPORT 180003fe0 Ordinal_33
+EXPORT 180004020 agsDriverExtensionsDX12_PushMarker
+EXPORT 180004020 Ordinal_34
+EXPORT 180004060 agsDriverExtensionsDX12_SetMarker
+EXPORT 180004060 Ordinal_35
+EXPORT 180006400 agsDeInitialize
+EXPORT 180006400 Ordinal_2
+EXPORT 180006540 agsGetVersionNumber
+EXPORT 180006540 Ordinal_36
+EXPORT 180006550 agsInitialize
+EXPORT 180006550 Ordinal_37
+EXPORT 180006d6c entry
+
+Function count after targeted disassembly: 448

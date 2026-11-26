@@ -1,0 +1,86 @@
+RVA 11547a0 FUN_1811547a0
+REFERENCE From: 182877800 To: 1811547a0 Type: DATA Op: 0 DEFAULT
+
+void FUN_1811547a0(longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)
+
+{
+  undefined1 auStackX_8 [8];
+  
+  (**(code **)(*param_1 + 0x60))(param_1,param_4,auStackX_8);
+  FUN_1810df990(param_2,param_3,auStackX_8);
+  return;
+}
+
+
+RVA 1154860 FUN_181154860
+REFERENCE From: 182877824 To: 181154860 Type: DATA Op: 0 DEFAULT
+
+void FUN_181154860(longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)
+
+{
+  undefined *apuStack_28 [4];
+  
+  func_0x0001805e3100(apuStack_28,0,0);
+  apuStack_28[0] = &UNK_181b43550;
+  (**(code **)(*param_1 + 0x60))(param_1,param_4,apuStack_28);
+  FUN_1810dffe0(param_2,param_3,apuStack_28);
+  FUN_1805eb1a0(apuStack_28);
+  return;
+}
+
+
+RVA 1129540 FUN_181129540
+
+undefined4 FUN_181129540(longlong param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x20);
+}
+
+
+RVA 112d290 FUN_18112d290
+
+ushort FUN_18112d290(longlong param_1)
+
+{
+  return *(ushort *)(param_1 + 0x2a) >> 9 & 3;
+}
+
+
+RVA 1189b30 FUN_181189b30
+REFERENCE From: 18287bda8 To: 181189b30 Type: DATA Op: 0 DEFAULT
+REFERENCE From: 1820d6cfc To: 181189b30 Type: DATA Op: 0 DEFAULT
+REFERENCE From: 1820d6d14 To: 181189b30 Type: DATA Op: 0 DEFAULT
+REFERENCE From: 1820d6d24 To: 181189b30 Type: DATA Op: 0 DEFAULT
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 FUN_181189b30(void)
+
+{
+  undefined8 *puVar1;
+  longlong lVar2;
+  undefined8 uVar3;
+  
+  if (_DAT_1825e2898 != (undefined8 *)0x0) {
+    return *(undefined8 *)((longlong)_DAT_1825e2898 + 8);
+  }
+  puVar1 = (undefined8 *)func_0x000180c27830(0x10);
+  uVar3 = 0;
+  if (puVar1 == (undefined8 *)0x0) {
+    _DAT_1825e2898 = (undefined8 *)0x0;
+    return uRam0000000000000008;
+  }
+  puVar1[1] = 0;
+  *puVar1 = &UNK_181d166a8;
+  lVar2 = func_0x000180c27830(0x978);
+  if (lVar2 != 0) {
+    uVar3 = FUN_180832830(lVar2);
+  }
+  puVar1[1] = uVar3;
+  *puVar1 = &UNK_181d169a0;
+  _DAT_1825e2898 = puVar1;
+  return uVar3;
+}
+
+

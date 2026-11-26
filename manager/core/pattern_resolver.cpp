@@ -6,17 +6,31 @@
 #include <type_traits>
 
 uintptr_t pattern_resolver::GetAbsoluteAddress(uintptr_t instruction, int offset, int size) {
-    if (!instruction) return 0;
-    int32_t relative = *reinterpret_cast<int32_t*>(instruction + offset);
-    return instruction + size + relative;
+    if (offset < 0 || size < 0) return 0;
+    return reinterpret_cast<uintptr_t>(sdk::resolve_absolute_rip_address(
+        reinterpret_cast<uint8_t*>(instruction), static_cast<size_t>(offset), static_cast<size_t>(size)));
+}
+
+void pattern_resolver::Reset() {
+    entity_list = local_controller = planted_c4 = csgo_input = network_game_client = entity_system = nullptr;
+    auto_accept_array = view_model = view_angles = create_move = get_fov = schema_system = nullptr;
+    global_vars = nullptr;
+    view_matrix = nullptr;
+    sensitivity = nullptr;
+    oGetBonePositionByName = nullptr;
 }
 
 bool pattern_resolver::Initialize() {
+    Reset();
     auto& con = debug_console::Console::Get();
     auto scan_global = [&](const char* module, const char* name, const char* pattern, int offset, int size, auto& out_ptr) {
-        uint8_t* addr = sdk::find_pattern(module, pattern);
+        uint8_t* addr = sdk::find_unique_pattern(module, pattern);
         if (addr) {
             uintptr_t resolved = GetAbsoluteAddress(reinterpret_cast<uintptr_t>(addr), offset, size);
+            if (!sdk::is_readable_range(resolved, sizeof(*out_ptr))) {
+                con.Warning("[Resolver] %s resolved outside readable memory", name);
+                return;
+            }
             using output_pointer = std::remove_reference_t<decltype(out_ptr)>;
             out_ptr = reinterpret_cast<output_pointer>(resolved);
             con.Success("[Resolver] %s = 0x%llX", name, resolved);
@@ -40,7 +54,7 @@ bool pattern_resolver::Initialize() {
     scan_global("client.dll", "CSGOInput", runtime_patterns::pattern_resolver::csgo_input, 3, 7, csgo_input);
 
     // CreateMove function address (not a global pointer)
-    uint8_t* cm_addr = sdk::find_pattern("client.dll", runtime_patterns::pattern_resolver::create_move);
+    uint8_t* cm_addr = sdk::find_unique_pattern("client.dll", runtime_patterns::pattern_resolver::create_move);
     if (cm_addr) {
         create_move = reinterpret_cast<uintptr_t*>(cm_addr);
         con.Success("[Resolver] CreateMove = 0x%llX", (uintptr_t)cm_addr);
